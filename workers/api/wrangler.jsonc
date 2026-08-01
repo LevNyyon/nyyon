@@ -1,0 +1,127 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "nyyon-command-center",
+  "main": "src/index.js",
+  // No open *.workers.dev URL — the only public route is cmd.nyyon.com, gated
+  // by the src/gate.js login. Prevents an unauthenticated backdoor to the API.
+  "workers_dev": false,
+  // NOTE: the cmd.nyyon.com custom domain is bound at the account level (via
+  // the Cloudflare API / dashboard: Workers → nyyon-cmd-online → Domains &
+  // Routes), NOT here — the deploy token lacks Zone:Workers Routes:Edit on the
+  // nyyon.com zone, so a `routes` entry would make `wrangler deploy` fail.
+  // Re-add `"routes":[{"pattern":"cmd.nyyon.com","custom_domain":true}]` if you
+  // deploy with a token that has that scope.
+  "compatibility_date": "2026-04-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  // Bundling rules — social cards (lib/social-cards.js) render SVG→PNG
+  // in-worker via resvg WASM, with the brand TTFs (Inter / JetBrains Mono)
+  // bundled as raw data from src/assets/fonts/.
+  "rules": [
+    { "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true },
+    { "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }
+  ],
+
+  "dev": {
+    "port": 8788
+  },
+
+  // D1. Locally this is a SQLite file under .wrangler and database_id is
+  // ignored, which is why `npm run setup` needs no Cloudflare account at all.
+  // Deploying fills the id in: `wrangler d1 create nyyon` prints it, and
+  // `npm run deploy` writes it here.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "nyyon",
+      "database_id": "LOCAL"
+    }
+  ],
+
+  // KV — uncomment when a module needs it.  Create with: wrangler kv namespace create NYYON_KV
+  // "kv_namespaces": [
+  //   { "binding": "KV", "id": "" }
+  // ],
+
+  // R2 — the generated-image store (article covers, figures, share cards).
+  // NOT marked remote: a remote binding forces wrangler into remote mode and
+  // demands a Cloudflare login before the app will even boot, which would put
+  // an account signup in front of the first run. Locally it simulates; once
+  // deployed it is the real bucket.
+  "r2_buckets": [
+    { "binding": "ASSETS", "bucket_name": "nyyon-assets" }
+  ],
+
+  // Workers AI — text-to-image generation for blog featured images (via
+  // lib/image-gateway.js). Free up to 10k neurons/day; well under that at
+  // current cadence (1 article/day). `remote: true` is required: AI calls
+  // always hit real Cloudflare (no local mock), so wrangler dev needs the
+  // explicit opt-in or it errors.
+  // account_id is intentionally absent: wrangler takes it from your own
+  // `wrangler login` (or CLOUDFLARE_ACCOUNT_ID) when you deploy. Local runs
+  // never need it.
+  "ai": { "binding": "AI", "remote": true },
+
+  "vars": {
+    // LLM_PROVIDER picks the brain for Nyo chat + digest synthesis + AEO writer.
+    // Per-provider model lives in ANTHROPIC_MODEL / OPENAI_MODEL. Do NOT set a
+    // global LLM_MODEL — it overrides both branches, so a gpt-* value would get
+    // sent to the Claude endpoint and 400.
+    "LLM_PROVIDER":    "anthropic",
+    "ANTHROPIC_MODEL": "claude-opus-4-8",
+    "OPENAI_MODEL":    "gpt-5.5",
+    // Nyo chat Low/Mid/High switch (chat only; digest/AEO still use ANTHROPIC_MODEL).
+    // Low routes to the local Qwen through the Ollama proxy tunnel; needs the
+    // OLLAMA_API_KEY secret (= the ollama-proxy key). Mid=Sonnet, High=Opus.
+    "NYO_MODEL_LOW":   "qwen2.5:3b",
+    "NYO_MODEL_MID":   "claude-sonnet-5",
+    "NYO_MODEL_HIGH":  "claude-opus-4-8",
+    "OLLAMA_BASE_URL": "",
+    // Deliberately EMPTY, even though the service ships with this app and
+    // always lands on 127.0.0.1:2785.
+    //
+    // A gateway counts as configured the moment its required fields resolve,
+    // from D1 *or* env (lib/gateway-config.js), and Outreach's gate opens as
+    // soon as the gateway is configured. Shipping the URL here would therefore
+    // declare WhatsApp connected on a machine where the daemon is not
+    // installed and no phone has been paired: the operator would open Outreach
+    // to an empty inbox and sends that silently fail. The URL is written to D1
+    // once the service is actually installed and running.
+    "WA_BASE_URL":     "",
+    // 'default', not a session id copied from whoever built this.
+    "WA_SESSION_ID":   "default",
+    "LI_BASE_URL":     "",
+    "WEBSITE_BASE_URL": "",
+    "ASSETS_BASE_URL": ""
+  },
+
+  // Static assets — serves the built React SPA (web/dist). The Worker handles
+  // /api/* and /health (run_worker_first); every other path falls back to the
+  // SPA index.html for client-side routing.
+  // Cron (see handleScheduled in src/index.js): :00 hourly awareness sweep
+  // (OSINT + meeting reminders), :45 LI-outreach tick, and the :06 daily AEO
+  // publish. NOTE: this Cloudflare account is capped at 5 cron triggers total
+  // and other workers consume 2, so THIS worker can register at most 3 — the
+  // :15 (heartbeat) and :30 (digest) handler branches in index.js exist but
+  // have no cron slot here (they'd need a plan bump or folding into :00). Keep
+  // this array to exactly these 3, or `wrangler deploy` fails the limit and can
+  // wipe the :45 tick. Crons are set out-of-band via the CF API when CI uses
+  // `wrangler versions deploy` (which does NOT sync triggers).
+  "triggers": { "crons": ["0 * * * *", "45 * * * *", "0 6 * * *"] },
+
+  "assets": {
+    "directory": "../../web/dist",
+    "binding": "STATIC",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  }
+
+  // Secrets (use `wrangler secret put NAME`):
+  //   ANTHROPIC_API_KEY — Claude Messages API key. Used when LLM_PROVIDER=anthropic (default).
+  //   OPENAI_API_KEY    — OpenAI API key. Used when LLM_PROVIDER=openai.
+  //   WA_API_KEY        — X-API-Key for the bundled WhatsApp service. Generated
+  //                       per install by scripts/setup.mjs; there is no default.
+  //   LI_API_KEY        — LinkedinGateway X-API-Key header (see linkedin-endpoints doc).
+  //   DEV_API_KEY       — bearer key for the /api/dev/* component test bench (curl any gateway/tool/workflow).
+}

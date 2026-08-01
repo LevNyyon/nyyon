@@ -1,0 +1,31 @@
+-- 0019 — Knowledge as a tree.
+--
+-- Until now `knowledge_docs` was a flat list keyed by slug. Operators got
+-- one big alphabetized index in the sidebar with no sense of which docs
+-- depended on which. As the doc set grew this stopped scaling — the
+-- AI-native-marketing brand voice, the WhatsApp listener policy, and the
+-- "how-to-add-a-module" runbook were all just siblings in a flat list, so
+-- both humans and Nyo had to retrieve all of them to know which is the
+-- right starting point for a given task.
+--
+-- This migration introduces a single new column, `parent_slug`, on
+-- `knowledge_docs`. Every doc now points at zero or one parent (`NULL`
+-- for the root). The new layout looks like:
+--
+--   nyyon-root                              ← brand + mission
+--   ├── nyyon-stack                         ← architecture, ports, deploys
+--   ├── module-nyo
+--   │     └── prompt-wa-reply
+--   ├── module-digest
+--   │     ├── nyyon-digest-interests
+--   │     └── (channel-specific routing docs)
+--   ├── module-channels
+--   │     └── nyyon-whatsapp …
+--   └── system-knowledge                    ← how this tree works
+--
+-- The tree is data, not code, so reshaping it is a single PATCH per
+-- doc from Nyo or the ops UI. The worker just returns parent_slug; the
+-- UI walks it to render breadcrumbs and the tree pane.
+
+ALTER TABLE knowledge_docs ADD COLUMN parent_slug TEXT REFERENCES knowledge_docs(slug);
+CREATE INDEX IF NOT EXISTS idx_knowledge_parent ON knowledge_docs(parent_slug);

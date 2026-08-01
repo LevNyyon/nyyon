@@ -1,0 +1,23 @@
+-- Per-lead record of what each enrichment step actually DID.
+--
+-- Until now the only trace a step left was the provenance it wrote
+-- (gtm_leads.sources, socials[].src, conflicts[].tool). That cannot tell
+-- "ran and found nothing" apart from "skipped on purpose" — and three of the six
+-- steps skip themselves BY DESIGN:
+--   * PDL     — hard-skipped when name + company are already known (it is paid)
+--   * LinkedIn— skipped with no linkedin on file, or when the company is known
+--   * SerpApi — hard-gated on already having a sourced name
+-- So the most complete leads were the ones showing the most "failed" steps: the
+-- Prospecting step strip painted a deliberate cost saving as a failed lookup.
+--
+-- enrichFullOne already computes the answer — every step returns either data,
+-- {skipped:<why>} or {error:<msg>} — and then discards it. This column persists
+-- that verdict so it survives the request.
+--
+-- Shape: JSON array in chain order, one entry per step:
+--   [{ key, label, status, reason, at }]
+--   status: found | empty | skipped | error       reason: the why, or null
+--
+-- NULL for every lead enriched before this migration; the page falls back to the
+-- old provenance inference for those rows rather than blanking them.
+ALTER TABLE gtm_leads ADD COLUMN steps TEXT;

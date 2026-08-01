@@ -1,0 +1,23 @@
+node_modules/
+dist/
+.wrangler/
+
+# The WhatsApp gateway's runtime state: the paired session and the message
+# database. This is the operator's actual WhatsApp history — in the reference
+# install it is 1.1 GB — and it is regenerated per install by pairing. It must
+# never be committed and must never ship.
+services/*/data/
+# Every variant, not just the exact name. A plain `.dev.vars` rule let a
+# `.dev.vars.bak` get committed with live API keys in it; the glob closes that.
+# `.example` is the deliberate exception — it ships, and holds no real values.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.DS_Store
+*.tsbuildinfo
+
+# Deploy sidecar credentials (CF Global API key) — never commit
+.deploy.env
+
+# Packaged desktop builds — rebuilt with `npm run package`, never committed.
+desktop/out/

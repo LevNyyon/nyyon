@@ -1,0 +1,19 @@
+-- Eligible sending times, per weekday, to the minute.
+--
+-- `start_hour`/`end_hour` gave a cohort ONE window applied to every day it sent
+-- on, at whole-hour resolution. Real outreach does not work like that: Friday is
+-- short, Sunday is a working day in Israel and not in the US, and "09:00–17:30"
+-- is not expressible at all.
+--
+-- Shape — an object keyed by weekday, 0 = Sunday … 6 = Saturday. A day that is
+-- ABSENT is a day nothing sends. Times are wall-clock "HH:MM" in the cohort's
+-- own `timezone` column:
+--
+--   {"1":{"start":"09:00","end":"17:30"}, "4":{"start":"09:00","end":"13:00"}}
+--
+-- NULL = inherit the account default (the cadence note's quiet hours plus its
+-- weekday rule), so every existing cohort keeps behaving exactly as it does now.
+-- start_hour/end_hour/send_days are left in place and still honoured when this
+-- is NULL: dropping them would silently retime every cohort that has not been
+-- given per-day windows yet.
+ALTER TABLE outreach_cohorts ADD COLUMN send_windows TEXT;

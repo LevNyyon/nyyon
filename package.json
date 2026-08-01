@@ -1,0 +1,27 @@
+{
+  "name": "nyyon-command-center",
+  "private": true,
+  "version": "0.1.0",
+  "description": "An AI command center you own: outreach, writing and publishing from one place, in your voice.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "node scripts/setup.mjs",
+    "start": "node scripts/dev.mjs",
+    "dev": "node scripts/dev.mjs",
+    "seed:demo": "node scripts/seed-app.mjs --demo-only > /tmp/nyyon-demo.sql && cd workers/api && npx wrangler d1 execute nyyon --local --file /tmp/nyyon-demo.sql",
+    "seed:clear-demo": "node scripts/seed-app.mjs --clear-demo > /tmp/nyyon-clear.sql && cd workers/api && npx wrangler d1 execute nyyon --local --file /tmp/nyyon-clear.sql",
+    "typecheck": "cd web && npx tsc -b",
+    "build": "cd web && npm run build",
+    "app": "electron desktop/main.cjs",
+    "package": "electron-packager . 'Nyyon Command Center' --icon=desktop/assets/icon.icns --out=desktop/out --overwrite --app-bundle-id=com.nyyon.commandcenter --ignore='^/(web|workers|db|docs|scripts|services|node_modules/(?!electron))'"
+  },
+  "main": "desktop/main.cjs",
+  "devDependencies": {
+    "@electron/packager": "^20.0.4",
+    "electron": "^33.0.0"
+  },
+  "productName": "Nyyon Command Center"
+}
