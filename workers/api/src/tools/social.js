@@ -85,7 +85,7 @@ export const tools = {
   list_social_integrations: {
     def: {
       name: 'list_social_integrations',
-      description: 'List the social CONNECTIONS posts can go out through and whether each is configured: linkedin-company (the Nyyon page, the default for LinkedIn), linkedin-personal (Lev, opt-in), facebook-company. Call this before drafting or approving so you name a channel that actually works.',
+      description: 'List the social CONNECTIONS posts can go out through and whether each is configured: linkedin-company (the Nyyon page, the default for LinkedIn), linkedin-personal (the operator\'s personal profile, opt-in), facebook-company. Call this before drafting or approving so you name a channel that actually works.',
       input_schema: { type: 'object', properties: {}, required: [] },
     },
     run: async (env) => ({ connections: await callGateway(env, 'social', 'connections', {}) }),
@@ -95,7 +95,7 @@ export const tools = {
   draft_social_post: {
     def: {
       name: 'draft_social_post',
-      description: "Write ONE channel's post text in that channel's voice (brand for the company pages, Lev's for linkedin-personal), under the operator's style rules. Pass source_kind 'blog' (default) to promote one of our articles, 'news' to react to someone else's item with our point of view. Drafts only — nothing is saved or published. With a slug, it skips a channel that already has a post unless force is true.",
+      description: "Write ONE channel's post text in that channel's voice (brand for the company pages, the operator's personal voice for linkedin-personal), under the operator's style rules. Pass source_kind 'blog' (default) to promote one of our articles, 'news' to react to someone else's item with our point of view. Drafts only — nothing is saved or published. With a slug, it skips a channel that already has a post unless force is true.",
       input_schema: {
         type: 'object',
         properties: {

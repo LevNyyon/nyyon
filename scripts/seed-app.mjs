@@ -4,8 +4,8 @@
 // Two independent halves, both idempotent, both emitted by default:
 //
 //   1. KNOWLEDGE — the notes the code reads on every run. Some are HARD
-//      requirements (the article writer THROWS without `nyyon-brand-voice` and
-//      `nyyon-aeo-playbook`); the rest carry thresholds, prompts and rules that
+//      requirements (the article writer THROWS without `brand-voice` and
+//      `article-playbook`); the rest carry thresholds, prompts and rules that
 //      would otherwise be invisible until some cron happened to self-seed them.
 //      Bodies here are PRODUCT-NEUTRAL placeholders: no company voice, no real
 //      people, no real clients. Each one says what the operator should put there.
@@ -97,7 +97,7 @@ The in-app chat assistant and the surfaces it drives. Its model tiers live in
 `# Blog
 
 Long-form articles: drafting, figures, featured images, publishing. The writer
-reads \`nyyon-brand-voice\` and \`nyyon-aeo-playbook\`; figure selection reads
+reads \`brand-voice\` and \`article-playbook\`; figure selection reads
 \`figure-chart-selection\`.` },
 
   { slug: 'module-aeo', title: 'Article engine', parent: 'module-blog', scope: 'module', module: 'aeo', body:

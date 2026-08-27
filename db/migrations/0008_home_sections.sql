@@ -21,7 +21,7 @@ INSERT OR IGNORE INTO home_sections (id, page, label, position, visible, updated
   ('thesis',      'home', 'Thesis',                25, 1, strftime('%s','now') * 1000, 'system'),
   ('domains',     'home', 'Domains',               27, 1, strftime('%s','now') * 1000, 'system'),
   ('toolbox',     'home', 'Toolbox',               29, 1, strftime('%s','now') * 1000, 'system'),
-  ('how-we-work', 'home', 'Working with Nyyon',    32, 1, strftime('%s','now') * 1000, 'system'),
+  ('how-we-work', 'home', 'How we work',           32, 1, strftime('%s','now') * 1000, 'system'),
   ('process',     'home', 'Engagement Structures', 36, 1, strftime('%s','now') * 1000, 'system'),
   ('cta',         'home', 'Final CTA',             80, 1, strftime('%s','now') * 1000, 'system'),
   ('faq',         'home', 'FAQ',                   85, 1, strftime('%s','now') * 1000, 'system');

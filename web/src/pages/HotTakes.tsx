@@ -3,7 +3,7 @@
 // Schedule → Approved Sources. The linear path is Topic → Take → Brief →
 // Article → Review → Social → Schedule → Verify; every screen shows the next
 // action, not just a status. Distribution is DRY-RUN by default (hottakes.live
-// feature flag) so nothing reaches nyyon.com or LinkedIn until the operator
+// feature flag) so nothing reaches the public site or LinkedIn until the operator
 // flips it deliberately.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -1397,10 +1397,10 @@ function SocialTab({ bump, refresh, onOpenPublication }: {
 
 type SocialEntry = { post: HotTakePost; pkg: HotTakePackage & { posts: HotTakePost[]; next_action: string } };
 
-// Row labels in the Social module's style: "LinkedIn · Company" / "LinkedIn · Lev".
+// Row labels in the Social module's style: "LinkedIn · Company" / "LinkedIn · Personal".
 const ROW_LABEL: Record<string, string> = {
   'linkedin-company': 'LinkedIn · Company',
-  'linkedin-personal': 'LinkedIn · Lev',
+  'linkedin-personal': 'LinkedIn · Personal',
 };
 
 // One social post as a SLIM ROW — the Social module's DraftRow anatomy, cloned

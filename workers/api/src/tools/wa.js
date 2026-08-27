@@ -21,7 +21,7 @@ export const tools = {
   send_whatsapp: {
     def: {
       name: 'send_whatsapp',
-      description: 'Send a WhatsApp text message. chatId can be a phone like "+972 50-302-3702", a canonical chat id like "972503023702@c.us", or a group id like "120363...@g.us". The session is primed automatically if it is asleep. Use find_wa_chat first when you only know the person by name.',
+      description: 'Send a WhatsApp text message. chatId can be a phone like "+972 50-000-0000", a canonical chat id like "972500000000@c.us", or a group id like "120363...@g.us". The session is primed automatically if it is asleep. Use find_wa_chat first when you only know the person by name.',
       input_schema: {
         type: 'object',
         properties: {
@@ -144,11 +144,11 @@ export const tools = {
   find_wa_chat: {
     def: {
       name: 'find_wa_chat',
-      description: "Find a WhatsApp chat or person by partial name or phone — use this (NOT list_wa_chats) whenever the operator names a contact, e.g. 'I met David Kogan' or 'did I message Sarah'. WhatsApp barely names 1:1 DMs, so this searches chat names, sender pushnames AND the CRM by phone, token-based and case-insensitive. Returns ranked matches with chat_id, best-known name, phone, is_group, last_message_at and matched_on. No matches means the person isn't in the stored WhatsApp data or the CRM yet — ask the operator for a number.",
+      description: "Find a WhatsApp chat or person by partial name or phone — use this (NOT list_wa_chats) whenever the operator names a contact, e.g. 'I met Jane Doe' or 'did I message Sarah'. WhatsApp barely names 1:1 DMs, so this searches chat names, sender pushnames AND the CRM by phone, token-based and case-insensitive. Returns ranked matches with chat_id, best-known name, phone, is_group, last_message_at and matched_on. No matches means the person isn't in the stored WhatsApp data or the CRM yet — ask the operator for a number.",
       input_schema: {
         type: 'object',
         properties: {
-          query: { type: 'string', description: 'partial name or phone, e.g. "David Kogan" or "0545492444"' },
+          query: { type: 'string', description: 'partial name or phone, e.g. "Jane Doe" or "0500000000"' },
           limit: { type: 'number', description: 'max matches, default 15' },
         },
         required: ['query'],

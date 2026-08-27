@@ -1,5 +1,5 @@
-// AEO writer: pulls the next pending question, drafts an article in Nyyon's
-// voice via OpenAI, and publishes it directly to blog_posts. Fired by the
+// AEO writer: pulls the next pending question, drafts an article in the
+// brand voice via OpenAI, and publishes it directly to blog_posts. Fired by the
 // daily cron AND by the manual "draft now" button in the AEO ops page.
 
 import {
@@ -26,7 +26,7 @@ async function ensureUniqueSlug(env, candidate) {
 }
 
 // Pull a deduped list of tags from already-published posts. We pass this into
-// the LLM so it sticks to Nyyon's existing taxonomy instead of inventing new ones.
+// the LLM so it sticks to the site's existing taxonomy instead of inventing new ones.
 function collectKnownTags(posts) {
   const set = new Set();
   for (const p of posts) {
@@ -38,12 +38,12 @@ function collectKnownTags(posts) {
   return [...set].sort();
 }
 
-const SYSTEM_PROMPT = `You write blog posts for Nyyon, a white-glove AI-native marketing agency.
+const SYSTEM_PROMPT = `You write blog posts for the operator's company.
 You will be given:
 - A target AEO/SEO question to answer
-- Nyyon's brand voice doc (how we write, what we never say)
-- Nyyon's AEO article playbook (required structure)
-- A short list of recently-published Nyyon blog titles + excerpts (so you don't duplicate)
+- The brand voice doc (how we write, what we never say — the source of truth for who the company is)
+- The AEO article playbook (required structure)
+- A short list of recently-published blog titles + excerpts (so you don't duplicate)
 - OPTIONALLY: An expert interview — the operator's first-hand answers about this topic.
   When present, the interview is the most important input. Build the article around the
   operator's specific opinions, frameworks, examples, and language. Do NOT genericise
@@ -57,7 +57,7 @@ Return ONE JSON object — no prose, no markdown fence, just JSON — with these
   title:       string (≤ 65 chars, close to the literal question but improved)
   excerpt:     string (≤ 155 chars, declarative one-sentence answer)
   body_html:   string (full article body as HTML: <p>, <strong>, <h2>, <h3> only)
-  tags:        array of 1-2 strings, never more than 2 (use existing Nyyon tag conventions where possible)
+  tags:        array of 1-2 strings, never more than 2 (use existing tag conventions where possible)
 
 Constraints:
 - Body length: 1,000–1,800 words.
@@ -76,8 +76,8 @@ function buildUserPrompt({ question, target_keyword, brandVoice, aeoPlaybook, re
     .join('\n');
 
   const tagLine = knownTags.length
-    ? `Pick 1-2 tags (never more than 2) from this existing Nyyon taxonomy when they fit (do NOT invent new tags unless none fit): ${knownTags.join(' · ')}`
-    : `Pick 1-2 tags (never more than 2) that fit Nyyon's voice.`;
+    ? `Pick 1-2 tags (never more than 2) from this existing taxonomy when they fit (do NOT invent new tags unless none fit): ${knownTags.join(' · ')}`
+    : `Pick 1-2 tags (never more than 2) that fit the brand voice.`;
 
   return [
     `## Target question`,
@@ -86,16 +86,16 @@ function buildUserPrompt({ question, target_keyword, brandVoice, aeoPlaybook, re
     '',
     expertContext ? `## ⭐ EXPERT INTERVIEW — highest priority source\n${expertContext}` : null,
     '',
-    '## Nyyon brand voice doc',
+    '## Brand voice doc',
     brandVoice,
     '',
-    '## Nyyon AEO playbook',
+    '## AEO playbook',
     aeoPlaybook,
     '',
     '## Tag taxonomy',
     tagLine,
     '',
-    '## Recently published Nyyon posts (do NOT repeat the same argument)',
+    '## Recently published posts (do NOT repeat the same argument)',
     recentList || '(none yet)',
     '',
     expertContext
@@ -118,16 +118,16 @@ const HANDDRAFT_PREAMBLE = 'The operator hand-drafted the article below. Treat i
 // article opts into it.
 export async function readVoiceProfile(env, { voice = 'house' } = {}) {
   const brand = await readKnowledge(env, 'brand-voice');
-  if (!brand?.body) throw new Error('knowledge doc nyyon-brand-voice missing');
+  if (!brand?.body) throw new Error('knowledge doc brand-voice missing');
   let voice_doc = brand.body;
   try {
     const { readTasteProfile } = await import('./aeo-taste.js');
     const taste = await readTasteProfile(env);
     if (taste) voice_doc += `\n\n## Operator's learned editorial taste (honor this)\n${taste}`;
   } catch { /* taste profile is an enrichment, never a blocker */ }
-  if (voice === 'lev') {
-    const levDoc = await readKnowledge(env, 'personal-voice').catch(() => null);
-    if (levDoc?.body) voice_doc += `\n\n## WRITE IN LEV'S VOICE (this article opted in)\n${levDoc.body}`;
+  if (voice === 'personal') {
+    const personalDoc = await readKnowledge(env, 'personal-voice').catch(() => null);
+    if (personalDoc?.body) voice_doc += `\n\n## WRITE IN THE OPERATOR'S PERSONAL VOICE (this article opted in)\n${personalDoc.body}`;
   }
   return { voice_doc, voice };
 }
@@ -139,7 +139,7 @@ export async function draftArticle(env, {
   voice_doc = null, posts = null, target_keyword = null, expert_context = null, tags = null,
 } = {}) {
   const playbookDoc = await readKnowledge(env, 'article-playbook');
-  if (!playbookDoc?.body) throw new Error('knowledge doc nyyon-aeo-playbook missing');
+  if (!playbookDoc?.body) throw new Error('knowledge doc article-playbook missing');
 
   const brandVoice = voice_doc || (await readVoiceProfile(env)).voice_doc;
   const recentPosts = Array.isArray(posts) ? posts : await listBlogPosts(env, { limit: 200, publishedOnly: true });
@@ -231,11 +231,11 @@ export async function expandArticle(env, { post = null, slug = null, blog_slug =
   const target = post || await readBlogPost(env, String(slug || blog_slug || ''));
   if (!target) throw new Error('expand_article: post (or a slug that resolves to one) required');
 
-  const voice = voice_doc || (await readVoiceProfile(env, { voice: 'lev' })).voice_doc;
+  const voice = voice_doc || (await readVoiceProfile(env, { voice: 'personal' })).voice_doc;
   const prompt = [
     '## Current article title', target.title, '',
     '## Current article body (HTML)', target.body || '', '',
-    '## Nyyon brand voice + operator taste', voice, '',
+    '## Brand voice + operator taste', voice, '',
     'Expand and upgrade this article per the system instructions. Output ONLY the JSON object.',
   ].join('\n');
 
@@ -327,8 +327,8 @@ export async function composeAndSavePost(env, {
     readKnowledge(env, 'brand-voice'),
     readKnowledge(env, 'article-playbook'),
   ]);
-  if (!brandVoiceDoc?.body) throw new Error('knowledge doc nyyon-brand-voice missing');
-  if (!playbookDoc?.body)   throw new Error('knowledge doc nyyon-aeo-playbook missing');
+  if (!brandVoiceDoc?.body) throw new Error('knowledge doc brand-voice missing');
+  if (!playbookDoc?.body)   throw new Error('knowledge doc article-playbook missing');
 
   const recentPosts = await listBlogPosts(env, { limit: 200, publishedOnly: true });
   const knownTags   = collectKnownTags(recentPosts);
@@ -341,9 +341,9 @@ export async function composeAndSavePost(env, {
     const taste = await readTasteProfile(env);
     if (taste) brandVoiceWithTaste += `\n\n## Operator's learned editorial taste (honor this)\n${taste}`;
   } catch { /* taste profile optional */ }
-  if (voice === 'lev') {
-    const levDoc = await readKnowledge(env, 'personal-voice').catch(() => null);
-    if (levDoc?.body) brandVoiceWithTaste += `\n\n## WRITE IN LEV'S VOICE (this article opted in)\n${levDoc.body}`;
+  if (voice === 'personal') {
+    const personalDoc = await readKnowledge(env, 'personal-voice').catch(() => null);
+    if (personalDoc?.body) brandVoiceWithTaste += `\n\n## WRITE IN THE OPERATOR'S PERSONAL VOICE (this article opted in)\n${personalDoc.body}`;
   }
 
   // The hand-written draft becomes the "expert interview" — the primary source
@@ -439,19 +439,17 @@ export async function composeAndSavePost(env, {
   };
 }
 
-// Expand + upgrade an existing post: deepen the story, weave in Nyyon's upside
-// substantively, and append an AEO-optimised FAQ (+ FAQPage JSON-LD schema).
-const EXPAND_SYSTEM = `You are expanding and upgrading an existing Nyyon blog post.
+// Expand + upgrade an existing post: deepen the story, weave in the company's
+// upside substantively, and append an AEO-optimised FAQ (+ FAQPage JSON-LD schema).
+const EXPAND_SYSTEM = `You are expanding and upgrading an existing blog post for the operator's company.
 
-Nyyon is a white-glove, AI-native studio: a fractional, hands-on CMO/CTO that BUILDS a company's AI-native systems - agents, workflows, funnels, content engines, growth and ops infrastructure. Senior judgment plus the ability to personally ship. Not a landing-page shop; the team that owns the function and builds the operating system that lets a company move faster.
-
-You receive the current article, plus Nyyon's brand voice and the operator's learned editorial taste.
+You receive the current article, plus the company's brand voice doc and the operator's learned editorial taste. The brand voice doc is the source of truth for who the company is, what it does, and how it positions itself — ground every company mention in it.
 
 Do all of this:
 1. Keep the thesis, structure, and best lines. Do not discard what works.
-2. EXPAND the story to ~1,600-2,200 words: add depth and concrete detail, one or two real examples, the history/naming of the role (e.g. "forward-deployed engineer"), the failure modes, and the "why now" (AI tooling collapsing the gap between describing what you want and shipping it).
-3. Weave in Nyyon's upside SUBSTANTIVELY, never as a pitch: Nyyon runs exactly this model and ships these systems for companies. Two earned mentions inside the argument plus a short, plain closing. No hype, no fake authority, no "we are the best".
-4. Add an AEO-optimised FAQ at the very end: 6-8 natural-language questions a founder or operator would actually ask an AI assistant about this topic (builders, fractional CTOs/CMOs, building software and growth systems fast, cost, when to hire). Each answer must be SELF-CONTAINED: 40-75 words that fully answer the question on its own so an answer engine can lift it verbatim. Position Nyyon where it is the honest answer.
+2. EXPAND the story to ~1,600-2,200 words: add depth and concrete detail, one or two real examples, the relevant history and naming, the failure modes, and the "why now".
+3. Weave in the company's upside SUBSTANTIVELY, never as a pitch: two earned mentions inside the argument plus a short, plain closing, both grounded in the brand voice doc's positioning. No hype, no fake authority, no "we are the best".
+4. Add an AEO-optimised FAQ at the very end: 6-8 natural-language questions a reader would actually ask an AI assistant about this topic. Each answer must be SELF-CONTAINED: 40-75 words that fully answer the question on its own so an answer engine can lift it verbatim. Position the company where it is the honest answer.
 
 Return ONE JSON object, no prose, no code fence:
   excerpt:   string, <=155 chars, declarative
@@ -460,7 +458,7 @@ Return ONE JSON object, no prose, no code fence:
 
 Hard rules: no em-dashes or en-dashes (use hyphens or restructure). No emoji, no exclamation marks. Banned phrases: revolutionary, game-changing, disruptive, next-gen, cutting-edge, world-class, leverage (as a verb), synergy, unlock, in today's world, dive in, in conclusion. Verbs over adjectives. Lead each section with its point.`;
 
-export async function expandPostWithFaq(env, { slug, voice = 'lev', actor = 'operator' } = {}) {
+export async function expandPostWithFaq(env, { slug, voice = 'personal', actor = 'operator' } = {}) {
   const startedAt = now();
   const post = await readBlogPost(env, slug);
   if (!post) throw new Error(`post ${slug} not found`);
@@ -472,15 +470,15 @@ export async function expandPostWithFaq(env, { slug, voice = 'lev', actor = 'ope
     const taste = await readTasteProfile(env);
     if (taste) voiceDoc += `\n\n## Operator's learned editorial taste (honor this)\n${taste}`;
   } catch { /* taste optional */ }
-  if (voice === 'lev') {
-    const levDoc = await readKnowledge(env, 'personal-voice').catch(() => null);
-    if (levDoc?.body) voiceDoc += `\n\n## WRITE IN LEV'S VOICE\n${levDoc.body}`;
+  if (voice === 'personal') {
+    const personalDoc = await readKnowledge(env, 'personal-voice').catch(() => null);
+    if (personalDoc?.body) voiceDoc += `\n\n## WRITE IN THE OPERATOR'S PERSONAL VOICE\n${personalDoc.body}`;
   }
 
   const prompt = [
     '## Current article title', post.title, '',
     '## Current article body (HTML)', post.body || '', '',
-    '## Nyyon brand voice + operator taste', voiceDoc, '',
+    '## Brand voice + operator taste', voiceDoc, '',
     'Expand and upgrade this article per the system instructions. Output ONLY the JSON object.',
   ].join('\n');
 
@@ -652,11 +650,11 @@ export async function runAeoCron(env, { actor = 'aeo-cron', targetSlug = null, r
       readKnowledge(env, 'brand-voice'),
       readKnowledge(env, 'article-playbook'),
     ]);
-    if (!brandVoiceDoc?.body)  throw new Error('knowledge doc nyyon-brand-voice missing');
-    if (!playbookDoc?.body)    throw new Error('knowledge doc nyyon-aeo-playbook missing');
+    if (!brandVoiceDoc?.body)  throw new Error('knowledge doc brand-voice missing');
+    if (!playbookDoc?.body)    throw new Error('knowledge doc article-playbook missing');
 
     // Pull a wider recent window for dedup, but also use the same set to
-    // collect the existing tag taxonomy. 200 hits the cap; that's all 188.
+    // collect the existing tag taxonomy. 200 hits the cap.
     const recentPosts = await listBlogPosts(env, { limit: 200, publishedOnly: true });
     const knownTags   = collectKnownTags(recentPosts);
 
@@ -673,11 +671,11 @@ export async function runAeoCron(env, { actor = 'aeo-cron', targetSlug = null, r
       ? `${brandVoiceDoc.body}\n\n## Operator's learned editorial taste (honor this)\n${taste}`
       : brandVoiceDoc.body;
 
-    // Optional per-article voice: 'lev' layers the founder's personal voice on
+    // Optional per-article voice: 'personal' layers the founder's personal voice on
     // top of the house voice. Default 'house' = brand voice only.
-    if (freshQ?.voice === 'lev') {
-      const levDoc = await readKnowledge(env, 'personal-voice').catch(() => null);
-      if (levDoc?.body) brandVoiceWithTaste += `\n\n## WRITE IN LEV'S VOICE (this article opted in)\n${levDoc.body}`;
+    if (freshQ?.voice === 'personal') {
+      const personalDoc = await readKnowledge(env, 'personal-voice').catch(() => null);
+      if (personalDoc?.body) brandVoiceWithTaste += `\n\n## WRITE IN THE OPERATOR'S PERSONAL VOICE (this article opted in)\n${personalDoc.body}`;
     }
 
     const prompt = buildUserPrompt({
@@ -772,10 +770,9 @@ export async function runAeoCron(env, { actor = 'aeo-cron', targetSlug = null, r
       console.warn(`[aeo-figures] ${safeSlug}:`, figErr?.message || figErr);
     }
 
-    // Auto-deploy to nyyon.com via the local deploy sidecar, and CAPTURE the
-    // result. A post that only reached local D1 is NOT live on nyyon.com until
-    // a deploy actually runs. We must know whether the sidecar accepted it so
-    // we can tell the operator the truth instead of always claiming "live".
+    // A post that only reached local D1 is NOT live on the public site until a
+    // deploy actually runs — we must tell the operator the truth instead of
+    // always claiming "live".
     // The writer no longer deploys: posts are drafts now. The operator approves
     // in the Blog module → "Needs review", and THAT mirrors to prod + deploys.
     // ponytail: single approval gate, one place to publish from.
@@ -825,7 +822,7 @@ export async function runAeoCron(env, { actor = 'aeo-cron', targetSlug = null, r
       ? ` Featured image stored at ${image.url}.`
       : (image?.error ? ` Image generation failed: ${image.error}.` : '');
     const trigger  = actor === 'aeo-cron' ? 'the daily cron' : `you (${actor})`;
-    const liveLine = `Triggered by ${trigger}. It's saved as a **draft** — open the **Blog** module → **Needs review** to read it and approve. Approving publishes it to nyyon.com.`;
+    const liveLine = `Triggered by ${trigger}. It's saved as a **draft** — open the **Blog** module → **Needs review** to read it and approve. Approving publishes it to your public site.`;
     await queueNyoMessage(env, {
       kind:     'aeo_drafted',
       ref_kind: 'blog_posts',

@@ -87,8 +87,8 @@ export async function listChats(env) {
 // lookup the old exact-name filter lacked. WhatsApp itself barely gives us names
 // for 1:1 DMs (chat name is usually empty; many sender ids are @lid privacy ids),
 // so we search every source and, crucially, resolve real names from the CRM by
-// phone. Token-based + case-insensitive, so "David Kogan Haifa" still finds
-// "David Kogan". Returns chats to act on, ranked; best-known name resolved.
+// phone. Token-based + case-insensitive, so "Jane Doe Chicago" still finds
+// "Jane Doe". Returns chats to act on, ranked; best-known name resolved.
 const _digits = (s) => String(s || '').replace(/\D/g, '');
 const _phoneOf = (waId) => _digits(String(waId || '').split('@')[0]);
 
@@ -410,7 +410,7 @@ export async function syncFromGateway(env, { limit = 1000 } = {}) {
   return { ok: true, scanned: msgs.length, synced, since };
 }
 
-// Extract a clean phone string from an wa-gateway sender id like '972545492444@c.us'.
+// Extract a clean phone string from an wa-gateway sender id like '972500000000@c.us'.
 export function phoneFromSenderId(senderId) {
   if (!senderId || typeof senderId !== 'string') return null;
   const m = senderId.match(/^(\d{6,15})(?:@|\b)/);
@@ -506,8 +506,8 @@ async function waFetch(env, path, init = {}) {
   return next;
 }
 
-// Normalize an input like "+972 50-302-3702", "972503023702", or already
-// "972503023702@c.us" to a canonical wa-gateway chatId. Groups must come in
+// Normalize an input like "+972 50-000-0000", "972500000000", or already
+// "972500000000@c.us" to a canonical wa-gateway chatId. Groups must come in
 // already-formatted ("…@g.us") — we don't synthesize group ids.
 //
 // `@lid` (modern WhatsApp LinkedID — a separate identifier space from

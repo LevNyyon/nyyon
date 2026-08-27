@@ -29,24 +29,23 @@ const GNEWS = (q) => `https://news.google.com/rss/search?q=${encodeURIComponent(
 // definition, so a proposal is validated against the exact URL that gets saved.
 export function gnewsUrl(query) { return GNEWS(String(query || '')); }
 
+// Neutral general-tech placeholder watchlist. It exists so a fresh install
+// has SOMETHING flowing on day one; the Hot Takes first-run scout (see
+// hottakes-setup.js) replaces it with sources from the operator's own
+// industry, and the Sources tab edits it any time.
 export const DEFAULT_SOURCES = [
   // company / lab blogs
   { kind: 'rss', name: 'OpenAI', url: 'https://openai.com/news/rss.xml', theme: 'models' },
   { kind: 'rss', name: 'Google DeepMind', url: 'https://deepmind.google/blog/rss.xml', theme: 'models' },
   { kind: 'rss', name: 'Hugging Face', url: 'https://huggingface.co/blog/feed.xml', theme: 'models' },
   { kind: 'rss', name: 'Microsoft Research', url: 'https://www.microsoft.com/en-us/research/feed/', theme: 'models' },
-  // news outlets (AI + marketing)
+  // general tech press
   { kind: 'rss', name: 'The Verge · AI', url: 'https://www.theverge.com/rss/ai-artificial-intelligence/index.xml', theme: 'general' },
   { kind: 'rss', name: 'TechCrunch · AI', url: 'https://techcrunch.com/category/artificial-intelligence/feed/', theme: 'general' },
   { kind: 'rss', name: 'VentureBeat · AI', url: 'https://venturebeat.com/category/ai/feed/', theme: 'general' },
-  { kind: 'rss', name: 'Search Engine Land', url: 'https://searchengineland.com/feed', theme: 'aeo' },
   // Google News topic queries
-  { kind: 'gnews', name: 'Topic · AI marketing', url: GNEWS('"AI marketing" OR "AI-native marketing" when:7d'), theme: 'ai-marketing' },
-  { kind: 'gnews', name: 'Topic · AEO', url: GNEWS('"answer engine optimization" OR "AI search optimization" when:7d'), theme: 'aeo' },
-  { kind: 'gnews', name: 'Topic · AI agents', url: GNEWS('"AI agents" marketing OR business when:7d'), theme: 'ai-marketing' },
-  { kind: 'gnews', name: 'Topic · Anthropic/Claude', url: GNEWS('Anthropic OR "Claude AI" when:7d'), theme: 'models' },
-  { kind: 'gnews', name: 'Topic · OpenAI', url: GNEWS('OpenAI when:7d'), theme: 'models' },
-  { kind: 'gnews', name: 'Topic · Perplexity', url: GNEWS('"Perplexity AI" when:7d'), theme: 'competitor' },
+  { kind: 'gnews', name: 'Topic · AI news', url: GNEWS('"artificial intelligence" when:7d'), theme: 'general' },
+  { kind: 'gnews', name: 'Topic · AI agents', url: GNEWS('"AI agents" when:7d'), theme: 'technology' },
 ];
 
 export async function seedSourcesIfEmpty(env) {
@@ -117,7 +116,7 @@ async function fetchSource(env, source) {
   // max_bytes: Infinity keeps the pre-gateway uncapped read; feeds are small.
   const r = await webFetchText(env, {
     url: source.url, timeout_ms: 12000, max_bytes: Infinity,
-    headers: { 'user-agent': 'NyyonHeartbeat/1.0 (+nyyon.com)' },
+    headers: { 'user-agent': 'heartbeat-rss/1.0' },
   });
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return parseFeed(r.text);
@@ -131,7 +130,7 @@ export async function fetchArticleText(env, url, { maxChars = 8000 } = {}) {
   try {
     const r = await webFetchText(env, {
       url, timeout_ms: 12000, max_bytes: Infinity,
-      headers: { 'user-agent': 'Mozilla/5.0 (compatible; NyyonHeartbeat/1.0; +nyyon.com)' },
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; heartbeat-rss/1.0)' },
     });
     if (!r.ok) return '';
     const ct = r.content_type || '';
@@ -301,20 +300,20 @@ export async function ingestHeartbeat(env) {
 // doc — `heartbeat-priorities` — NOT hardcoded here. The operator can read and
 // change it any time; the scorer reads it on every run. This block is only the
 // fallback used if that doc is ever missing.
-const SCORE_RULES_FALLBACK = `Nyyon's world: AI model launches, answer engine optimization (AEO) / AI search, AI-native marketing operations, AI agents doing real work, marketing measurement in the AI era, agency economics, competitor moves, sharp industry debates. Noise (score low): generic listicles, off-topic news, vague PR, consumer gadgets. content_score>=70 reaches the digest. Be harsh.`;
+const SCORE_RULES_FALLBACK = `The operator's world: major product and model launches, real shifts in their industry, tools that change how their customers work, competitor moves, sharp industry debates. Noise (score low): generic listicles, off-topic news, vague PR, consumer gadgets. content_score>=70 reaches the digest. Be harsh.`;
 
 function buildScoreSystem(rules) {
-  return `You score industry signals for Nyyon — a premium AI-native marketing agency. Use the operator's prioritization rules below to decide what matters.
+  return `You score industry signals for the operator's company. Use the operator's prioritization rules below to decide what matters.
 
 === PRIORITIZATION RULES (operator-editable) ===
 ${rules}
 === END RULES ===
 
 For each item, judge:
-- relevance (0-100): does it matter to Nyyon's world per the rules above?
-- content_score (0-100): could Nyyon turn it into a strong blog or social post? (timely + opinionated + on-brand = high)
+- relevance (0-100): does it matter to the operator's world per the rules above?
+- content_score (0-100): could the operator turn it into a strong blog or social post? (timely + opinionated + on-brand = high)
 - formats: which of "blog","social" it could become (array; can be both or empty)
-- suggested_angle: one sentence — the angle Nyyon would take (empty if not content-worthy)
+- suggested_angle: one sentence — the angle the operator's company would take (empty if not content-worthy)
 - why: one short line on the call
 
 Return ONLY: { "scores": [ { "i": <index>, "relevance": N, "content_score": N, "formats": [..], "suggested_angle": "...", "why": "..." }, ... ] }`;
@@ -377,10 +376,10 @@ async function buildEnrichSystem(env) {
 ${rulesDoc?.body || SCORE_RULES_FALLBACK}
 === END RULES ===`;
 }
-const ENRICH_SYSTEM = `You are scoring an industry item for Nyyon (premium AI-native marketing agency) — but now you have the FULL article text, not just the title. Re-judge based on what the piece actually argues.
+const ENRICH_SYSTEM = `You are scoring an industry item for the operator's company — but now you have the FULL article text, not just the title. Re-judge based on what the piece actually argues.
 
 Return ONLY JSON:
-{ "content_score": 0-100, "formats": ["blog"|"social"], "suggested_angle": "<the specific, content-grounded angle Nyyon would take — reference an actual point the article makes>", "takeaway": "<1-2 sentence summary of what the article actually says>" }`;
+{ "content_score": 0-100, "formats": ["blog"|"social"], "suggested_angle": "<the specific, content-grounded angle the operator's company would take — reference an actual point the article makes>", "takeaway": "<1-2 sentence summary of what the article actually says>" }`;
 
 export async function enrichSignals(env, { limit = 12, minRelevance = null } = {}) {
   if (minRelevance == null) minRelevance = (await heartbeatGates(env)).enrich_min_relevance;
@@ -500,12 +499,12 @@ export async function topSignals(env, { days = 7, minContent = 55, limit = 12, q
 }
 
 // ─── synthesis — the standing "industry pulse" Nyo queries ──────────────────
-const PULSE_SYSTEM = `You maintain Nyyon's INDUSTRY PULSE — a tight situational-awareness brief on what's happening in AI + AI-marketing right now, for a premium AI-native marketing agency founder.
+const PULSE_SYSTEM = `You maintain the operator's INDUSTRY PULSE — a tight situational-awareness brief on what's happening in their industry right now.
 
 Given the top scored signals from the last week, write a concise markdown brief:
 
 ## The pulse (this week)
-3-6 bullets — the genuinely important moves (model launches, AEO/AI-marketing shifts, competitor moves). Each bullet: what happened + why it matters to Nyyon, one line.
+3-6 bullets — the genuinely important moves (launches, industry shifts, competitor moves). Each bullet: what happened + why it matters to the operator, one line.
 
 ## Worth writing about
 2-4 bullets — the strongest blog/social angles, each as "<angle> — <format>".
@@ -528,7 +527,7 @@ export async function synthesizePulse(env) {
   await writeKnowledge(env, {
     slug: 'industry-pulse',
     title: 'Industry Pulse — live awareness',
-    body: `_Auto-refreshed by the heartbeat. What's happening in AI + AI-marketing right now, and what Nyyon could do about it._\n\n${md.trim()}`,
+    body: `_Auto-refreshed by the heartbeat. What's happening in the operator's industry right now, and what to do about it._\n\n${md.trim()}`,
     scope: 'global', module: 'osint', parent_slug: 'module-osint',
   });
   return md.trim();
@@ -541,13 +540,14 @@ export async function readPulse(env) {
 
 // ─── hot topics — the value layer ────────────────────────────────────────────
 // Scoring + enrichment grade individual signals. This CLUSTERS the strongest
-// ones into a handful of sharp, opinionated "hot topics with a Nyyon angle" at
-// blog-grade quality, stored as discrete rows so the Digest can quote each one.
+// ones into a handful of sharp, opinionated "hot topics with the company's
+// angle" at blog-grade quality, stored as discrete rows so the Digest can
+// quote each one.
 // Runs on the STRONG model (omit model => opus) + the editorial voice/taste —
 // that is what makes the angles land like the blog titles instead of generic
 // per-article blurbs.
 function topicsSystem(voice) {
-  return `You are a sharp, fearless industry analyst surfacing HOT TAKES for an audience (an AI-native marketing studio and its founder) that has seen everything. From this week's signals, find the genuinely INTERESTING takes: the ones worth arguing about.
+  return `You are a sharp, fearless industry analyst surfacing HOT TAKES for an audience (the operator and their company) that has seen everything. From this week's signals, find the genuinely INTERESTING takes: the ones worth arguing about.
 
 A HOT TAKE is a bold, specific, debatable OPINION that takes a side and makes a smart person stop and want to argue. It NAMES the thing (a company, a claim, a consensus). It says what most people will not. It is falsifiable or genuinely provocative.
 KILL anything that: hedges ("it depends"), gives a tip or how-to, reads like agency thought-leadership, just restates the news, or could be published by any brand without risk. If it is safe, cut it. Do NOT turn every take into a pitch for "owning the system" or "building infrastructure" — that is the weak move.
@@ -686,7 +686,7 @@ export function signalQuestionSeed(sig) {
     expert_context: sig.full_text
       ? {
         from_signal: sig.id, source: sig.source_name, source_url: sig.url,
-        answers: `Source article ("${sig.title}", ${sig.source_name}):\n\n${sig.full_text.slice(0, 6000)}\n\nNyyon's angle on it: ${sig.suggested_angle || '(take a contrarian, on-brand stance)'}`,
+        answers: `Source article ("${sig.title}", ${sig.source_name}):\n\n${sig.full_text.slice(0, 6000)}\n\nThe operator's angle on it: ${sig.suggested_angle || '(take a contrarian, on-brand stance)'}`,
       }
       : null,
   };
@@ -725,23 +725,23 @@ export async function signalToBlog(env, signalId) {
   });
   if (sig.full_text) {
     const ctx = { from_signal: signalId, source: sig.source_name, source_url: sig.url,
-      answers: `Source article ("${sig.title}", ${sig.source_name}):\n\n${sig.full_text.slice(0, 6000)}\n\nNyyon's angle on it: ${sig.suggested_angle || '(take a contrarian, on-brand stance)'}` };
+      answers: `Source article ("${sig.title}", ${sig.source_name}):\n\n${sig.full_text.slice(0, 6000)}\n\nThe operator's angle on it: ${sig.suggested_angle || '(take a contrarian, on-brand stance)'}` };
     await env.DB.prepare(`UPDATE aeo_questions SET expert_context_json=? WHERE slug=?`).bind(JSON.stringify(ctx), slug).run();
   }
   await env.DB.prepare(`UPDATE osint_signals SET status='actioned' WHERE id=?`).bind(signalId).run();
   return { ok: true, slug, question: sig.suggested_angle || sig.title, read_full_article: !!sig.full_text, note: 'Created as an AEO question (priority 2), seeded with the article\'s real content. Run aeo_start_interview to add the operator\'s take, or write directly.' };
 }
 
-// Draft a social post reacting to a signal, in Nyyon's voice. Draft only —
-// the operator reviews before anything is published.
+// Draft a social post reacting to a signal, in the company's voice. Draft
+// only — the operator reviews before anything is published.
 export async function signalToSocialDraft(env, signalId) {
   const sig = await env.DB.prepare('SELECT * FROM osint_signals WHERE id = ?').bind(signalId).first();
   if (!sig) return { ok: false, error: 'signal not found' };
   const { callOpenAIText } = await import('./openai.js');
   const voice = await readKnowledge(env, 'brand-voice').catch(() => null);
   const draft = await callOpenAIText(env, {
-    system: `You write LinkedIn posts for Nyyon's founder — a premium AI-native marketing agency. Sharp, contrarian-but-earned, no hashtags spam, no "thrilled to announce". One strong idea, a clear take, ends on a line that lands. 80-150 words.\n\n${voice?.body ? 'Brand voice:\n' + voice.body.slice(0, 1500) : ''}`,
-    prompt: `React to this industry item with a post that gives Nyyon's POV:\n\nTitle: ${sig.title}\nAngle: ${sig.suggested_angle || ''}\nSource: ${sig.url}\n\nWrite the post.`,
+    system: `You write LinkedIn posts for the operator, in their company's voice. Sharp, contrarian-but-earned, no hashtags spam, no "thrilled to announce". One strong idea, a clear take, ends on a line that lands. 80-150 words.\n\n${voice?.body ? 'Brand voice:\n' + voice.body.slice(0, 1500) : ''}`,
+    prompt: `React to this industry item with a post that gives the operator's POV:\n\nTitle: ${sig.title}\nAngle: ${sig.suggested_angle || ''}\nSource: ${sig.url}\n\nWrite the post.`,
   });
   return { ok: true, draft, signal_title: sig.title, note: 'Draft only — operator reviews before posting. Use the LinkedIn post tool to publish if approved.' };
 }

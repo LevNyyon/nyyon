@@ -1,4 +1,4 @@
-// OSINT scrapers — port of inrepute's review-hub-osint/tools/sources, adapted
+// OSINT scrapers — public-source mention monitors, adapted
 // for Cloudflare Workers (Web Crypto, no process.env, fetch is global).
 // Six public sources, no auth required (github optional token).
 //
@@ -15,7 +15,7 @@ import { now, uid, safeJSON, decodeNumericEntities } from './util.js';
 import { logEvent } from './db.js';
 import { fetchText as webFetchText, head as webHead } from './web-gateway.js';
 
-const UA = 'nyyon-osint/0.1 (https://nyyon.com; contact: hello@nyyon.com)';
+const UA = 'osint-monitor/0.1';
 
 // ─── helpers ────────────────────────────────────────────────
 async function sha1Hex(str) {

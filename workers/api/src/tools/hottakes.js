@@ -307,13 +307,13 @@ export const tools = {
         type: 'object',
         properties: {
           id:    { type: 'string' },
-          voice: { type: 'string', enum: ['lev', 'house'], description: 'default lev' },
+          voice: { type: 'string', enum: ['personal', 'house'], description: 'default personal' },
         },
         required: ['id'],
       },
     },
     // title/body/voice are exactly the keys the shared article writer reads.
-    run: async (env, input) => ({ ...(await buildArticleSeed(env, input.id)), voice: input.voice || 'lev' }),
+    run: async (env, input) => ({ ...(await buildArticleSeed(env, input.id)), voice: input.voice || 'personal' }),
   },
 
   link_hottake_article: {
@@ -343,7 +343,7 @@ export const tools = {
         blog_slug: slug,
         slug,
         title: a.title || pkg.headline || pkg.title,
-        url: blogUrl(slug),
+        url: blogUrl(slug, env),
         excerpt: a.excerpt || pkg.intro || null,
         tags: a.tags || [],
         body_html: a.body || '',

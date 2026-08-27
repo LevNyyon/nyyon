@@ -53,7 +53,7 @@ const SOURCE_DOCS = [
   { key: 'heartbeat_priorities', slug: PRIORITIES_SLUG,     label: 'Heartbeat priorities' },
 ];
 
-const FEED_UA = 'NyyonHeartbeat/1.0 (+nyyon.com)';
+const FEED_UA = 'heartbeat-rss/1.0';
 
 // Sentinels around the section this flow owns inside heartbeat-priorities.
 // Everything outside them is the operator's (or the seed's) and is never

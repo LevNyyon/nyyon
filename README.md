@@ -1,69 +1,54 @@
-# Nyyon Command Center
+# Command Center
 
-Operator backstage hub for Nyyon. A chatbot called **Nyo** sits at the center, surrounded by **modules** (workflows) and **tools** (granular capabilities). Built on the Cloudflare suite (Pages + Worker + D1) with the Inrepute paper/ink visual language.
+An AI command center you own: outreach, writing, and publishing from one place, in your voice. A chat assistant called **Nyo** sits at the center, surrounded by **modules** (product areas with their own pages) and **tools** (granular capabilities Nyo can use). It runs entirely on your own machine: Workers runtime plus a local SQLite (D1) database.
+
+## Install
+
+See [INSTALL.md](INSTALL.md) for the one-line installer and exactly what it does to your machine. By hand, from a clone of this repo:
+
+```bash
+npm run setup   # dependencies, local database, .dev.vars with a unique sign-in secret
+npm start       # starts the API and the UI, then opens the setup screen
+```
+
+Create your account on the setup screen and paste an Anthropic API key when asked (you can skip it and add it later). External connections (WhatsApp, LinkedIn, social webhooks, enrichment APIs) are off until you configure them; each module asks for what it needs the first time you open it. Secrets live in `workers/api/.dev.vars`, which is gitignored.
 
 ## Layout
 
-- `web/` — Vite + React 19 + Tailwind v4. Sidebar lists modules and tools. ChatDrawer (Cmd/Ctrl+J) is Nyo.
-- `workers/api/` — Hono on Cloudflare Workers. REST routes + Nyo SSE chat endpoint with tool-use loop.
-- `db/` — D1 schema + seed migration.
+- `web/`: Vite + React + Tailwind SPA. The sidebar lists modules; the ChatDrawer (Cmd/Ctrl+J) is Nyo.
+- `workers/api/`: Hono on the Workers runtime. REST routes plus the Nyo SSE chat endpoint with a tool-use loop.
+- `db/`: D1 schema + migrations.
+- `desktop/`: the packaged desktop app shell (Electron).
+- `scripts/`: setup, run, and seed scripts.
+- `docs/`: architecture and inventory notes.
 
-## Clone & run (local dev)
+## Architecture
 
-Any teammate can run the whole stack locally, independent of everyone else —
-each person has their **own** local D1 and their **own** `.dev.vars`.
+The system is built in five layers, and each layer may reach only the layer(s) below it:
 
-**You need:** Node 18+ and a Cloudflare API token for the account. The worker's
-R2 + Workers-AI bindings are `remote: true`, so `wrangler dev` reaches the real
-account for those — export `CLOUDFLARE_API_TOKEN=…` (or `wrangler login` if you
-have dashboard access).
+1. **Gateway**: the boundary to one external service. No reasoning.
+2. **Tool**: one job, in a single shared pool.
+3. **Workflow**: an ordered list of existing tools. No logic.
+4. **Module**: a product area with a page.
+5. **Knowledge**: editable rules, constants, and prompts. Change behavior by editing a note, not code.
 
-```bash
-git clone https://github.com/LevNyyon/nyyon-command-center-online.git
-cd nyyon-command-center-online
-
-# 1. deps
-npm --prefix workers/api install
-npm --prefix web         install
-
-# 2. secrets — copy the example, fill in your OWN keys
-cp workers/api/.dev.vars.example workers/api/.dev.vars
-#   ANTHROPIC_API_KEY, GATE_USER, GATE_PASSWORD, GATE_SECRET   (WA_API_KEY optional)
-
-# 3. local database — schema + ALL migrations, one command
-npm --prefix workers/api run db:apply:local
-
-# 4. run (two terminals)
-npm --prefix workers/api run dev   # API  :8788
-npm --prefix web         run dev   # UI   :5174
-```
-
-Open <http://localhost:5174>. The login gate (`src/gate.js`) uses the `GATE_*`
-you set; Cmd/Ctrl+J wakes Nyo.
-
-## Working in parallel
-
-- Each dev runs their **own** local D1 + `.dev.vars` — no shared local state, no stepping on each other.
-- Branch + PR into `main`. Keep secrets out of git (`.dev.vars` is gitignored).
-- Deploys to **cmd.nyyon.com are currently manual**: `npm --prefix workers/api run deploy`. Production secrets live on the Worker (`wrangler secret put …`), not in the repo. (The git-push auto-build is being stabilized — until then, a push does **not** safely deploy.)
+Under everything sits an activity bus: every meaningful mutation logs an event. See `docs/` for the full tool, gateway, and workflow inventory.
 
 ## Stack
 
 | Layer | Choice |
 |---|---|
-| LLM | Anthropic Claude Opus 4.7 (`claude-opus-4-7`) |
-| Edge runtime | Cloudflare Workers (Hono) |
-| DB | Cloudflare D1 (SQLite) |
-| KV / R2 | bindings reserved in wrangler.jsonc, wired as modules need them |
-| Frontend | Vite + React 19 + Tailwind v4 |
-| Brand | Inrepute paper/ink minimal grid |
+| LLM | Anthropic Claude (model choices live in the `llm-models` knowledge doc) |
+| Runtime | Workers runtime (Hono), run locally via wrangler |
+| DB | D1 (SQLite), local |
+| Assets | R2 binary store (local simulation via wrangler) |
+| Frontend | Vite + React + Tailwind |
 
-## Modules (v0)
+## Modules
 
-- **Nyo** — the chatbot, persistent across sessions, tool-using.
-- **Knowledge** — markdown docs Nyo reads + writes. Source of truth for system design.
-- **Roadmap** — relational nodes + edges describing what shipped, what's next.
-
-## Planned
-
-Website, Blog, AI SDR, OSINT (Reddit + WhatsApp listeners), Remotion video, ChatGPT image gen.
+- **Nyo**: the chat assistant, persistent across sessions, tool-using.
+- **Knowledge**: editable docs Nyo reads and writes: the source of truth for rules, voice, and settings.
+- **Blog + AEO**: write, publish, and distribute articles to your public site, in your voice.
+- **Hot Takes**: turn industry signals into a take, a brief, an article, and social posts.
+- **Outreach + Prospecting**: WhatsApp-first outreach queues where only the operator approves sends.
+- **Signals / OSINT**: feed sources and listeners that keep the system aware of your industry.

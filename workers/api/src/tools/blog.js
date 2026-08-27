@@ -6,7 +6,7 @@
 // are now workflows (workflows/seeds/blog.js) built from these tools.
 //
 // Two guardrails are load-bearing here and must survive any edit:
-//   • save_blog_post NEVER publishes — a draft reaches nyyon.com only through
+//   • save_blog_post NEVER publishes — a draft reaches the public site only through
 //     publish_blog_post, which is the operator's approval gate.
 //   • claim_aeo_question is the atomic no-duplicate-write gate for the writer.
 //
@@ -166,7 +166,7 @@ export const tools = {
   delete_blog_post: {
     def: {
       name: 'delete_blog_post',
-      description: 'Delete one blog post by slug. Irreversible, and it does not take a live post off nyyon.com by itself. Resolve the exact slug with list_blog_posts and confirm with the operator first.',
+      description: 'Delete one blog post by slug. Irreversible, and it does not take a live post off the public site by itself. Resolve the exact slug with list_blog_posts and confirm with the operator first.',
       input_schema: {
         type: 'object',
         properties: { slug: { type: 'string' } },
@@ -182,7 +182,7 @@ export const tools = {
   publish_blog_post: {
     def: {
       name: 'publish_blog_post',
-      description: 'Publish one blog post live on nyyon.com. Marks it published, verifies the edge worker actually serves it (live=true means confirmed, not queued), pings IndexNow, and logs the attempt to the Outbox. This is the operator\'s approval gate: call it only when they say publish or ship.',
+      description: 'Publish one blog post live on the public site. Marks it published, verifies the edge worker actually serves it (live=true means confirmed, not queued), pings IndexNow, and logs the attempt to the Outbox. This is the operator\'s approval gate: call it only when they say publish or ship.',
       input_schema: {
         type: 'object',
         properties: {
@@ -202,14 +202,14 @@ export const tools = {
   read_voice_profile: {
     def: {
       name: 'read_voice_profile',
-      description: 'Read the assembled writing voice: the brand voice doc plus the operator\'s learned editorial taste, and the founder\'s personal voice when voice="lev". Feed the result to draft_article or expand_article so everything is written in house voice.',
+      description: 'Read the assembled writing voice: the brand voice doc plus the operator\'s learned editorial taste, and the founder\'s personal voice when voice="personal". Feed the result to draft_article or expand_article so everything is written in house voice.',
       input_schema: {
         type: 'object',
-        properties: { voice: { type: 'string', enum: ['house', 'lev'], description: 'house (default) or lev' } },
+        properties: { voice: { type: 'string', enum: ['house', 'personal'], description: 'house (default) or personal' } },
         required: [],
       },
     },
-    run: async (env, input) => readVoiceProfile(env, { voice: input?.voice === 'lev' ? 'lev' : 'house' }),
+    run: async (env, input) => readVoiceProfile(env, { voice: input?.voice === 'personal' ? 'personal' : 'house' }),
   },
 
   draft_article: {
@@ -527,7 +527,7 @@ export const tools = {
           target_keyword: { type: 'string' },
           priority:       { type: 'number', description: 'lower = sooner' },
           notes:          { type: 'string', description: 'angle / context for the eventual article' },
-          voice:          { type: 'string', enum: ['house', 'lev'] },
+          voice:          { type: 'string', enum: ['house', 'personal'] },
           status:         { type: 'string', enum: ['pending', 'drafting', 'drafted', 'published', 'failed'] },
           blog_slug:      { type: 'string', description: 'the article this question produced' },
           error:          { type: 'string', description: 'why it failed, with status=failed' },
@@ -547,7 +547,7 @@ export const tools = {
           notes: input.notes || null,
           priority: input.priority ?? 3,
         });
-        if (input.voice === 'lev' || input.voice === 'house') await setAeoVoice(env, created.slug, input.voice);
+        if (input.voice === 'personal' || input.voice === 'house') await setAeoVoice(env, created.slug, input.voice);
         return { ok: true, question_slug: created.slug, question: created.question, created: true };
       }
 
@@ -575,7 +575,7 @@ export const tools = {
         scheduled_for:  existing.scheduled_for,
         notes:          input.notes          ?? existing.notes,
       });
-      if (input.voice === 'lev' || input.voice === 'house') await setAeoVoice(env, existing.slug, input.voice);
+      if (input.voice === 'personal' || input.voice === 'house') await setAeoVoice(env, existing.slug, input.voice);
       return { ok: true, question_slug: merged.slug, question: merged.question };
     },
   },
@@ -715,7 +715,7 @@ export const tools = {
   draft_suggestion_angles: {
     def: {
       name: 'draft_suggestion_angles',
-      description: 'Develop scored industry signals into Nyyon article angles in one reasoning step: a working title, the keyword, our specific take and why it is worth writing now. It deduplicates against existing posts and queued topics and saves nothing.',
+      description: 'Develop scored industry signals into article angles in one reasoning step: a working title, the keyword, our specific take and why it is worth writing now. It deduplicates against existing posts and queued topics and saves nothing.',
       input_schema: {
         type: 'object',
         properties: {

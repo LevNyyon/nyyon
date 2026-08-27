@@ -246,11 +246,11 @@ route migrations:
   NEW: for (const slug of slugs) await runTool(c.env, 'publish_blog_post', { slug, deploy: false }); then one deploy at the end
   NOTE: Or leave on the lib: the batch helper is a loop with a single trailing rebuild, not a tool.
 - OLD: index.js:596 app.post('/api/blog/:slug/reshape') — composeAndSavePost(c.env, {slug, title, body, voice, target_keyword, published, published_at, actor})
-  NEW: runWorkflow(c.env, 'blog-shape', { slug, title: post.title, body: post.body, voice: body.voice || 'lev', target_keyword: body.target_keyword || null, actor: 'operator' })
+  NEW: runWorkflow(c.env, 'blog-shape', { slug, title: post.title, body: post.body, voice: body.voice || 'house', target_keyword: body.target_keyword || null, actor: 'operator' })
   NOTE: The route must keep its own readBlogPost first: blog-shape has no read step (it also serves fresh writes). published/published_at are no longer passed — save_blog_post preserves the row's existing publication state by design.
 - OLD: index.js:620 app.post('/api/blog/:slug/expand') — expandPostWithFaq(c.env, {slug, voice, actor})
-  NEW: runWorkflow(c.env, 'blog-expand', { slug, voice: body.voice || 'lev' })
-  NOTE: Behaviour note: read_voice_profile now defaults to 'house', so the route must keep passing voice:'lev' to preserve today's default.
+  NEW: runWorkflow(c.env, 'blog-expand', { slug, voice: body.voice || 'house' })
+  NOTE: Behaviour note: read_voice_profile defaults to 'house'; pass the personal voice value explicitly only when the operator asks for that overlay.
 - OLD: index.js:630 app.post('/api/blog/:slug/generate-image') — regenerateBlogFeaturedImage(c.env, slug, {actor, prompt_override, model})
   NEW: runWorkflow(c.env, 'blog-featured-image', { slug, model: body.model || null, n: body.n || null })
   NOTE: prompt_override has no place in the workflow (draft_visual_brief would overwrite it in the shared context). For that path call the tools directly: render_images({blog_slug, prompt: body.prompt_override, model}) -> judge_images -> set_featured_image.
@@ -352,7 +352,7 @@ route migrations:
   NEW: runTool(c.env, 'scan_hottake_article', { id: c.req.param('id'), actor: 'operator' })
   NOTE: Straight rename; same {package, open_claims, flags} out.
 - OLD: index.js:1634  POST /api/hot-takes/packages/:id/draft-social → runTool(c.env, 'hottake_draft_social', { id, channel, actor: 'operator' })
-  NEW: Per requested channel (default both linkedin-company + linkedin-personal): const pkg = await runTool(env,'read_hottake_package',{id}); const { post } = await runTool(env,'read_blog_post',{slug: pkg.package.blog_slug}); const d = await runTool(env,'draft_social_post',{channel, title: post.title, url: `https://nyyon.com/blog/${post.slug}/`, excerpt: post.excerpt, tags: post.tags, body_html: post.body, slug: post.slug}); await runTool(env,'save_social_post',{channel, content: d.content, slug: post.slug, title: post.title, image_url: post.featured_image_url, package_id: id});
+  NEW: Per requested channel (default both linkedin-company + linkedin-personal): const pkg = await runTool(env,'read_hottake_package',{id}); const { post } = await runTool(env,'read_blog_post',{slug: pkg.package.blog_slug}); const d = await runTool(env,'draft_social_post',{channel, title: post.title, url: `${PUBLIC_ORIGIN}/blog/${post.slug}/`, excerpt: post.excerpt, tags: post.tags, body_html: post.body, slug: post.slug}); await runTool(env,'save_social_post',{channel, content: d.content, slug: post.slug, title: post.title, image_url: post.featured_image_url, package_id: id});
   NOTE: draft_hottake_post/save_hottake_post were cut as twins. Use read_blog_post (NOT link_hottake_article) to gather the article fields — link_hottake_article moves the package status back to 'review', which would regress a package already at ready/scheduled. save_social_post MUST persist package_id or the legs are orphaned from the package.
 - OLD: index.js:1639  POST /api/hot-takes/packages/:id/schedule → runTool(c.env, 'hottake_schedule_release', { id, ...b, actor: 'operator' })
   NEW: runTool(c.env, 'schedule_hottake_release', { id: c.req.param('id'), ...b, actor: 'operator' })

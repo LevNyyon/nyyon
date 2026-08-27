@@ -1,38 +1,38 @@
 -- 0020 — Seed the knowledge tree.
 --
 -- Writes the root + branch documents that turn the flat knowledge index
--- into a navigable tree, then reparents every pre-existing doc into its
--- right slot. The shape is:
+-- into a navigable tree, then reparents pre-existing docs into their
+-- right slots. The shape is:
 --
---   nyyon-root
+--   knowledge-root
 --     ├── nyyon-stack
---     ├── nyyon-brand → nyyon-brand-voice
---     ├── module-nyo → prompt-wa-reply
---     ├── module-digest → nyyon-digest-interests
+--     ├── brand → brand-voice
+--     ├── module-nyo
+--     ├── module-digest
 --     ├── module-outbox
 --     ├── module-website
---     ├── module-funnel → nyyon-funnel, nyyon-funnel-stages
---     ├── module-channels → nyyon-whatsapp, nyyon-whatsapp-group-listening-policy,
---     │                     nyyon-whatsapp-opportunity-detection, whatsapp-endpoints,
---     │                     linkedin-endpoints
+--     ├── module-funnel
+--     ├── module-channels
 --     ├── module-contacts
 --     ├── module-blog
---     ├── module-aeo → nyyon-aeo-playbook
+--     ├── module-aeo → article-playbook
 --     ├── module-calendar
 --     ├── module-osint
 --     ├── module-workflows
 --     ├── system-knowledge → how-knowledge-works
 --     ├── system-roadmap → how-roadmap-works
---     ├── system-modules → how-to-add-a-module
+--     ├── system-modules
 --     ├── system-tools
 --     ├── system-activity
 --     ├── system-settings
---     └── system-observability → system-health, system-state
+--     └── system-observability
 --
 -- Each branch carries the "current state" of that module — file paths,
 -- routes, migrations, gotchas, and the path to extend it. The intent is
 -- that an LLM (or a new human collaborator) can walk root → branch → leaf
 -- and reconstruct the whole product without reading code first.
+-- Author-specific content was removed for the shipped product; bodies are
+-- neutral and operator-addressed.
 
 -- ────────────────────────────────────────────────────────────────
 -- ROOT
@@ -40,30 +40,27 @@
 INSERT OR REPLACE INTO knowledge_docs (slug, title, body, scope, module, parent_slug, updated_at) VALUES
 (
   'knowledge-root',
-  'Nyyon — start here',
-  '# Nyyon Command Center
+  'Command Center — start here',
+  '# Command Center
 
-The operator backstage hub for Nyyon, a white-glove AI-native marketing agency. Everything we build sits inside this command center — chat with Nyo, the morning digest, the funnel, the marketing site, contacts, and a growing list of channel integrations.
+The operator backstage hub for your company. Everything sits inside this command center: chat with Nyo, the morning digest, the funnel, your public site, contacts, and a growing list of channel integrations.
 
 ## What lives here
-- **Modules** — surfaces in the sidebar. Each one is a workflow the operator runs. See `system-modules` for the registry; one doc per module below.
-- **System tools** — Knowledge (this tree), Roadmap (planned next nodes), Modules registry, Tools registry, Activity log, Settings.
-- **Nyo** — the chatbot at the center. Reads this knowledge tree, drives 20+ tools (knowledge CRUD, modules/tools/roadmap, content, feature flags, WhatsApp, LinkedIn).
+- **Modules**: surfaces in the sidebar. Each one is a workflow the operator runs. See `system-modules` for the registry; one doc per module below.
+- **System tools**: Knowledge (this tree), Roadmap (planned next nodes), Modules registry, Tools registry, Activity log, Settings.
+- **Nyo**: the chatbot at the center. Reads this knowledge tree, drives 20+ tools (knowledge CRUD, modules/tools/roadmap, content, feature flags, WhatsApp, LinkedIn).
 
 ## Where to start by goal
 - **"How is this built?"** → `nyyon-stack`
-- **"What does Nyyon sound like?"** → `nyyon-brand`
-- **"I want to add a module"** → `system-modules` → `how-to-add-a-module`
+- **"What does the brand sound like?"** → `brand`
 - **"I want to ship a marketing change"** → `module-website` (use the Publish panel)
 - **"WhatsApp isn''t sending"** → `module-channels`, then `module-outbox` to see the error row
-- **"The morning digest is wrong"** → `module-digest`, `nyyon-digest-interests`
+- **"The morning digest is wrong"** → `module-digest`
 
 ## Rules of the house
-- **Caveman talk in chat. Plain English in docs.** (User-set preference, applies to every Nyyon agent reply.)
-- **WhatsApp test sends ONLY via `POST /api/wa/test-send`** — forces the operator''s own number and prefixes `[NYYON TEST · HH:MM:SS]`. Never hit `/api/wa/send` or `/api/digest/:id/execute` from a script.
-- **Real sends to real chats only via a UI click.** This rule exists because we once spammed a production group during a smoke test.
-- **Default LLM provider is OpenAI gpt-5.5** (`max_completion_tokens`); fallback Anthropic claude-opus-4-7.
-- **Cloudflare-only stack** — no separate infra. Pages for the marketing site, Workers + D1 for the API, local sidecars for wa-gateway / LinkedIn.
+- **WhatsApp test sends ONLY via `POST /api/wa/test-send`**: it forces the operator''s own number and adds a visible test prefix. Never hit `/api/wa/send` or `/api/digest/:id/execute` from a script.
+- **Real sends to real chats only via a UI click.** Never from a script or a smoke test.
+- **Cloudflare-only stack**: no separate infra. Pages for the public site, Workers + D1 for the API, local sidecars for the WhatsApp / LinkedIn gateways.
 
 ## How this tree is meant to be read
 Every doc points at its parent via `parent_slug`. The breadcrumb above any doc is the context route — the chain of things you need to know to fully understand it. Read top-down for orientation, bottom-up when you''re debugging a leaf.',
@@ -84,31 +81,27 @@ Every doc points at its parent via `parent_slug`. The breadcrumb above any doc i
 Cloudflare-only for production. Local sidecars for things Cloudflare can''t do (browser puppeteer, daemons).
 
 ## Production surfaces
-- **nyyon.com** — marketing site. Cloudflare Pages project `nyyon-lp`, branch `main`. Auto-deploys from `Saragus-Partners/Nyyon-LP` GitHub repo are DISABLED (`deployments_enabled=false`); the only path to production is the Publish panel in `module-website` or a manual `wrangler pages deploy`.
-- **Pages account** — `lev@saragus.com` (CF account id `f6b1ffe60d85c7d1323681a2a69419a1`). Auth via Global API Key (`CLOUDFLARE_EMAIL` + `CLOUDFLARE_API_KEY`).
+- **Public site**: a Cloudflare Pages project on your account. The path to production is the Publish panel in `module-website` or a manual `wrangler pages deploy`.
+- **API**: a Cloudflare Worker + a single D1 database, deployed with `wrangler deploy` from `workers/api/`.
 
 ## Local services (developer machine)
-- **Ops UI** — Vite, `http://localhost:5174` (`web/`). React + Tailwind.
-- **Marketing site preview** — Vite, `http://localhost:5176` (`web-public/`).
-- **API worker** — wrangler dev, `http://localhost:8788` (`workers/api/`). Hono router + D1.
-- **Deploy sidecar** — Node, `http://localhost:8791` (`scripts/deploy-server.mjs`). Runs `npm run build && wrangler pages deploy` when the Publish button is clicked.
-- **wa-gateway gateway** — `http://localhost:2785/api` (separate repo, `~/wa-gateway/`). WhatsApp Web puppet.
-- **LinkedIn gateway** — `http://localhost:2786` (separate repo, `~/LinkedinGateway/`). Hybrid voyager + Playwright.
-
-## Repos
-- `~/nyyon-command-center/` — this codebase. GitHub `LevNyyon/nyyon-command-center` (private). User keeps working locally; no auto-push.
-- Marketing site code lives in `web-public/`. Built artifacts go to `web-public/dist/` and are uploaded directly to the Pages project.
+- **Ops UI**: Vite, `http://localhost:5174` (`web/`). React + Tailwind.
+- **Public site preview**: Vite, `http://localhost:5176` (`web-public/`).
+- **API worker**: wrangler dev, `http://localhost:8788` (`workers/api/`). Hono router + D1.
+- **Deploy sidecar**: Node, `http://localhost:8791` (`scripts/deploy-server.mjs`). Runs the build + Pages deploy when the Publish button is clicked.
+- **WhatsApp gateway**: `http://localhost:2785/api` (separate repo). WhatsApp Web puppet.
+- **LinkedIn gateway**: `http://localhost:2786` (separate repo).
 
 ## D1 database
 - Single D1 binding `DB`. Migrations in `db/migrations/` (numbered, append-only). Latest migration: see `ls db/migrations/ | tail -3`.
-- Local: `wrangler d1 execute nyyon --local --file=db/migrations/000X.sql` from `workers/api/`.
+- Local: `wrangler d1 execute <db-name> --local --file=db/migrations/000X.sql` from `workers/api/`.
 
 ## How a marketing change ships
 1. Edit `web-public/src/...` locally.
 2. Vite hot-reloads at :5176.
-3. Click "Publish to nyyon.com" in ops UI → Website → Manager.
-4. The sidecar runs `npm run build` (snapshot D1 → JSON, vite, prerender 188 blog posts) then `wrangler pages deploy dist --project-name=nyyon-lp --branch=main`.
-5. Edge cache propagates in ~30 seconds.',
+3. Click Publish in ops UI → Website → Manager.
+4. The sidecar runs `npm run build` (snapshot D1 → JSON, vite, prerender blog posts) then `wrangler pages deploy dist --branch=main` against your Pages project.
+5. Edge cache propagates in about 30 seconds.',
   'global',
   NULL,
   'knowledge-root',
@@ -119,25 +112,19 @@ Cloudflare-only for production. Local sidecars for things Cloudflare can''t do (
   'Brand — voice, positioning, visual',
   '# Brand
 
-Nyyon is a white-glove AI-native marketing agency. Elite strategists paired with proprietary AI workflows. Premium quality at startup speed.
+Fill this branch in for your company. Nyo and the content writers read this tree before drafting anything public, so keep it current: who you are, your positioning one-liner, and how you sound.
 
 ## Positioning one-liner
-"Marketing that thinks faster than your market moves."
+Write yours here. One sentence a stranger could repeat.
 
 ## Voice
-See `nyyon-brand-voice` for the full rules. Short version:
-- No em-dashes or en-dashes in LLM output. Use hyphens or restructure.
-- Plain, direct, no metaphors, no "what this means" sections.
-- Verbs do the work. Adjectives are suspect.
+See `brand-voice` for the full writing rules. Keep them short and operational: what to avoid, what a good sentence looks like.
 
 ## Visual language
-- Inrepute paper/ink palette (warm off-white paper, near-black ink, two-tier card for tile lift).
-- Inter for text, JetBrains Mono for labels/mono tags.
-- 56px CSS grid backdrop with viewport-fixed gridlines. Dynamic grid lights canvas overlay on hover + ambient flares.
-- Logo: 64×70 SVG glyph. Light + dark variants swap on `prefers-color-scheme`.
+Describe your palette, typography, and layout conventions here so generated assets stay consistent.
 
 ## CTA destination
-Every "Book a call" surface on nyyon.com opens the same Calendly popup: `https://calendly.com/nyyon/30min`. Routed through `web-public/src/lib/cta.ts` so swapping is a one-line change.',
+Every "Book a call" surface on the public site is routed through `web-public/src/lib/cta.ts`, so swapping the scheduling link is a one-line change.',
   'global',
   NULL,
   'knowledge-root',
@@ -156,9 +143,9 @@ The chatbot at the center. Full-screen page (`web/src/pages/Nyo.tsx`) plus a sid
 
 ## Today
 - SSE streaming. Tool-use loop with 8 hops max.
-- Provider-agnostic via `callLLM` → Anthropic or OpenAI. Default: OpenAI **gpt-5.5** (`max_completion_tokens`).
+- Provider-agnostic via `callLLM` → Anthropic or OpenAI.
 - 20+ tools: knowledge CRUD, modules/tools/roadmap registry, content blocks, feature flags, WhatsApp send/reply/image/document/react, LinkedIn DMs.
-- Reads `whatsapp-endpoints` knowledge doc before any WhatsApp work (auto-prime → /start → poll → send).
+- Reads the channels knowledge docs before any WhatsApp work (auto-prime → /start → poll → send).
 
 ## Where it lives
 - Worker handler: `workers/api/src/chat/index.js`
@@ -174,7 +161,7 @@ Set in `workers/api/.dev.vars`:
 Health probe at `/api/nyo/brain` reports the active provider + model + key-set status.
 
 ## Prompts
-System prompts for individual tools live in knowledge docs so they can be edited without a deploy. Example: `prompt-wa-reply` (the WhatsApp reply writer).
+System prompts for individual tools live in knowledge docs so they can be edited without a deploy. Example: create a `prompt-wa-reply` doc to override the WhatsApp reply writer''s default prompt.
 
 ## How to add a tool
 Edit `workers/api/src/chat/tools.js`. Each tool is `{ name, description, input_schema, handler(env, input) }`. The chat loop wires it automatically.',
@@ -196,7 +183,7 @@ Pulls actionable items from WhatsApp groups, OSINT mentions, and (soon) email in
 - "Updated Nm ago" subtitle pulled from `digest_generated` events row.
 - Per-item drawer with two-stage fetch: context (fast DB read, ~50ms) + actions (LLM draft, 5-15s). Target message renders instantly; LLM draft streams in.
 - Recipient picker — group / private DM / "DM another contact…". LLM-recommended default + reason. Deterministic fallback: if `suggested_action` says "DM <name>" we route to private even when the LLM call hiccups.
-- Sender recovery: when wa-gateway strips `author` from a group message (442/521 stored messages affected), we extract the author from the trailing segment of the message id (`..._183300681392151@lid`). Works without contacts or roster lookup.
+- Sender recovery: when the WhatsApp gateway strips `author` from a group message, we extract the author from the trailing segment of the message id (`..._<id>@lid`). Works without contacts or roster lookup.
 
 ## Where it lives
 - Worker lib: `workers/api/src/lib/digest.js`
@@ -209,9 +196,11 @@ Pulls actionable items from WhatsApp groups, OSINT mentions, and (soon) email in
 ## Migrations
 `0015_digest.sql`, `0016_digest_channels.sql`.
 
+## Customization
+- Create a `digest-interests` knowledge doc to tell the LLM what to flag as "of interest".
+- Create a `prompt-wa-reply` doc to override the reply writer''s system prompt.
+
 ## See also
-- `nyyon-digest-interests` — what the LLM should flag as "of interest"
-- `prompt-wa-reply` — system prompt for the reply writer (editable in Knowledge)
 - `module-channels` — where the raw messages come from
 - `module-outbox` — where the failed/successful sends land',
   'module',
@@ -242,7 +231,7 @@ Every outbound message — WhatsApp reply/text/image/document/reaction, LinkedIn
 The 5 WhatsApp send helpers (`replyToWaMessage`, `sendText`, `sendImage`, `sendDocument`, `reactToMessage`) and the LinkedIn `sendDirectMessage` start with `beginSend` (writes a `queued` row), run the provider call, then flip to `sent` (with `message_id`) or `failed` (with `error`). The throw still bubbles so callers can react; the row stays as the audit record.
 
 ## Backfill
-On install, 77 past WhatsApp outbound messages from `wa_messages` (where `from_me=1`) were seeded with `source=''backfill''` so the operator has continuity. Past FAILED sends are lost — they were thrown to the UI and never persisted.
+An optional backfill can seed past WhatsApp outbound messages from `wa_messages` (where `from_me=1`) with `source=''backfill''` so the operator has continuity. Past FAILED sends are not recoverable — they were thrown to the UI and never persisted.
 
 ## Retry
 `POST /api/outbox/:id/retry` re-fires the original payload via the channel''s sender. Chains via `parent_id` so each retry is its own row.',
@@ -256,27 +245,27 @@ On install, 77 past WhatsApp outbound messages from `wa_messages` (where `from_m
   'Module · Website — content + ship to prod',
   '# Website
 
-Edits the public marketing site (nyyon.com) and ships it to production from inside the ops UI.
+Edits your public marketing site and ships it to production from inside the ops UI.
 
 ## Today
 - Two tabs: **Content** + **Manager** (`web/src/pages/WebsiteContent.tsx`, `WebsiteManager.tsx`).
 - **Content** — block-level editor with live preview iframe pointing at `localhost:5176`. Click any block to edit; preview reloads on save.
-- **Manager** — Status panel (heartbeat to nyyon.com), **Publish panel** (one-click build + deploy), Pages list, Layout (per-section visibility + reorder via drag), SEO meta editor.
+- **Manager** — Status panel (heartbeat to the production site), **Publish panel** (one-click build + deploy), Pages list, Layout (per-section visibility + reorder via drag), SEO meta editor.
 - **Publish** — confirmation modal → calls local sidecar (`scripts/deploy-server.mjs` on :8791) → runs `npm run build && wrangler pages deploy dist --branch=main` in `web-public/`. Live build log streams into the panel.
 
 ## Public site features (shipped)
-- 188 blog posts imported from old site zip. Bodies via `prose-body` class. Inline `<aside>` CTA ribbon prerendered into every post for AEO.
-- 5 JSON-LD blocks on home (Organization, WebSite, ProfessionalService, FAQPage, HowTo). GTM + Microsoft Clarity. Full OG + Twitter cards. Canonical. sitemap.xml (192 URLs). robots.txt with 6 AI crawler allows. llms.txt.
-- Calendly popup on every "Book a call" surface via `web-public/src/lib/cta.ts`.
+- Blog posts served from D1. Bodies via `prose-body` class. Inline `<aside>` CTA ribbon prerendered into every post for AEO.
+- JSON-LD blocks on home (Organization, WebSite, ProfessionalService, FAQPage, HowTo). Full OG + Twitter cards. Canonical. sitemap.xml. robots.txt with AI crawler allows. llms.txt.
+- Scheduling popup on every "Book a call" surface via `web-public/src/lib/cta.ts`.
 - Dynamic GridLights canvas overlay: cell under cursor + 8 neighbors light up; random ambient flares every 700ms. CSS gridlines use `background-attachment: fixed` so canvas + lines stay aligned during scroll.
 
 ## Where it lives
 - Public site source: `web-public/src/`
-- Build pipeline: `web-public/scripts/snapshot.mjs` (D1 → JSON) → `sitemap.mjs` → vite build → `prerender-blog.mjs` (188 static HTMLs).
+- Build pipeline: `web-public/scripts/snapshot.mjs` (D1 → JSON) → `sitemap.mjs` → vite build → `prerender-blog.mjs` (static HTML per post).
 - Worker content routes: `GET/POST/PATCH/DELETE /api/content`, `GET /api/sections/:page`, `PATCH /api/sections/:id`, `POST /api/sections/reorder`.
 
 ## Deploying
-**Always via the Publish button.** The git auto-deploy on the Pages project is disabled. Manual fallback: from `web-public/`, `npm run build && CLOUDFLARE_EMAIL=… CLOUDFLARE_API_KEY=… npx wrangler pages deploy dist --project-name=nyyon-lp --branch=main`.',
+**Always via the Publish button.** Manual fallback: from `web-public/`, `npm run build && npx wrangler pages deploy dist --project-name=<your-pages-project> --branch=main`.',
   'module',
   'website',
   'knowledge-root',
@@ -299,11 +288,7 @@ Tracks every prospect through 9 stages from anonymous web visit to signed client
 - Worker lib: `workers/api/src/lib/web.js` (ingest sessions/events, identifyByEmail, conversions, sankey).
 - Routes: `/api/web/sessions`, `/api/web/events`, `/api/identities`, `/api/identities/:id`, `/api/conversions`, `/api/funnel/stats`, `/api/funnel/sankey`, `/api/funnel/stages/:stage`.
 - Migrations: `0005_funnel.sql`, `0006_identity_links.sql`.
-- Tracker JS: `web-public/public/tracker.js` (vanilla, loaded by every public page).
-
-## See also
-- `nyyon-funnel` — flow + events + tables
-- `nyyon-funnel-stages` — stage definitions',
+- Tracker JS: `web-public/public/tracker.js` (vanilla, loaded by every public page).',
   'module',
   'funnel',
   'knowledge-root',
@@ -320,7 +305,7 @@ Inbound + outbound WhatsApp (and LinkedIn). The raw plumbing that feeds the Dige
 - Two tabs: **Chats** + **Feed**.
 - WhatsApp via the bundled gateway at `127.0.0.1:2785`. Its key is generated per install and its session id defaults to `default`.
 - Per-chat policy: `auto_listen` (digest it?) + `can_send` (allowed to send to?). Defaults are both OFF.
-- 1000ms throttle between wa-gateway calls (`waChain` Promise queue in `whatsapp.js`).
+- 1000ms throttle between gateway calls (`waChain` Promise queue in `whatsapp.js`).
 - Send wrappers all flow through Outbox.
 
 ## Where it lives
@@ -330,15 +315,8 @@ Inbound + outbound WhatsApp (and LinkedIn). The raw plumbing that feeds the Dige
 - Page: `web/src/pages/Channels.tsx`.
 
 ## Critical safeguards
-- `POST /api/wa/test-send` is the ONLY test endpoint. Forces `WA_TEST_CHAT_ID` (operator''s own number) + `[NYYON TEST · HH:MM:SS]` prefix.
-- Real sends only via UI click. No script ever hits `/api/wa/send` directly.
-
-## See also
-- `whatsapp-endpoints` — full wa-gateway reference
-- `linkedin-endpoints` — LinkedIn gateway endpoints
-- `nyyon-whatsapp` — Phase 1 listener design
-- `nyyon-whatsapp-group-listening-policy` — when to auto-listen
-- `nyyon-whatsapp-opportunity-detection` — what counts as an opportunity',
+- `POST /api/wa/test-send` is the ONLY test endpoint. Forces `WA_TEST_CHAT_ID` (the operator''s own number) + a visible timestamped test prefix.
+- Real sends only via UI click. No script ever hits `/api/wa/send` directly.',
   'module',
   'channels',
   'knowledge-root',
@@ -375,10 +353,10 @@ The "★ mark interesting" action on a digest item creates or updates a contact 
 ),
 (
   'module-blog',
-  'Module · Blog — 188 articles + featured images',
+  'Module · Blog — posts + featured images',
   '# Blog
 
-The journal published at nyyon.com/blog. 188 articles imported from the old site zip; new articles are written through Nyo or the Manager.
+The journal published on your public site under `/blog`. Articles are written through Nyo or the Manager.
 
 ## Today
 - Index with search + tag filters + pagination.
@@ -387,13 +365,13 @@ The journal published at nyyon.com/blog. 188 articles imported from the old site
 - Featured image regeneration via Nyo tool `regenerate_blog_image`.
 
 ## Where it lives
-- Migration: `0003_inner_pages.sql` (blog_posts), `0004_blog_tags.sql`.
+- Migration: `0003_inner_pages.sql` (blog_posts).
 - Worker lib: `workers/api/src/lib/db.js` (blog CRUD) + `blog-images.js`.
 - Routes: `/api/blog`, `/:slug`, `/blog/analytics`.
 - Public-site routes: `/blog`, `/blog/:slug`.
 
 ## Snapshot flow
-`web-public/scripts/snapshot.mjs` reads all 188 published posts from the local D1, writes `web-public/public/snapshot/posts.json`, which the SPA reads in production. Sitemap pulls from the same snapshot.',
+`web-public/scripts/snapshot.mjs` reads all published posts from the local D1, writes `web-public/public/snapshot/posts.json`, which the SPA reads in production. Sitemap pulls from the same snapshot.',
   'module',
   'blog',
   'knowledge-root',
@@ -408,7 +386,7 @@ Generates question-and-answer blog content optimized for AI search engines (Chat
 
 ## Today
 - Question queue (`aeo_questions` table). Each question has status, attempted_at, last_error.
-- Nyo writer: pulls next pending question, drafts a 600-1200 word answer per the `nyyon-aeo-playbook` style guide, attaches Article JSON-LD, publishes as a blog post.
+- Nyo writer: pulls next pending question, drafts a 600-1200 word answer per the `article-playbook` style guide, attaches Article JSON-LD, publishes as a blog post.
 - Public site exposes a llms.txt + structured data for AI crawler discovery.
 
 ## Where it lives
@@ -418,7 +396,7 @@ Generates question-and-answer blog content optimized for AI search engines (Chat
 - Page: `web/src/pages/Aeo.tsx`.
 
 ## See also
-- `nyyon-aeo-playbook` — the article structure + style rules',
+- `article-playbook` — the article structure + style rules',
   'module',
   'aeo',
   'knowledge-root',
@@ -429,12 +407,12 @@ Generates question-and-answer blog content optimized for AI search engines (Chat
   'Module · Calendar — events + social posts',
   '# Calendar
 
-Internal calendar for Nyyon — events, social-post schedule, content reminders.
+Internal calendar — events, social-post schedule, content reminders.
 
 ## Today
 - Kinds: meeting, content, social, deadline, milestone.
 - Statuses: planned, confirmed, done, skipped.
-- Per-event payload carries a `social_post` block (platforms, caption, media_url) used by the BCC project''s Postiz pipeline; on the Nyyon side it''s informational.
+- Per-event payload carries a `social_post` block (platforms, caption, media_url) that external social-scheduling pipelines can consume; on this side it''s informational.
 
 ## Where it lives
 - Migration: `0012_calendar.sql`.
@@ -451,7 +429,7 @@ Internal calendar for Nyyon — events, social-post schedule, content reminders.
   'Module · OSINT — mention scrapers',
   '# OSINT
 
-Watches the open web for mentions of Nyyon, its clients, and competitor names. Port of the inrepute project''s scrapers.
+Watches the open web for mentions of your company, its clients, and competitor names.
 
 ## Today
 - Sources: HackerNews, Reddit, Stack Overflow, GitHub, App Store, website, DuckDuckGo.
@@ -465,7 +443,7 @@ Watches the open web for mentions of Nyyon, its clients, and competitor names. P
 - Page: `web/src/pages/Osint.tsx`.
 
 ## Roadmap
-OSINT is logged as `idea` in the modules registry though the basic scraping is shipped. Next milestone: feed mentions directly into the morning Digest as their own kind.',
+Next milestone: feed mentions directly into the morning Digest as their own kind.',
   'module',
   'osint',
   'knowledge-root',
@@ -509,7 +487,7 @@ The thing you''re reading right now. A tree of markdown docs that grounds Nyo, o
 
 ## Today
 - D1 table `knowledge_docs` with columns: slug, title, body, scope (global/module), module, parent_slug, updated_at.
-- Tree shape via `parent_slug`. Root is `nyyon-root` with `parent_slug = NULL`.
+- Tree shape via `parent_slug`. Root is `knowledge-root` with `parent_slug = NULL`.
 - Routes: `GET /api/knowledge`, `/:slug`, `/:slug/path` (breadcrumb chain), `PUT /:slug`, `DELETE /:slug`.
 - UI: `web/src/pages/Knowledge.tsx`. Sidebar = tree view. Reading pane shows breadcrumb above the body.
 - Nyo tools: `list_knowledge`, `read_knowledge`, `write_knowledge`, `delete_knowledge`. All accept `parent_slug` so Nyo can reshape the tree from chat.
@@ -534,7 +512,6 @@ The thing you''re reading right now. A tree of markdown docs that grounds Nyo, o
 The shape of "what we''re about to build, and which existing thing it extends." Lives as a graph (`roadmap_nodes` + `roadmap_edges`) and renders as a React Flow canvas.
 
 ## Today
-- 23 nodes, 4 edges as of the last seed pass.
 - Each node has: id, title, status (shipped / building / planned / idea), description, owner.
 - Edges connect a parent (existing) to a child (planned).
 
@@ -558,17 +535,14 @@ The shape of "what we''re about to build, and which existing thing it extends." 
 The list every sidebar surface is registered in. `modules` table — slug, name, status, description, surface (UI key, null if headless).
 
 ## Today
-- 15 modules registered (13 shipped, 2 idea). See `SELECT slug, status FROM modules`.
+- See `SELECT slug, status FROM modules` for the current registry.
 - Page lists modules with status pill + description; operator can flip status.
 
 ## Where it lives
 - Schema: `db/schema.sql`.
 - Worker lib: `workers/api/src/lib/db.js` (`listModules`, `upsertModule`).
 - Routes: `/api/modules`, `/:slug`.
-- Page: `web/src/pages/Modules.tsx`.
-
-## See also
-- `how-to-add-a-module` — the 8-step runbook for shipping a new surface',
+- Page: `web/src/pages/Modules.tsx`.',
   'global',
   NULL,
   'knowledge-root',
@@ -579,10 +553,10 @@ The list every sidebar surface is registered in. `modules` table — slug, name,
   'System · Tools registry',
   '# Tools registry
 
-Tracks every external service Nyyon talks to — LLM providers, wa-gateway, LinkedIn, Cloudflare, third-party APIs. Each row reports status (connected / planned / broken) and the env binding name.
+Tracks every external service the system talks to — LLM providers, the WhatsApp gateway, LinkedIn, Cloudflare, third-party APIs. Each row reports status (connected / planned / broken) and the env binding name.
 
 ## Today
-- ~30 tools registered. Status drives the sidebar health dot.
+- Status drives the sidebar health dot.
 - Page lists tools grouped by kind (llm / image / video / data / channel / storage / analytics).
 
 ## Where it lives
@@ -648,17 +622,13 @@ How the operator answers "is everything OK right now?" without leaving the dashb
 
 ## Today
 - Sidebar status dot — green / yellow / red — driven by `GET /api/system/health`.
-- Checks: D1 reachable, LLM key set, wa-gateway gateway + session, digest channels with errors, OSINT listeners with errors.
+- Checks: D1 reachable, LLM key set, WhatsApp gateway + session, digest channels with errors, OSINT listeners with errors.
 - Roll-up: red beats yellow beats green.
 - Tooltip on hover shows the failing check + remediation note.
 
 ## Where it lives
 - Health route: `workers/api/src/index.js` (`/api/system/health`).
-- Sidebar dot: `web/src/components/Sidebar.tsx`.
-
-## See also
-- `system-health` — the health indicator surface in detail
-- `system-state` — the system state inventory',
+- Sidebar dot: `web/src/components/Sidebar.tsx`.',
   'global',
   NULL,
   'knowledge-root',
@@ -668,20 +638,9 @@ How the operator answers "is everything OK right now?" without leaving the dashb
 -- ────────────────────────────────────────────────────────────────
 -- Reparent existing docs into the tree.
 -- ────────────────────────────────────────────────────────────────
-UPDATE knowledge_docs SET parent_slug = 'brand'         WHERE slug = 'brand-voice';
-UPDATE knowledge_docs SET parent_slug = 'module-aeo'          WHERE slug = 'article-playbook';
-UPDATE knowledge_docs SET parent_slug = 'module-digest'       WHERE slug = 'digest-interests';
-UPDATE knowledge_docs SET parent_slug = 'module-nyo'          WHERE slug = 'prompt-wa-reply';
-UPDATE knowledge_docs SET parent_slug = 'module-funnel'       WHERE slug = 'nyyon-funnel';
-UPDATE knowledge_docs SET parent_slug = 'module-funnel'       WHERE slug = 'nyyon-funnel-stages';
-UPDATE knowledge_docs SET parent_slug = 'module-channels'     WHERE slug = 'whatsapp-policy';
-UPDATE knowledge_docs SET parent_slug = 'module-channels'     WHERE slug = 'whatsapp-group-listening-policy';
-UPDATE knowledge_docs SET parent_slug = 'module-channels'     WHERE slug = 'whatsapp-opportunity-detection';
-UPDATE knowledge_docs SET parent_slug = 'module-channels'     WHERE slug = 'whatsapp-endpoints';
-UPDATE knowledge_docs SET parent_slug = 'module-channels'     WHERE slug = 'linkedin-endpoints';
-UPDATE knowledge_docs SET parent_slug = 'system-knowledge'    WHERE slug = 'how-knowledge-works';
-UPDATE knowledge_docs SET parent_slug = 'system-roadmap'     WHERE slug = 'how-roadmap-works';
-UPDATE knowledge_docs SET parent_slug = 'system-modules'      WHERE slug = 'how-to-add-a-module';
-UPDATE knowledge_docs SET parent_slug = 'system-observability' WHERE slug = 'system-health';
-UPDATE knowledge_docs SET parent_slug = 'system-observability' WHERE slug = 'system-state';
-UPDATE knowledge_docs SET parent_slug = 'knowledge-root'          WHERE slug IN ('about', 'scaffold-notes');
+UPDATE knowledge_docs SET parent_slug = 'brand'            WHERE slug = 'brand-voice';
+UPDATE knowledge_docs SET parent_slug = 'module-aeo'       WHERE slug = 'article-playbook';
+UPDATE knowledge_docs SET parent_slug = 'system-knowledge' WHERE slug = 'how-knowledge-works';
+UPDATE knowledge_docs SET parent_slug = 'system-roadmap'   WHERE slug = 'how-roadmap-works';
+UPDATE knowledge_docs SET parent_slug = 'knowledge-root'   WHERE slug = 'about';
+-- Reparenting of the author's remaining private docs was removed for the shipped product.

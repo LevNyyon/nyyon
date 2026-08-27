@@ -11,7 +11,7 @@ import { now } from './util.js';
 
 const gid = (p) => `${p}_${now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
-// '972545492444@c.us' -> '+972545492444'; '@lid' / '@g.us' ids carry no phone.
+// '972500000000@c.us' -> '+972500000000'; '@lid' / '@g.us' ids carry no phone.
 function phoneFromWaId(waId) {
   const m = /^(\d{6,17})@c\.us$/.exec(String(waId || ''));
   if (!m) return null;

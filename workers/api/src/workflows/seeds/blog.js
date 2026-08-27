@@ -55,7 +55,7 @@ export const workflows = [
   {
     slug: 'blog-expand',
     name: 'Blog · expand an article',
-    description: 'Existing post expanded to 1600-2200 words with an FAQ + FAQPage JSON-LD, refreshed figures and cover; publish stays a separate operator action. Run with {slug}; add {voice:"lev"} for the founder\'s voice.',
+    description: 'Existing post expanded to 1600-2200 words with an FAQ + FAQPage JSON-LD, refreshed figures and cover; publish stays a separate operator action. Run with {slug}.',
     trigger: { kind: 'on-demand', note: 'run_workflow with {slug}' },
     steps: [
       'read_blog_post',
@@ -168,7 +168,7 @@ export const workflows = [
   {
     slug: 'aeo-react',
     name: 'AEO · learn the operator\'s taste',
-    description: 'Reaction recorded and the nyyon-editorial-taste knowledge doc refreshed from every recent reaction. Run with {reaction, note?, question_slug?|idea_title?}.',
+    description: 'Reaction recorded and the editorial-taste knowledge doc refreshed from every recent reaction. Run with {reaction, note?, question_slug?|idea_title?}.',
     trigger: { kind: 'on-demand', note: 'Nyo, whenever the operator reacts to an idea' },
     steps: [
       'save_aeo_feedback',

@@ -1,5 +1,5 @@
 // aeo-taste.js — turns accumulated operator feedback into a living "editorial
-// taste" profile, stored as the `nyyon-editorial-taste` knowledge doc.
+// taste" profile, stored as the `editorial-taste` knowledge doc.
 //
 // The loop:
 //   1. Operator reacts to Nyo's article/question ideas (love / meh / reject /

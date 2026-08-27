@@ -63,7 +63,7 @@ const WORKFLOWS = [
     steps: 'scan calendar_events, WhatsApp the operator a reminder N minutes before a meeting (no-op until a reminder chat is set)',
     touches: 'calendar_events, wa (via outbox)', knowledge: [], run_slug: 'meeting-reminders' },
   { name: 'Daily AEO publish', kind: 'automated', trigger: 'cron · 0 6 * * *',
-    steps: 'publish any AEO article whose interview is captured + scheduled straight to nyyon.com (readyOnly — never auto-interviews or nags, never double-posts)',
+    steps: 'publish any AEO article whose interview is captured + scheduled straight to the public site (readyOnly — never auto-interviews or nags, never double-posts)',
     touches: 'aeo_questions, blog_posts',
     knowledge: ['brand-voice', 'personal-voice', 'article-playbook', 'brand'], run_slug: 'aeo-daily-writer' },
 
@@ -108,16 +108,16 @@ const WORKFLOWS = [
     steps: 'WhatsApp identity → company-from-LinkedIn → PDL → Twilio → Google → reconcile (provenance + conflicts kept)',
     touches: 'gtm_leads', knowledge: [] },
   { name: 'GTM outreach angles', kind: 'on-demand', trigger: 'on-demand · per green lead',
-    steps: 'compose gtm-you + lev-positioning + gtm-outreach + the verified org → Opus → ranked angles with draft bubbles',
-    touches: 'gtm_outreach_angles', knowledge: ['gtm-you', 'gtm-outreach', 'lev-positioning', 'brand-icp'] },
+    steps: 'compose gtm-you + brand-positioning + gtm-outreach + the verified org → Opus → ranked angles with draft bubbles',
+    touches: 'gtm_outreach_angles', knowledge: ['gtm-you', 'gtm-outreach', 'brand-positioning', 'brand-icp'] },
   { name: 'AEO interview & write', kind: 'on-demand', trigger: 'on-demand · Interview & Write button',
-    steps: 'ask the 4 interview questions → draft the article in Nyyon voice → publish live + mirror to calendar',
+    steps: 'ask the 4 interview questions → draft the article in the brand voice → publish live + mirror to calendar',
     touches: 'aeo_questions, blog_posts, calendar_events', knowledge: ['brand-voice', 'article-playbook'] },
   { name: 'Sunday editorial brain', kind: 'on-demand', trigger: 'on-demand · Sunday (Nyo offers) / Brain start',
     steps: 'ask the weekly questions → derive the week\'s article slate → schedule each across the week + create calendar events',
     touches: 'brain_sessions, aeo_questions, calendar_events', knowledge: ['brand-voice'] },
   { name: 'Blog publish → prod', kind: 'on-demand', trigger: 'on-demand · Publish button / Nyo',
-    steps: 'render the article + push it to nyyon.com through the publish sidecar, then mirror it to the calendar',
+    steps: 'render the article + push it to the public site through the publish sidecar, then mirror it to the calendar',
     touches: 'blog_posts, calendar_events', knowledge: [] },
 ];
 
@@ -160,7 +160,7 @@ const TOOL_GROUPS = [
   { group: 'Outreach',            re: /thread|cohort|_member|bubble|compose_reply|lead_angles|drafting_rules|sequence|cadence|step_copy|_message$|due_messages|_replies$|promotion_rules|schedule_send|scheduled_send|_sends$|send_outreach|approvals/, knowledge: ['outreach-reply-drafting', 'outreach-promotion', 'outreach-sentiment', 'gtm-outreach'] },
   // Before WhatsApp (lookup_wa_identity is an enrichment source, not a chat
   // tool) and before LinkedIn (lookup_company_from_linkedin likewise).
-  { group: 'Prospecting',         re: /^read_lead$|^save_lead$|^promote_lead$|_identity$|_identities$|org_chart|company_profile|open_roles|_pdl$|_twilio$|socials_serp|score_icp|^draft_angles$|^save_angles$|green_leads|^read_you$|api_usage|api_limits|company_from_linkedin/, knowledge: ['gtm-outreach', 'gtm-you', 'brand-icp', 'lev-positioning'] },
+  { group: 'Prospecting',         re: /^read_lead$|^save_lead$|^promote_lead$|_identity$|_identities$|org_chart|company_profile|open_roles|_pdl$|_twilio$|socials_serp|score_icp|^draft_angles$|^save_angles$|green_leads|^read_you$|api_usage|api_limits|company_from_linkedin/, knowledge: ['gtm-outreach', 'gtm-you', 'brand-icp', 'brand-positioning'] },
   { group: 'WhatsApp',            re: /whatsapp|wa_chat|wa_group|wa_session|backfill_wa_messages|backfill_lid_map|read_group_participants|set_chat_listening/, knowledge: ['prompt-wa-reply'] },
   { group: 'LinkedIn',            re: /linkedin/,                                          knowledge: [] },
   { group: 'Digest',              re: /digest/,                                            knowledge: [] },

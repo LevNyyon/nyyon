@@ -1,5 +1,5 @@
--- OSINT module — port of inrepute's review-intelligence scrapers.
--- Targets are companies/competitors/brands we monitor.
+-- OSINT module: review-intelligence scrapers.
+-- Targets are companies/competitors/brands the operator monitors.
 -- Mentions are public reviews + mentions harvested from reddit, hn,
 -- stackoverflow, github, appstore RSS, and owned-site testimonial pages.
 
@@ -35,9 +35,4 @@ CREATE INDEX IF NOT EXISTS idx_osint_mentions_target    ON osint_mentions(target
 CREATE INDEX IF NOT EXISTS idx_osint_mentions_source    ON osint_mentions(source);
 CREATE INDEX IF NOT EXISTS idx_osint_mentions_posted_at ON osint_mentions(posted_at);
 
--- Seed: monitor Nyyon itself + one fictional competitor so the module has
--- a useful demo state immediately.
-INSERT OR IGNORE INTO osint_targets (id, name, domain, app_id, notes, created_at, updated_at, created_by)
-VALUES
-  ('tgt_nyyon',  'Nyyon',          'nyyon.com',  NULL, 'self · monitor what people say about us',          unixepoch()*1000, unixepoch()*1000, 'system'),
-  ('tgt_inrepute','Inrepute',       'inrepute.com', NULL, 'sibling project · cross-monitor',                 unixepoch()*1000, unixepoch()*1000, 'system');
+-- Seed target rows removed for the shipped product; add monitoring targets via the UI.

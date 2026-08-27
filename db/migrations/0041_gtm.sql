@@ -135,7 +135,7 @@ No real mutual or trigger: it is a cold touch. Lead with who you are and one lin
 
 ('gtm-outreach-rules', 'GTM · Outreach rules', 'OUTREACH RULES (hard, editable)
 Goal: the ask is always a short talk WITH the prospect, never "connect me to X".
-Language: match the prospect''s language and register (the shipped example targets Israeli founders in Hebrew, dugri; edit for your market). Proper nouns like your company name stay in their original script.
+Language: match the prospect''s language and register (edit this doc for your market). Proper nouns like your company name stay in their original script.
 Positioning: include ONE plain line of what you do (see GTM · Outreach examples). A reason, not a pitch. State the outcome you deliver, not a service list. Never list services or channels.
 No selling: banned phrases include "would you be open to", "let''s connect", "synergies", "opportunities", "potential", "I noticed", "Hi I''m X", and anything that asks to buy or book.
 Punctuation, real texting not formal writing: no emoji, no hyphens, no dashes. Never end a bubble with a period (a period only splits two sentences inside one bubble, rarely). One question mark, on the ask. Minimal commas.
@@ -148,7 +148,7 @@ Opener, via the right door: hi [name], I tried reaching whoever leads [function]
 Positioning line: one plain sentence on what you do and the outcome you own
 The ask: worth 15 minutes?', 'global', NULL, 'module-gtm', strftime('%s','now')*1000),
 
-('gtm-you', 'GTM · You — operator profile', '{"name":"Lev Kerzhner","role":"Founder","business":"","phone":"","email":"","linkedin":"","location":"Israel","about":"","groups":[],"connections":[]}', 'global', NULL, 'module-gtm', strftime('%s','now')*1000);
+('gtm-you', 'GTM · You — operator profile', '{"name":"","role":"","business":"","phone":"","email":"","linkedin":"","location":"","about":"","groups":[],"connections":[]}', 'global', NULL, 'module-gtm', strftime('%s','now')*1000);
 
 -- Register in the modules registry (feeds the Modules page).
 INSERT OR REPLACE INTO modules (slug, name, status, description, surface, created_at, updated_at)

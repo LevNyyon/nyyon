@@ -26,7 +26,7 @@ const CARDHI = '#F5F5F4';
 // The one accent. Used sparingly as a SIGNAL: the FIG. mark, primary arrowheads,
 // and the single focal "point" element of each diagram (the goal, the source,
 // the winning quadrant, the apex). Swap this one token to re-theme everything.
-// Cool blue-violet, matching the nyyonai brand purple.
+// Cool blue-violet by default — swap it for your own brand accent.
 const ACCENT = '#6C5CE7';
 // A faint accent wash for fills behind focal elements (≈8% accent on paper).
 const ACCENT_WASH = '#ECE9FD';
@@ -702,16 +702,16 @@ export const FIGURE_TEMPLATE_NAMES = Object.keys(FIGURE_TEMPLATES);
 // ─── featured cover ─────────────────────────────────────────────────────────
 // A dedicated 1200x630 (OG ratio) hero image — NOT an in-body figure, so it
 // lives outside FIGURE_TEMPLATES (the LLM never picks it for the article body).
-// It's built from the same kit as the diagrams: the nyyon wordmark, mono
+// It's built from the same kit as the diagrams: the brand mark, mono
 // kickers, ink nodes wired by connectors, and the accent as the focal hub —
 // recomposed as a magazine cover. One headline word prints in the accent.
 
+// Brand-mark placeholder — an abstract two-bar mark standing in until the
+// operator's own logo replaces it (swap LOGO_PATH and the fill to rebrand).
 const LOGO_PATH = 'M33,0 L64,0 L64,66 L33,50 L33,0 Z M0,4 L31,20 L31,70 L0,70 L0,4 Z';
 
-function wordmarkAt(x, baselineY, h = 30, markFill = '#262424', textFill = INK) {
-  const mw = Math.round(h * (64 / 70));
-  return `<g transform="translate(${x} ${baselineY - h}) scale(${(h / 70).toFixed(4)})"><path d="${LOGO_PATH}" fill="${markFill}"/></g>`
-       + `<text x="${x + mw + 12}" y="${baselineY - 4}" font-family="${SANS}" font-weight="700" font-size="${Math.round(h * 0.8)}" letter-spacing="-0.5" fill="${textFill}">Nyyon</text>`;
+function wordmarkAt(x, baselineY, h = 30, markFill = '#262424') {
+  return `<g transform="translate(${x} ${baselineY - h}) scale(${(h / 70).toFixed(4)})"><path d="${LOGO_PATH}" fill="${markFill}"/></g>`;
 }
 
 // Greedy word-wrap. Returns lines (arrays of {word, hot}) where `hot` words are
@@ -783,12 +783,17 @@ export const FEATURED_TEMPLATE = {
       p.push(`<text x="64" y="${ly}" font-family="${SANS}" font-weight="700" font-size="${size}" letter-spacing="-1.6" fill="${INK}">${tspans}</text>`);
     });
 
-    // ── footer: standfirst + URL ──
+    // ── footer: standfirst + optional site watermark ──
     if (slots.sub) {
       const s = String(slots.sub);
       p.push(label(64, 572, s, { size: fit(s, 760, 19), fill: MUTE, weight: 500, anchor: 'start' }));
     }
-    p.push(label(Wc - 64, 572, 'NYYON.COM', { size: 15, fill: MUTE, mono: true, weight: 700, ls: 2, anchor: 'end' }));
+    // `site` is NOT an LLM slot (it is absent from the slots description on
+    // purpose): the caller injects the operator's own domain from brand
+    // config. No default — an unconfigured install renders no watermark.
+    if (slots.site) {
+      p.push(label(Wc - 64, 572, String(slots.site).toUpperCase(), { size: 15, fill: MUTE, mono: true, weight: 700, ls: 2, anchor: 'end' }));
+    }
 
     p.push('</svg>');
     return p.join('');

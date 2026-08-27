@@ -2,7 +2,7 @@
 -- Every "love it / too generic / make it about X / kill it" reaction is logged
 -- here, tied to a question slug when one exists (or just the idea title when
 -- it's a raw suggestion). Accumulated feedback is distilled into the
--- `nyyon-editorial-taste` knowledge doc, which the question generators read —
+-- `editorial-taste` knowledge doc, which the question generators read —
 -- so Nyo's ideas get sharper over time.
 CREATE TABLE IF NOT EXISTS aeo_feedback (
   id            TEXT PRIMARY KEY,

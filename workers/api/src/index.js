@@ -104,9 +104,9 @@ const app = new Hono();
 app.use('*', cors());
 
 // Build stamp — surfaces the deployed build on every response (incl. the login
-// page, pre-auth) as `X-Nyyon-Build`, so a GitHub push can be verified live via
-// `curl -I https://cmd.nyyon.com`. Runs before the gate; only tags the response
-// after the chain, so it has no effect on auth.
+// page, pre-auth) as `X-Nyyon-Build`, so a push can be verified live with a
+// `curl -I` against the deployed worker. Runs before the gate; only tags the
+// response after the chain, so it has no effect on auth.
 //   BUILD_SHA is injected at deploy time by the GitHub Action via
 //   `wrangler deploy --define BUILD_SHA:'"<git-sha>"'` (esbuild replaces the
 //   token in-bundle). The typeof-guard falls back to 'dev' for local `wrangler
@@ -334,8 +334,8 @@ app.get('/api/system/health', async (c) => {
   // ago and that every real call is happily using — an install that works
   // while permanently displaying DOWN.
   const env = await withResolvedCredentials(c.env);
-  // Deployed cloud worker (cmd.nyyon.com) vs local dev: localhost gateways are
-  // reachable in dev but never from the deployed worker — the probe uses this.
+  // Deployed cloud worker vs local dev: localhost gateways are reachable in
+  // dev but never from the deployed worker — the probe uses this.
   const deployed = !/^(localhost|127\.0\.0\.1)/.test((() => { try { return new URL(c.req.url).host; } catch { return ''; } })());
 
   // 1. DB — if we got here, the worker booted; assume reachable.
@@ -438,9 +438,8 @@ app.get('/api/system/health', async (c) => {
       note: `unreachable (${String(e?.message || e).slice(0, 80)})` });
   }
 
-  // 5. Website — the live marketing site (https://nyyon.com), served by the
-  //    Cloudflare Pages project `nyyon-lp` from the Saragus-Partners/Nyyon-LP
-  //    repo. Publicly reachable, so a straight fetch works from the deployed
+  // 5. Website — the operator's live public site (WEBSITE_BASE_URL).
+  //    Publicly reachable, so a straight fetch works from the deployed
   //    worker — no tunnel needed.
   checks.push(await probeGateway('Website', env.WEBSITE_BASE_URL, 'WEBSITE_BASE_URL', { deployed }));
 
@@ -703,17 +702,20 @@ app.post('/api/blog/:slug/publish', async (c) => {
 // Is this post actually SERVED on the public site yet? Publish only QUEUES a
 // rebuild (full static-site snapshot + Pages deploy + CDN, ~1-2 min), so the ops
 // UI polls this after approve to flip to "live". Checked server-side because the
-// browser can't read cross-origin nyyon.com. live = 200 AND the page carries this
-// post's own /blog/<slug> canonical (a soft-404 fallback would not).
+// browser can't read the cross-origin public site. live = 200 AND the page
+// carries this post's own /blog/<slug> canonical (a soft-404 fallback would not).
 app.get('/api/blog/:slug/live-status', async (c) => {
-  // Checked against the blog-edge worker's workers.dev URL, NOT nyyon.com:
-  // a Worker's subrequest to its own zone bypasses Workers routes and would
+  // Checked against the blog-edge worker's URL, NOT the public site: a
+  // Worker's subrequest to its own zone bypasses Workers routes and would
   // hit the static origin — reporting every edge-served post as "not live".
-  // workers.dev exercises the same code + same D1 the public URL serves.
+  // The edge URL exercises the same code + same D1 the public URL serves.
   const slug = c.req.param('slug');
   const { verifyLiveOnEdge } = await import('./lib/publish.js');
   const edge = await verifyLiveOnEdge(c.env, slug, { attempts: 1 });
-  return c.json({ live: edge.live, status: edge.status, url: `https://nyyon.com/blog/${encodeURIComponent(slug)}/`, edge });
+  // Public URL from the configured site origin; with none configured there is
+  // no public URL to report.
+  const origin = String(c.env.PUBLIC_ORIGIN || '').replace(/\/+$/, '');
+  return c.json({ live: edge.live, status: edge.status, url: origin ? `${origin}/blog/${encodeURIComponent(slug)}/` : null, edge });
 });
 
 // Bulk publish — pass {slugs: [...]} to mirror many posts and run the
@@ -742,7 +744,7 @@ app.post('/api/blog/:slug/reshape', async (c) => {
       slug,
       title:          post.title,
       body:           post.body,
-      voice:          body.voice || 'lev',
+      voice:          body.voice || 'personal',
       target_keyword: body.target_keyword || null,
       actor:          'operator',
     });
@@ -760,15 +762,15 @@ app.post('/api/blog/:slug/reshape', async (c) => {
   }
 });
 
-// Expand an existing post: deepen the story, weave in Nyyon's upside, append an
-// AEO-optimised FAQ + FAQPage schema, then re-embed figures + cover.
+// Expand an existing post: deepen the story, weave in the company's upside,
+// append an AEO-optimised FAQ + FAQPage schema, then re-embed figures + cover.
 app.post('/api/blog/:slug/expand', async (c) => {
   const slug = c.req.param('slug');
   const body = await c.req.json().catch(() => ({}));
   try {
-    // voice:'lev' is passed explicitly — read_voice_profile now defaults to
+    // voice:'personal' is passed explicitly — read_voice_profile now defaults to
     // 'house', so dropping it would silently change this route's output voice.
-    const r = await runWorkflow(c.env, 'blog-expand', { slug, voice: body.voice || 'lev' });
+    const r = await runWorkflow(c.env, 'blog-expand', { slug, voice: body.voice || 'personal' });
     if (!r.ok) return c.json({ error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 500);
     return c.json({
       ok: true, run_id: r.run_id, skipped: r.skipped,
@@ -2481,7 +2483,7 @@ async function handleScheduled(event, env, ctx) {
   //   "0 * * * *" (hourly) → the awareness sweep: OSINT scrape → heartbeat →
   //                          regenerate the digest → fire meeting reminders.
   //   "0 6 * * *" (daily)  → AEO article publisher ONLY (never hourly — it would
-  //                          double-post to nyyon.com).
+  //                          double-post to the public site).
   // At 06:00 both expressions fire, but each invocation carries its own
   // event.cron, so we branch and never double-run the sweep.
   const cron = event.cron || '';

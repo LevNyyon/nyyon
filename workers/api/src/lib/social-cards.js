@@ -4,7 +4,7 @@
 // so every card is pixel-exact brand and costs one cheap text call (~$0.001).
 //
 // Visual system (approved June 2026, replaces AI-image attempts for social):
-// strict nyyon.com paper/ink monochrome — paper #FAFAF9, ink #0A0A0A, warm
+// strict paper/ink monochrome — paper #FAFAF9, ink #0A0A0A, warm
 // grays — Inter for headlines, JetBrains Mono for kickers/labels. Same tokens
 // as the public site's CSS variables. Templates:
 //
@@ -70,20 +70,17 @@ function kicker(x, y, text) {
   return `<text x="${x}" y="${y}" font-family="${MONO}" font-weight="700" font-size="19" letter-spacing="4" fill="${INK}">${esc(text)}</text>`;
 }
 
-// Brand lockup, top-right — mirrors the public site's logo: the two-bar mark
-// (64x70 path from /assets/nyyon-logo-dark.svg, brand fill #262424) + "nyyon"
-// semibold with a 10px-ish gap.
+// Brand-mark placeholder, top-right — an abstract two-bar mark (64x70 path,
+// fill #262424) standing in until the operator's own logo replaces it: swap
+// LOGO_PATH (and the fill) to rebrand every card at once.
 const LOGO_PATH = 'M33,0 L64,0 L64,66 L33,50 L33,0 Z M0,4 L31,20 L31,70 L0,70 L0,4 Z';
 
 function wordmark(w, y = 92) {
   const mh = 26;                                // mark height
   const mw = Math.round(mh * (64 / 70));        // mark width, source ratio
-  const textW = 61;                             // "nyyon" at 22px bold, approx
-  const tx = w - 62 - textW;
-  const mx = tx - mw - 12;
-  const my = y - 21;                            // optically centered on the text
-  return `<g transform="translate(${mx} ${my}) scale(${(mh / 70).toFixed(4)})"><path d="${LOGO_PATH}" fill="#262424"/></g>`
-       + `<text x="${tx}" y="${y}" font-family="${SANS}" font-weight="700" font-size="22" letter-spacing="-0.5" fill="${INK}">nyyon</text>`;
+  const mx = w - 62 - mw;
+  const my = y - 21;                            // optically centered on the kicker baseline
+  return `<g transform="translate(${mx} ${my}) scale(${(mh / 70).toFixed(4)})"><path d="${LOGO_PATH}" fill="#262424"/></g>`;
 }
 
 // Mark only, no text — for layouts where the full lockup gets crowded
@@ -145,7 +142,7 @@ const TEMPLATES = {
       const p = [`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`];
       p.push(`<rect width="${w}" height="${h}" fill="${PAPER}"/>`);
       p.push(frame(w, h));
-      p.push(kicker(62, 92, slots.kicker || 'NYYON — FIELD NOTE'));
+      p.push(kicker(62, 92, slots.kicker || 'FIELD NOTE'));
       p.push(wordmark(w));
 
       // left: the same nine shapes, scattered and faint
@@ -193,7 +190,7 @@ const TEMPLATES = {
       p.push(sq(800, 755, 110, 12, INK));
       p.push(circ(930, 930, 46, 'none', INK));
       p.push(frame(w, h, 28));
-      p.push(kicker(72, 122, slots.kicker || 'NYYON'));
+      p.push(kicker(72, 122, slots.kicker || 'NOTE'));
       p.push(markOnly(w - 72 - 27, 94));
 
       const longest = lines.reduce((m, l) => Math.max(m, l.length), 1);
@@ -223,7 +220,7 @@ const TEMPLATES = {
       p.push(`<rect width="${w}" height="${h}" fill="${PAPER}"/>`);
       p.push(circ(1174, 601, 200, CARDHI, INK));
       p.push(frame(w, h));
-      p.push(kicker(62, 92, slots.kicker || 'NYYON'));
+      p.push(kicker(62, 92, slots.kicker || 'NOTE'));
       p.push(wordmark(w));
 
       const hSize = fitSize(slots.headline || '', w - 124, 50);
@@ -256,7 +253,7 @@ const TEMPLATES = {
       const p = [`<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">`];
       p.push(`<rect width="${w}" height="${h}" fill="${PAPER}"/>`);
       p.push(frame(w, h));
-      p.push(kicker(62, 92, slots.kicker || 'NYYON'));
+      p.push(kicker(62, 92, slots.kicker || 'NOTE'));
       p.push(wordmark(w));
 
       // entry dot → ink boxes → exit dot, centered
@@ -293,7 +290,7 @@ export const SOCIAL_CARD_TEMPLATES = Object.keys(TEMPLATES);
 // ─── slot drafter ──────────────────────────────────────────────────────────
 // One cheap text call: reads the article, picks a template (unless forced),
 // writes the slot text. Hard limits re-enforced in code after parsing.
-// Card copy follows the operator's editable brand voice (nyyon-brand-voice),
+// Card copy follows the operator's editable brand voice (the brand-voice doc),
 // matching every other drafting path; the inline voice line is the fallback.
 async function withBrandVoice(env, base) {
   try {
@@ -302,7 +299,7 @@ async function withBrandVoice(env, base) {
   } catch { /* fallback */ }
   return base;
 }
-const DRAFTER_SYSTEM = `You write the text for nyyon's social cards. nyyon is a white-glove AI-native marketing agency. Voice: declarative, concrete, zero hype, no exclamation marks. Cards are strict paper/ink editorial — the text must carry the idea on its own.
+const DRAFTER_SYSTEM = `You write the text for the company's social cards. Who the company is and how it sounds comes from the operator-editable brand voice appended below; absent one, default to: declarative, concrete, zero hype, no exclamation marks. Cards are strict paper/ink editorial — the text must carry the idea on its own.
 
 You get an article (title, excerpt, tags) and the menu of card templates with their slots and character limits. Pick the ONE template that fits the article's shape:
 - split: the article contrasts two things or states
@@ -310,7 +307,7 @@ You get an article (title, excerpt, tags) and the menu of card templates with th
 - checklist: the article lists tests, criteria, or steps for a decision
 - flow: the article describes a process or pipeline
 
-Respect every character limit EXACTLY — overlong text gets shrunk and looks weak. Kickers follow the pattern "NYYON — <SECTION>" or "NYYON / <TOPIC>" in caps. Footers usually cite the article: "From: <short title> — nyyon.com/blog".
+Respect every character limit EXACTLY — overlong text gets shrunk and looks weak. Kickers are short caps section labels: "FIELD NOTE", "PLAYBOOK", or the article's topic. Footers usually cite the article: "From: <short title>".
 
 Output ONLY a JSON object:
 { "template": "<split|statement|checklist|flow>", "slots": { ...slot fields for that template... } }`;

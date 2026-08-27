@@ -264,7 +264,7 @@ async function leadsByChatId(env, chatIds = []) {
   for (let i = 0; i < digits.length; i += CHUNK) {
     const c = digits.slice(i, i + CHUNK);
     // Match on the E.164 column with its punctuation stripped, so a lead stored
-    // as "+972 54-549-2444" still lines up with chat id 972545492444@c.us.
+    // as "+972 50-000-0000" still lines up with chat id 972500000000@c.us.
     const r = (await env.DB.prepare(
       `SELECT * FROM gtm_leads
         WHERE replace(replace(replace(replace(coalesce(normalized_phone, phone), '+', ''), '-', ''), ' ', ''), '(', '')

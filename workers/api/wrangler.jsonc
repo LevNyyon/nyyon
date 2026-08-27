@@ -2,14 +2,14 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "nyyon-command-center",
   "main": "src/index.js",
-  // No open *.workers.dev URL — the only public route is cmd.nyyon.com, gated
+  // No open *.workers.dev URL — the only public route is your custom domain, gated
   // by the src/gate.js login. Prevents an unauthenticated backdoor to the API.
   "workers_dev": false,
-  // NOTE: the cmd.nyyon.com custom domain is bound at the account level (via
-  // the Cloudflare API / dashboard: Workers → nyyon-cmd-online → Domains &
+  // NOTE: the your custom domain custom domain is bound at the account level (via
+  // the Cloudflare API / dashboard: Workers → your worker → Domains &
   // Routes), NOT here — the deploy token lacks Zone:Workers Routes:Edit on the
   // nyyon.com zone, so a `routes` entry would make `wrangler deploy` fail.
-  // Re-add `"routes":[{"pattern":"cmd.nyyon.com","custom_domain":true}]` if you
+  // Re-add `"routes":[{"pattern":"your custom domain","custom_domain":true}]` if you
   // deploy with a token that has that scope.
   "compatibility_date": "2026-04-12",
   "compatibility_flags": ["nodejs_compat"],

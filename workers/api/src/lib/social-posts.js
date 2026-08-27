@@ -3,8 +3,8 @@
 // Flow:
 //   1. A blog post goes live → publish.js calls generateSocialPostsForBlog().
 //      We draft ONE post per channel (company LinkedIn + company Facebook in
-//      brand voice, personal LinkedIn in Lev's teaser voice) and save them as
-//      `draft` rows. Idempotent — re-publishing never duplicates.
+//      brand voice, personal LinkedIn in the operator's personal teaser voice)
+//      and save them as `draft` rows. Idempotent — re-publishing never duplicates.
 //   2. Operator reviews/edits in the Social module and approves.
 //   3. approveAndPush() POSTs through the Make-webhook gateway
 //      (lib/social-gateway.js), logs the send to the Outbox + activity feed,
@@ -19,12 +19,19 @@ import { callOpenAIJson } from './openai.js';
 // The three channels every published article fans out to. `voice` picks which
 // guide doc drives the draft; `label` is shown in the UI + outbox.
 export const CHANNELS = [
-  { key: 'linkedin-company',  network: 'LinkedIn', voice: 'brand', label: 'Nyyon LinkedIn (company page)' },
-  { key: 'facebook-company',  network: 'Facebook', voice: 'brand', label: 'Nyyon Facebook (company page)' },
-  { key: 'linkedin-personal', network: 'LinkedIn', voice: 'lev',   label: 'Lev Kerzhner LinkedIn (personal)' },
+  { key: 'linkedin-company',  network: 'LinkedIn', voice: 'brand', label: 'LinkedIn (company page)' },
+  { key: 'facebook-company',  network: 'Facebook', voice: 'brand', label: 'Facebook (company page)' },
+  { key: 'linkedin-personal', network: 'LinkedIn', voice: 'personal',   label: 'LinkedIn (personal)' },
 ];
 
-const PUBLIC_BASE = 'https://nyyon.com/blog';
+// Base for published-article links, from the PUBLIC_ORIGIN env var (the
+// operator's public site origin, e.g. https://example.com). Deliberately empty
+// until configured — links then render as site-relative /blog/<slug> paths
+// instead of pointing at anyone else's site.
+function publicBlogBase(env) {
+  const origin = String(env?.PUBLIC_ORIGIN || '').trim().replace(/\/+$/, '');
+  return origin ? `${origin}/blog` : '/blog';
+}
 
 function htmlToText(html) {
   return String(html || '')
@@ -36,17 +43,17 @@ function htmlToText(html) {
 }
 
 // ─── drafting ─────────────────────────────────────────────────
-// `sourceKind`: 'blog' (default) — promotes a published Nyyon article.
-//               'news' — reacts to an industry item with Nyyon's POV (no
+// `sourceKind`: 'blog' (default) — promotes a published article of ours.
+//               'news' — reacts to an industry item with the company's POV (no
 //               article of ours exists yet; used for Digest-sourced drafts).
 async function draftOne(env, channel, article, voiceBody, { sourceKind = 'blog', styleRules = '' } = {}) {
-  const isLev = channel.voice === 'lev';
-  const limit = isLev ? 1300 : 1200;
+  const isPersonal = channel.voice === 'personal';
+  const limit = isPersonal ? 1300 : 1200;
   const system = [
     sourceKind === 'news'
-      ? `You write a single ${channel.network} post reacting to an industry news item with Nyyon's point of view.`
-      : `You write a single ${channel.network} post that promotes a new Nyyon blog article.`,
-    `Nyyon is a white-glove, AI-native marketing agency.`,
+      ? `You write a single ${channel.network} post reacting to an industry news item with the company's point of view.`
+      : `You write a single ${channel.network} post that promotes a new article from the company's blog.`,
+    `Who is speaking and how they sound comes from the voice guide below.`,
     ``,
     // Hard constraints FIRST and last — the banned-phrase list the operator
     // maintains. A draft that uses any banned phrase (or a variant of the same
@@ -57,8 +64,8 @@ async function draftOne(env, channel, article, voiceBody, { sourceKind = 'blog',
     ``,
     `RULES:`,
     `- Output ONE post as plain text. No markdown, no headings, no hashtags spam.`,
-    isLev
-      ? `- First person, as Lev. TEASE one or two conclusions from the article, do NOT summarize the whole thing. Humble close.`
+    isPersonal
+      ? `- First person, as the operator. TEASE one or two conclusions from the article, do NOT summarize the whole thing. Humble close.`
       : `- Company voice. Confident and concrete, one clear idea, no hype words.`,
     `- Under ${limit} characters total.`,
     `- No exclamation marks. No em-dashes or en-dashes (use commas or plain hyphens).`,
@@ -94,17 +101,18 @@ async function insertDraft(env, { blog_slug, blog_title, channel, content, image
 // a row with package_id set and blog_slug null until its article exists. These
 // narrow writers are what the v2 tools compose; the fat generators below now
 // sit on top of them.
-export function blogPostUrl(slug) { return `${PUBLIC_BASE}/${slug}`; }
+export function blogPostUrl(slug, env = null) { return `${publicBlogBase(env)}/${slug}`; }
 
 // The article shape both the drafter and the queue row want, from a blog row.
-export function articleFromBlogPost(post) {
+// Pass env so the URL resolves against the configured PUBLIC_ORIGIN.
+export function articleFromBlogPost(post, env = null) {
   if (!post) return null;
   let tags = post.tags;
   if (typeof tags === 'string') { try { tags = JSON.parse(tags); } catch { tags = tags ? [tags] : []; } }
   return {
     blog_slug: post.slug || null,
     title:     post.title || '',
-    url:       post.slug ? blogPostUrl(post.slug) : '',
+    url:       post.slug ? blogPostUrl(post.slug, env) : '',
     excerpt:   post.excerpt || null,
     tags:      Array.isArray(tags) ? tags : [],
     body_html: post.body || '',
@@ -206,12 +214,12 @@ export async function draftSocialPostText(env, channelKey, { title, excerpt = nu
     url,
     snippet: htmlToText(String(bodyHtml || '')).slice(0, 1600),
   };
-  const [brandVoice, levVoice, styleRules] = await Promise.all([
+  const [brandVoice, personalVoice, styleRules] = await Promise.all([
     readKnowledge(env, 'brand-voice').catch(() => null),
     readKnowledge(env, 'personal-voice').catch(() => null),
     readKnowledge(env, 'writing-style-rules').catch(() => null),
   ]);
-  return draftOne(env, ch, article, (ch.voice === 'lev' ? levVoice : brandVoice)?.body || '', {
+  return draftOne(env, ch, article, (ch.voice === 'personal' ? personalVoice : brandVoice)?.body || '', {
     sourceKind,
     styleRules: styleRules?.body || '',
   });
@@ -220,7 +228,7 @@ export async function draftSocialPostText(env, channelKey, { title, excerpt = nu
 export const SOCIAL_CHANNELS = ['linkedin-company', 'linkedin-personal', 'facebook-company'];
 
 // Add a STANDALONE social post — one the operator wrote with Nyo, not derived
-// from a blog article. Lands as a 'draft' in the same review queue; the
+// from a blog article of ours. Lands as a 'draft' in the same review queue; the
 // synthetic `standalone:` slug keeps it out of the per-article grouping.
 export async function createSocialPost(env, { channel, content, title = null } = {}) {
   const ch = String(channel || '').trim();
@@ -251,18 +259,18 @@ export async function generateSocialPostsForBlog(env, slug, { source = 'blog-pub
     title:   post.title,
     excerpt: post.excerpt,
     tags:    Array.isArray(post.tags) ? post.tags.join(', ') : (post.tags || ''),
-    url:     `${PUBLIC_BASE}/${slug}`,
+    url:     blogPostUrl(slug, env),
     snippet: htmlToText(post.body).slice(0, 1600),
   };
   const image_url = post.featured_image_url || null;
 
   const brandVoice = (await readKnowledge(env, 'brand-voice').catch(() => null))?.body || '';
-  const levVoice   = (await readKnowledge(env, 'personal-voice').catch(() => null))?.body || '';
+  const personalVoice   = (await readKnowledge(env, 'personal-voice').catch(() => null))?.body || '';
   const styleRules = (await readKnowledge(env, 'writing-style-rules').catch(() => null))?.body || '';
 
   const results = await Promise.all(CHANNELS.map(async (ch) => {
     try {
-      const content = await draftOne(env, ch, article, ch.voice === 'lev' ? levVoice : brandVoice, { styleRules });
+      const content = await draftOne(env, ch, article, ch.voice === 'personal' ? personalVoice : brandVoice, { styleRules });
       const id = await insertDraft(env, { blog_slug: slug, blog_title: article.title, channel: ch.key, content, image_url });
       return { channel: ch.key, ok: true, id };
     } catch (e) {
@@ -276,7 +284,7 @@ export async function generateSocialPostsForBlog(env, slug, { source = 'blog-pub
 }
 
 // Draft reaction posts for a Digest item (industry news/signal/insight) —
-// not tied to a Nyyon blog post. Reuses the exact same per-channel drafting
+// not tied to a blog post of ours. Reuses the exact same per-channel drafting
 // and `draft` social_posts rows as generateSocialPostsForBlog, so the result
 // shows up in the Social module's normal review/edit/approve/send queue.
 // `blog_slug` is set to a synthetic `digest:<id>` key (the column is
@@ -302,12 +310,12 @@ export async function generateSocialPostsForDigestItem(env, item, { force = fals
   };
 
   const brandVoice = (await readKnowledge(env, 'brand-voice').catch(() => null))?.body || '';
-  const levVoice   = (await readKnowledge(env, 'personal-voice').catch(() => null))?.body || '';
+  const personalVoice   = (await readKnowledge(env, 'personal-voice').catch(() => null))?.body || '';
   const styleRules = (await readKnowledge(env, 'writing-style-rules').catch(() => null))?.body || '';
 
   const results = await Promise.all(CHANNELS.map(async (ch) => {
     try {
-      const content = await draftOne(env, ch, article, ch.voice === 'lev' ? levVoice : brandVoice, { sourceKind: 'news', styleRules });
+      const content = await draftOne(env, ch, article, ch.voice === 'personal' ? personalVoice : brandVoice, { sourceKind: 'news', styleRules });
       const id = await insertDraft(env, { blog_slug: slug, blog_title: article.title, channel: ch.key, content, image_url: null });
       return { channel: ch.key, ok: true, id };
     } catch (e) {
@@ -486,7 +494,7 @@ export async function sendClaimedSocialPost(env, id, { actor = 'operator' } = {}
         status:      'done',
         source:      'social',
         source_ref:  id,
-        link_url:    row.blog_slug ? blogPostUrl(row.blog_slug) : null,
+        link_url:    row.blog_slug ? blogPostUrl(row.blog_slug, env) : null,
         platform:    ch?.network || null,
         body:        row.content,
         created_by:  'system',

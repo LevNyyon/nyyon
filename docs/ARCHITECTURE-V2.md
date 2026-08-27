@@ -24,7 +24,7 @@ Tools marked ⚙️ wrap an atomic library guarantee (claim-then-send, no-duplic
 
 ### `aeo-react`
 
-- [x] **Reaction recorded and the nyyon-editorial-taste knowledge doc refreshed.**
+- [x] **Reaction recorded and the editorial-taste knowledge doc refreshed.**
   - trigger: on-demand (Nyo, whenever the operator reacts to an idea)
   - steps: `save_aeo_feedback` → `draft_taste_profile` → `write_knowledge`
 
@@ -562,12 +562,12 @@ Tools marked ⚙️ wrap an atomic library guarantee (claim-then-send, no-duplic
 - [x] `draft_interview_questions` — Draft 4 expert-interview questions for one topic (one LLM step; taste-aware). · via `llm`
   - `in:` {question_slug, question, target_keyword?, notes?}
   - `out:` {interview_questions:[4]}
-- [x] `draft_suggestion_angles` — Draft Nyyon article angles for scored signals (one LLM step; reads voice + playbook + existing titles for dedup). · via `llm`
+- [x] `draft_suggestion_angles` — Draft article angles for scored signals (one LLM step; reads voice + playbook + existing titles for dedup). · via `llm`
   - `in:` {signals, limit}
   - `out:` {suggestions:[{signal_id,title,target_keyword,angle,rationale}]}
 - [x] `draft_taste_profile` — Draft the updated editorial-taste doc from recent reactions (one LLM step; no writes). · via `llm`
   - `in:` {}
-  - `out:` {slug:'nyyon-editorial-taste', title, body}
+  - `out:` {slug:'editorial-taste', title, body}
 - [x] `draft_visual_brief` — Draft one AI-image visual brief (one LLM step; reads nyyon-visual-style knowledge). · via `llm`
   - `in:` {title, excerpt, tags?}
   - `out:` {scene, label, prompt}
@@ -598,8 +598,8 @@ Tools marked ⚙️ wrap an atomic library guarantee (claim-then-send, no-duplic
 - [x] `read_suggestion_policy` — Read the aeo-suggestion-policy doc with current room (pending count vs max_pending).
   - `in:` {limit?}
   - `out:` {policy:{daily_limit,max_pending,min_content_score}, pending_count, room, min_score:(policy floor), limit:(effective)}
-- [x] `read_voice_profile` — Read the assembled voice profile (brand voice + learned taste + optional lev overlay).
-  - `in:` {voice?:'house'|'lev'}
+- [x] `read_voice_profile` — Read the assembled voice profile (brand voice + learned taste + optional personal-voice overlay).
+  - `in:` {voice?:'house'|'personal'}
   - `out:` {voice_doc}
 - [x] `render_cover` — Render one code-drawn cover PNG to R2 (deterministic slot fallback from title/excerpt). · via `image`
   - `in:` {blog_slug, title, excerpt, cover?}
@@ -643,7 +643,7 @@ Tools marked ⚙️ wrap an atomic library guarantee (claim-then-send, no-duplic
 - [x] `draft_card` — Draft one social-card template pick + slot text (one LLM step). · via `llm`
   - `in:` {title, excerpt, tags?, template?, slots?}
   - `out:` {template, slots}
-- [x] `draft_social_post` — Draft one channel's post text in that channel's voice (brand or Lev) with the style-rule hard constraints, for a blog article or news item. · via `llm`
+- [x] `draft_social_post` — Draft one channel's post text in that channel's voice (brand or personal) with the style-rule hard constraints, for a blog article or news item. · via `llm`
   - `in:` {channel, title, url, excerpt?, tags?, body_html?, source_kind?('blog'|'news'), slug?, force?}
   - `out:` {channel, content} | {channel, skipped:true, reason}
 - [x] `edit_social_post` — Replace a queued post's content with a full new version (edit only, never publishes).

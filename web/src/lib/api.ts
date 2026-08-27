@@ -504,7 +504,7 @@ export const api = {
     j<{ package?: HotTakePackage; error?: string }>(`/api/hot-takes/packages/${encodeURIComponent(id)}/draft-take`, { method: 'POST' }),
   hotTakeBuildBrief: (id: string) =>
     j<{ package?: HotTakePackage; error?: string }>(`/api/hot-takes/packages/${encodeURIComponent(id)}/build-brief`, { method: 'POST' }),
-  hotTakeWriteArticle: (id: string, voice?: 'lev' | 'house') =>
+  hotTakeWriteArticle: (id: string, voice?: 'personal' | 'house') =>
     j<{ ok?: boolean; slug?: string; error?: string }>(`/api/hot-takes/packages/${encodeURIComponent(id)}/write-article`, { method: 'POST', body: JSON.stringify({ voice }) }),
   hotTakeReviewScan: (id: string) =>
     j<{ package?: HotTakePackage; open_claims?: number; flags?: number; error?: string }>(`/api/hot-takes/packages/${encodeURIComponent(id)}/review-scan`, { method: 'POST' }),

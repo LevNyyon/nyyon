@@ -31,9 +31,9 @@ const MAKE_SHAPES = {
 // The fixed set of connections Nyo can reach. `urlEnv` is the env var holding
 // the Make webhook for that profile.
 const CONNECTIONS = {
-  'linkedin-company':  { label: 'Nyyon LinkedIn (company page)',     network: 'linkedin', kind: 'make', urlEnv: 'NYYON_GW_LINKEDIN_COMPANY_URL' },
-  'linkedin-personal': { label: 'Lev Kerzhner LinkedIn (personal)',  network: 'linkedin', kind: 'make', urlEnv: 'NYYON_GW_LINKEDIN_PERSONAL_URL' },
-  'facebook-company':  { label: 'Nyyon Facebook (company page)',     network: 'facebook', kind: 'make', urlEnv: 'NYYON_GW_FACEBOOK_COMPANY_URL' },
+  'linkedin-company':  { label: 'LinkedIn (company page)',  network: 'linkedin', kind: 'make', urlEnv: 'NYYON_GW_LINKEDIN_COMPANY_URL' },
+  'linkedin-personal': { label: 'LinkedIn (personal)',      network: 'linkedin', kind: 'make', urlEnv: 'NYYON_GW_LINKEDIN_PERSONAL_URL' },
+  'facebook-company':  { label: 'Facebook (company page)',  network: 'facebook', kind: 'make', urlEnv: 'NYYON_GW_FACEBOOK_COMPANY_URL' },
 };
 
 // When a caller names a bare network instead of a connection key, this is the

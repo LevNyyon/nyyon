@@ -229,7 +229,7 @@ export const CONTACT_VOCAB = { CONTACT_STATUSES, CONTACT_SOURCES };
 const CLIENT_STATUSES = ['active', 'past', 'prospect', 'partner'];
 
 export async function listClients(env, { status = null, tag = null, search = null, starred = false, limit = 500 } = {}) {
-  // contact_count is computed per row so the list view can show "Simply Funding · 3 contacts".
+  // contact_count is computed per row so the list view can show "Acme Corp · 3 contacts".
   let sql = 'SELECT c.*, (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id) AS contact_count FROM clients c';
   const where = []; const args = [];
   if (status) { where.push('c.status = ?'); args.push(status); }

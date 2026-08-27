@@ -12,9 +12,9 @@
 // them) are gated on the `hottakes.live` feature flag. Absent/false → DRY RUN
 // (log + preview, no side effects). Flip it via PUT
 // /api/feature-flags/hottakes.live {value:true} when ready. The WEBSITE leg is
-// deliberately NOT gated: publishing to nyyon.com is the same trust level as the
-// Blog page's Approve button (also ungated), so a scheduled publication really
-// goes live at its date — that is the whole point of scheduling it.
+// deliberately NOT gated: publishing to the public site is the same trust level
+// as the Blog page's Approve button (also ungated), so a scheduled publication
+// really goes live at its date — that is the whole point of scheduling it.
 
 import { now, uid, safeJSON } from './util.js';
 import {
@@ -30,7 +30,12 @@ const genId = (prefix) => `${prefix}_${uid().replace(/-/g, '').slice(0, 12)}`;
 
 // One definition of the public article URL — used by scheduling, publishing,
 // the calendar mirror, and the social-draft prompt (no scattered copies).
-export const blogUrl = (slug) => `https://nyyon.com/blog/${slug}/`;
+// The origin comes from the configured public site (env.PUBLIC_ORIGIN); with
+// none configured the URL stays site-relative until the operator connects one.
+export const blogUrl = (slug, env = null) => {
+  const origin = String(env?.PUBLIC_ORIGIN || '').replace(/\/+$/, '');
+  return `${origin}/blog/${slug}/`;
+};
 
 // ── live/dry-run gate ───────────────────────────────────────────────────────
 // LIVE by default. An operator who connected a posting channel, wrote a post
@@ -251,7 +256,7 @@ export async function ensurePackageForSlug(env, slug, actor = 'operator') {
     title: post.title, headline: post.title, intro: post.excerpt || null,
     status: isLive ? 'published' : 'ready',
     website_status: isLive ? 'published' : 'not_planned',
-    website_url: isLive ? blogUrl(slug) : null,
+    website_url: isLive ? blogUrl(slug, env) : null,
     pinned: 0, actor,
   });
   // Adoption is its own transition (distinct from a topic being added) — make
@@ -608,7 +613,7 @@ export async function linkArticle(env, id, { slug, title, excerpt } = {}, actor 
   return updated;
 }
 
-export async function writeArticleFromBrief(env, id, { voice = 'lev', actor = 'operator' } = {}) {
+export async function writeArticleFromBrief(env, id, { voice = 'house', actor = 'operator' } = {}) {
   const seed = await buildArticleSeed(env, id);
 
   const { composeAndSavePost } = await import('./aeo-writer.js');
@@ -722,7 +727,7 @@ export async function scheduleRelease(env, id, { website_at, company_at, persona
       status: 'confirmed',
       source: 'hottake',
       source_ref: id,
-      link_url: pkg.blog_slug ? blogUrl(pkg.blog_slug) : null,
+      link_url: pkg.blog_slug ? blogUrl(pkg.blog_slug, env) : null,
       created_by: 'system',
     });
   } catch { /* best-effort */ }
@@ -758,7 +763,7 @@ export async function cancelSchedule(env, id, actor = 'operator') {
       status: 'cancelled',
       source: 'hottake',
       source_ref: id,
-      link_url: pkg.blog_slug ? blogUrl(pkg.blog_slug) : null,
+      link_url: pkg.blog_slug ? blogUrl(pkg.blog_slug, env) : null,
       created_by: 'system',
     });
   } catch { /* best-effort */ }
@@ -769,9 +774,9 @@ export async function cancelSchedule(env, id, actor = 'operator') {
 // Publish the website leg through the SHARED blog pipeline. social:false —
 // Hot Takes owns its own two posts; the Social module's auto-fan-out would
 // double-draft into the other queue.
-// NOT gated on hottakes.live: publishing to nyyon.com is the same trust level as
-// the Blog page's ungated Approve button, and a scheduled publication must
-// actually go live at its date. Only the LinkedIn legs respect the flag.
+// NOT gated on hottakes.live: publishing to the public site is the same trust
+// level as the Blog page's ungated Approve button, and a scheduled publication
+// must actually go live at its date. Only the LinkedIn legs respect the flag.
 export async function publishWebsite(env, id, { actor = 'operator', ctx = null } = {}) {
   const pkg = await readPackage(env, id);
   if (!pkg) throw new Error(`hot take ${id} not found`);
@@ -837,7 +842,7 @@ export async function postLeg(env, postId, { actor = 'operator' } = {}) {
         title: `${post.channel}: ${imageTitle || post.package_id}`,
         starts_at: t, all_day: false, status: 'done',
         source: 'hottake', source_ref: postId,
-        link_url: pkg?.website_url || (pkg?.blog_slug ? blogUrl(pkg.blog_slug) : null),
+        link_url: pkg?.website_url || (pkg?.blog_slug ? blogUrl(pkg.blog_slug, env) : null),
         platform: 'linkedin', body: post.body, created_by: 'system',
       });
     } catch { /* best-effort */ }
@@ -1053,7 +1058,7 @@ export async function loadHotTakesDoc(env, slug, fallback = { title: slug, body:
 
 // The add-link metadata-extraction prompt lives in an editable knowledge note
 // (seeded on first read), not as a literal in the tool — change the note, not code.
-const LINK_EXTRACT_DEFAULT = `You extract article metadata. Return ONLY JSON: {"title","source_name","summary","why_it_matters","published_at_iso"}. summary = 1-2 plain sentences on what happened. why_it_matters = one sentence on why an AI-native marketing company might care. published_at_iso = ISO 8601 date if determinable, else null. Be faithful to the text; never invent facts.`;
+const LINK_EXTRACT_DEFAULT = `You extract article metadata. Return ONLY JSON: {"title","source_name","summary","why_it_matters","published_at_iso"}. summary = 1-2 plain sentences on what happened. why_it_matters = one sentence on why the operator's company might care. published_at_iso = ISO 8601 date if determinable, else null. Be faithful to the text; never invent facts.`;
 export async function loadLinkExtractPrompt(env) {
   const doc = await loadHotTakesDoc(env, 'hottakes-link-extract', {
     title: 'Hot Takes — link extraction prompt',
@@ -1080,7 +1085,7 @@ Reusable company positions the take-drafter grounds every Hot Take in. Edit free
 - "AI-native" — built assuming the model does the work, humans supply judgment.
 
 ## Approved statements
-- "Nyyon builds AI-native marketing systems: agents, funnels, and content engines that ship."
+- Add your company's approved one-line positioning statements here.
 `;
 export const loadPovLibrary = (env) => loadHotTakesDoc(env, POV_LIBRARY_SLUG, { title: 'Hot Takes — Point-of-View Library', body: POV_LIBRARY_DEFAULT });
 
@@ -1171,8 +1176,8 @@ export async function loadTimingDefaults(env) {
 // future platforms slot in beside the two LinkedIn legs.
 export const IDENTITIES_SLUG = 'hottakes-social-identities';
 const IDENTITIES_FALLBACK = {
-  'linkedin-company': { name: 'Nyyon', headline: 'AI-native marketing agency', avatar_url: null },
-  'linkedin-personal': { name: 'Lev', headline: 'Founder · Nyyon', avatar_url: null },
+  'linkedin-company': { name: 'Your Company', headline: 'Company page', avatar_url: null },
+  'linkedin-personal': { name: 'You', headline: 'Founder', avatar_url: null },
 };
 const IDENTITIES_DEFAULT = `# Hot Takes — social identities
 

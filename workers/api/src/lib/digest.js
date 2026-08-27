@@ -197,7 +197,7 @@ export async function insertDigestItem(env, item, { refresh = false } = {}) {
 // Default WA reply system prompt — fallback when the editable knowledge doc
 // `prompt-wa-reply` is absent. To customize for an operator, edit the doc in
 // the ops Knowledge surface; this default is the "factory" voice.
-const WA_REPLY_SYSTEM_DEFAULT = `You are drafting a WhatsApp reply for Nyyon, an AI marketing agency (founder Lev Kerzhner, B2B startups, AI-driven copy + paid + SEO + brand strategy).
+const WA_REPLY_SYSTEM_DEFAULT = `You are drafting a WhatsApp reply on the operator's behalf, in the voice of their company. (Edit the 'prompt-wa-reply' knowledge doc to teach it the operator's actual company, audience, and voice.)
 
 Voice rules:
 - Direct, warm, knowledgeable. No fluff.
@@ -249,13 +249,13 @@ Now draft the reply.`;
 }
 
 // Extract a phone number from a WhatsApp sender id. WA participant ids look
-// like `972508425412@c.us` or `972508425412@lid` or sometimes embedded in
-// `972508425412-1471816179@g.us` (group id, not a sender). Returns
-// `+972508425412` style or null when nothing usable.
+// like `972500000000@c.us` or `972500000000@lid` or sometimes embedded in
+// `972500000000-1471816179@g.us` (group id, not a sender). Returns
+// `+972500000000` style or null when nothing usable.
 function phoneFromWaId(id) {
   if (!id) return null;
   const base = String(id).split('@')[0];
-  // For group ids we'd get `972508425412-1471816179` — take the leading run.
+  // For group ids we'd get `972500000000-1471816179` — take the leading run.
   const leading = base.split('-')[0];
   const digits  = leading.replace(/[^0-9]/g, '');
   if (digits.length < 7 || digits.length > 16) return null;
@@ -275,7 +275,7 @@ function guessPersonNameFromText(text) {
   if (verbHit) return verbHit[1];
   // Otherwise take the first plausible Title-Case word that isn't a
   // boilerplate stopword the LLM might lead with.
-  const STOP = new Set(['Nyyon', 'WhatsApp', 'LinkedIn', 'AI', 'Help', 'Message', 'Reply', 'DM', 'Send', 'Pitch']);
+  const STOP = new Set(['WhatsApp', 'LinkedIn', 'AI', 'Help', 'Message', 'Reply', 'DM', 'Send', 'Pitch']);
   const tokens = text.match(/\b[A-Z][a-zA-Z'-]{1,24}\b/g) || [];
   for (const t of tokens) if (!STOP.has(t)) return t;
   return '';
@@ -285,8 +285,8 @@ function guessPersonNameFromText(text) {
 // group messages, even when the webhook payload's `author`/`participant`
 // fields are missing. Format observed:
 //   `false_120363427775223901@g.us_3A6EA2…_183300681392151@lid`
-//   `true_972504443434@c.us_3EB0…_out`
-//   `false_120363@g.us_3A6E…_972545492444@c.us`
+//   `true_972500000000@c.us_3EB0…_out`
+//   `false_120363@g.us_3A6E…_972500000001@c.us`
 // We split on `_`, look for the last token that ends in `@c.us` or `@lid`
 // AND isn't the chat id itself, and return it. Null if nothing usable.
 function extractAuthorFromMessageId(messageId, chatId) {
@@ -630,7 +630,7 @@ export async function draftDigestActions(env, id) {
     actions.push({
       type: 'draft_social',
       label: 'Draft a social commentary',
-      description: 'Draft LinkedIn/Facebook reaction posts in Nyyon\'s voice. Lands as drafts in the Social module for review + send.',
+      description: 'Draft LinkedIn/Facebook reaction posts in your company\'s voice. Lands as drafts in the Social module for review + send.',
     });
   }
 
@@ -816,7 +816,7 @@ Return matches — STRICT — only asks this headline directly answers.`;
 
   // Draft the take. For ask replies we hand the LLM the ask context too,
   // so it weaves the answer in. For plain group posts it's just the
-  // headline + Lev's voice.
+  // headline + the operator's voice.
   const draft = await draftOsintShareText(env, item, ctx, recommended);
 
   return {
@@ -830,8 +830,8 @@ Return matches — STRICT — only asks this headline directly answers.`;
   };
 }
 
-// LLM-draft the actual message body. Lev's voice; 2-3 sentences. When
-// the chosen recipient is a "reply_to_ask", weave the ask context in.
+// LLM-draft the actual message body. The operator's voice; 2-3 sentences.
+// When the chosen recipient is a "reply_to_ask", weave the ask context in.
 async function draftOsintShareText(env, item, ctx, recipient) {
   const headline = item.title || '';
   const summary  = (item.summary || '').slice(0, 800);
@@ -839,7 +839,7 @@ async function draftOsintShareText(env, item, ctx, recipient) {
   const isAskReply = recipient?.mode === 'reply_to_ask';
 
   const baseRules = `Voice rules:
-- Direct, warm, knowledgeable. Lev Kerzhner's voice — Nyyon (AI marketing agency, B2B startups, AI-driven copy + paid + SEO + brand).
+- Direct, warm, knowledgeable. The operator's personal voice, speaking for their company.
 - 2-3 sentences max. No fluff. No "Hey everyone".
 - Match the language of the group/person you're posting to. If the group/ask is Hebrew, write Hebrew. Otherwise English.
 - No em-dash (—), no ellipsis character (…), straight quotes only.
@@ -1182,7 +1182,7 @@ async function callLLMJson(env, system, user, { maxTokens = 8000 } = {}) {
   return parseLoose(text);
 }
 
-const WA_DIGEST_SYSTEM = `You are scanning a WhatsApp conversation for Nyyon's operator. Your job is to surface every concrete asker, opportunity, intro request, or thread that warrants a personal follow-up. Think like a sharp chief of staff who reads every channel the founder is in — you flag asks the operator could meaningfully respond to, not just "marketing" asks.
+const WA_DIGEST_SYSTEM = `You are scanning a WhatsApp conversation for the operator. Your job is to surface every concrete asker, opportunity, intro request, or thread that warrants a personal follow-up. Think like a sharp chief of staff who reads every channel the operator is in — you flag asks the operator could meaningfully respond to, not only ones squarely in their company's niche.
 
 Be GENEROUS, not stingy. A week of activity in a busy group should typically yield 5-15 items, not 1-2. If in doubt about an ask, include it at urgency 2 or 3 — the operator can star or dismiss. Missing a real lead is worse than surfacing a soft one.
 
@@ -1191,7 +1191,7 @@ INCLUDE every one of these as a separate item:
 - Anyone introducing themselves with a company / role — that's a relationship to seed
 - Anyone asking for an intro, recommendation, or referral (to a person, tool, vendor, or service)
 - Anyone sharing a launch, milestone, fundraise, hire, RFP, or event the operator could engage with
-- Anyone whose own ask Nyyon (AI marketing agency: strategy, SEO, content, AI workflows, ad ops, copy, branding) could uniquely answer
+- Anyone whose own ask the operator's company could uniquely answer
 - Time-sensitive items (deadlines, "this week", "by Friday", "TODAY", "happening now")
 - Recurring discussions where the operator's POV is missing and would land well
 - Mentions of specific named people or companies the operator might want to track
@@ -1211,7 +1211,7 @@ For each item, output:
 
 Urgency:
 - 1 = HIGH — direct ask aimed at the operator OR a clear time-bound RFP / deadline OR a sales-stage prospect making a concrete request. Should be reserved for things the operator must touch today.
-- 2 = MEDIUM — any group ask Nyyon could answer, intro requests, opportunities to engage. The default for most items.
+- 2 = MEDIUM — any group ask the operator could answer, intro requests, opportunities to engage. The default for most items.
 - 3 = LOW — relationship-building, soft signals, things to note but not chase.
 
 Return ONLY valid JSON:
@@ -1231,7 +1231,7 @@ async function getWaDeliverySystem(env) {
   } catch { /* fall through */ }
   return DELIVERY_SYSTEM;
 }
-const DELIVERY_SYSTEM = `You decide WhatsApp routing for a reply Nyyon is about to send. Pick exactly one: "group" (post publicly in the original chat) or "private" (DM the specific person).
+const DELIVERY_SYSTEM = `You decide WhatsApp routing for a reply the operator is about to send. Pick exactly one: "group" (post publicly in the original chat) or "private" (DM the specific person).
 
 Treat this as a binary classifier with a strong DEFAULT-TO-PRIVATE bias. Group sends are high-cost (everyone in the room sees them, irreversible). Private sends are low-cost (one person, easy to recover). When uncertain, choose private.
 
@@ -1246,7 +1246,7 @@ Strong signals → GROUP
 - The original message was an explicit public ask ("anyone know X?", "can someone recommend Y?") posted to a community/professional group where peers benefit from reading the answer.
 - The reply offers a referral, intro, or helpful answer that lifts others' understanding (technical answer in a builder group, market take in a founders group).
 - The group is purpose-built for this topic (a deal group, a hiring channel, a buyer community) and the reply is in-scope.
-- Posting publicly builds credibility for Nyyon with cold readers who are watching.
+- Posting publicly builds credibility for the operator with cold readers who are watching.
 
 Tie-breakers
 - If the digest item's suggested_action contradicts the thread context, trust the suggested_action — it represents the operator's intent at digest time.
@@ -1307,11 +1307,11 @@ async function analyzeChatWithLLM(env, chat, messages) {
   }).join('\n');
   // Operator's editable interest profile steers what counts as "actionable".
   // The doc was seeded + advertised but never read (audit: knowledge drift);
-  // now editing nyyon-digest-interests actually changes digest behavior.
+  // now editing digest-interests actually changes digest behavior.
   let interests = '';
   try {
     const doc = await readKnowledge(env, 'digest-interests');
-    if (doc?.body) interests = `\n\nOPERATOR'S INTEREST PROFILE (editable knowledge doc nyyon-digest-interests — weigh items against this):\n${doc.body.slice(0, 2000)}`;
+    if (doc?.body) interests = `\n\nOPERATOR'S INTEREST PROFILE (editable knowledge doc digest-interests — weigh items against this):\n${doc.body.slice(0, 2000)}`;
   } catch { /* doc unreadable — prompt works without it */ }
   const user = `Group: ${chat.name || chat.id}\nWindow: last 7 days\nMessages (${ordered.length}, oldest first):\n\n${lines}\n\nNow extract every actionable item per the rules.`;
   const result = await callLLMJson(env, WA_DIGEST_SYSTEM + interests, user);
@@ -1504,7 +1504,7 @@ async function pullOsint(env, _sinceTs) {
   if (!byTarget.size) return inserted;
 
   // LLM relevance pass per target — drops false positives (murder trial
-  // of a person named Nyyon, sports player, religious term, etc.) that
+  // of a person sharing the brand's name, sports player, religious term, etc.) that
   // the name-only scorer can't distinguish from real brand mentions.
   const keepIds = new Set();
   const allRows = [];
@@ -1547,7 +1547,7 @@ async function pullOsint(env, _sinceTs) {
       source_url:   x.source_url,
       urgency:      x.confidence >= 0.9 ? 2 : 3,
       actionable:   actionableOf(x.text),
-      suggested_action: x.source === 'reddit' || x.source === 'hn' ? 'Weigh in as Nyyon' : null,
+      suggested_action: x.source === 'reddit' || x.source === 'hn' ? 'Weigh in with your take' : null,
     });
     if (r) inserted.push(r.id);
   }

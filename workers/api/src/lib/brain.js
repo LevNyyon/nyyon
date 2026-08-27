@@ -203,9 +203,9 @@ export async function deriveArticles(env, sessionId) {
       status: 'pending',
       notes: `${idea.category} · ${idea.angle}`,
     });
-    // OPINION + FORWARD pieces are founder POV → write in Lev's voice.
+    // OPINION + FORWARD pieces are founder POV → write in the operator's personal voice.
     // BUILT / LIVE / CLIENT stay house voice (brand, not person).
-    const voice = (idea.category === 'OPINION' || idea.category === 'FORWARD') ? 'lev' : 'house';
+    const voice = (idea.category === 'OPINION' || idea.category === 'FORWARD') ? 'personal' : 'house';
     // attach interview context, mark ready (the brain WAS the interview), and
     // set the scheduled publish date.
     await env.DB.prepare(

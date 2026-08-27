@@ -57,7 +57,7 @@ export const tools = {
   read_linkedin_profile: {
     def: {
       name: 'read_linkedin_profile',
-      description: 'Read one LinkedIn profile by public_id (the URL slug, e.g. "levkerzhner"). Returns the profile blob — headline, current_company, summary, locations, experience, education. Use it when the operator asks about a person, or before drafting a message tailored to them.',
+      description: 'Read one LinkedIn profile by public_id (the URL slug, e.g. "jane-doe"). Returns the profile blob — headline, current_company, summary, locations, experience, education. Use it when the operator asks about a person, or before drafting a message tailored to them.',
       input_schema: {
         type: 'object',
         properties: { public_id: { type: 'string', description: 'the URL slug, not the full URL' } },
@@ -241,7 +241,7 @@ export const tools = {
       input_schema: {
         type: 'object',
         properties: {
-          body:       { type: 'string', description: 'the post body, in the operator\'s voice (see the nyyon-brand-voice doc)' },
+          body:       { type: 'string', description: 'the post body, in the operator\'s voice (see the brand-voice knowledge doc)' },
           visibility: { type: 'string', enum: ['ANYONE', 'CONNECTIONS'], description: 'default ANYONE' },
           actor:      { type: 'string', description: 'who initiated: operator | nyo | system. Default nyo.' },
         },

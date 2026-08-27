@@ -9,13 +9,14 @@ import { devUrl, fmtDate, timeAgo, fmtNum, Thumb, TagList, KV, ColHeader, Inline
 import { useModulePrereqs } from '../lib/module-status';
 import { ModuleSetupGate } from '../components/ModuleSetupGate';
 import { DegradedNotice, ModuleStatusHold } from '../components/DegradedNotice';
+import { PUBLIC_SITE_URL } from '../lib/site';
 
-// Preview target — the live site.
-// The real site source is Saragus-Partners/Nyyon-LP, deployed by Cloudflare
-// Pages to https://nyyon.com. The old local `web-public` folder was a stale,
-// unrelated codebase, so both preview states point at the live site.
-const STAGING_URL    = 'https://nyyon.com';
-const PROD_URL       = 'https://nyyon.com';
+// Preview target: the operator's live public site. No origin is hardcoded
+// here; it comes from lib/site.ts and stays empty until configured, in which
+// case the preview surfaces below show their "no public site connected"
+// state. Both preview states point at the same live site.
+const STAGING_URL    = PUBLIC_SITE_URL;
+const PROD_URL       = PUBLIC_SITE_URL;
 const PREVIEW_MODE_KEY = 'nyyon.preview.mode.v1';
 type PreviewMode = 'staging' | 'live';
 function loadPreviewMode(): PreviewMode {
@@ -87,13 +88,13 @@ export function Blog() {
   const reviewPosts    = useMemo(() => (posts || []).filter((p) => !p.published && !!p.body && p.body.trim().length > 0), [posts]);
   const publishedPosts = useMemo(() => (posts || []).filter((p) => !!p.published), [posts]);
 
-  // Approve = publish to nyyon.com (mirror to prod D1 + rebuild). One click,
+  // Approve = publish to the public site (mirror to prod D1 + rebuild). One click,
   // reusing the same publish path the detail panel uses.
   async function approve(slug: string) {
     if (publishOff) return;   // the button is already off; this is the belt
     const p = (posts || []).find((x) => x.slug === slug);
     const title = p?.title || slug;
-    if (!confirm(`Approve and publish "${title}" to nyyon.com?\n\nThis publishes the post to the live site and triggers a rebuild.`)) return;
+    if (!confirm(`Approve and publish "${title}"?\n\nThis publishes the post to the live site and triggers a rebuild.`)) return;
     setApproving(slug);
     if (approvePoll.current) { window.clearInterval(approvePoll.current); approvePoll.current = null; }
     try {
@@ -101,9 +102,9 @@ export function Blog() {
       await refresh();
       // Posts go live via the blog-edge worker straight from D1 — no rebuild,
       // no sidecar. The backend already verified the edge actually serves it,
-      // so r.ok/r.live IS "live on nyyon.com". Trust that, not a sidecar.
+      // so r.ok/r.live IS "live on the public site". Trust that, not a sidecar.
       if (r.ok || r.live) {
-        setLiveBanner({ kind: 'ok', text: `✓ "${title}" is live on nyyon.com` });
+        setLiveBanner({ kind: 'ok', text: `✓ "${title}" is live on the public site` });
         return;
       }
       // Not live yet (edge cache lag or a mirror error). Poll briefly, then say so.
@@ -114,14 +115,14 @@ export function Blog() {
         try {
           const s = await api.blogLiveStatus(slug);
           if (s.live) {
-            setLiveBanner({ kind: 'ok', text: `✓ "${title}" is live on nyyon.com` });
+            setLiveBanner({ kind: 'ok', text: `✓ "${title}" is live on the public site` });
             if (approvePoll.current) { window.clearInterval(approvePoll.current); approvePoll.current = null; }
             return;
           }
         } catch { /* keep polling */ }
         if (tries >= 30) { // ~6 min ceiling
           if (approvePoll.current) { window.clearInterval(approvePoll.current); approvePoll.current = null; }
-          setLiveBanner({ kind: 'pending', text: `"${title}" deploy queued; still building — check nyyon.com in a minute.` });
+          setLiveBanner({ kind: 'pending', text: `"${title}" deploy queued; still building — check the live site in a minute.` });
         }
       }, 12000);
     }
@@ -130,12 +131,12 @@ export function Blog() {
   }
 
   // Delete a post from local D1. For a published post this removes the draft
-  // record here; it does NOT take it down from nyyon.com (do that at the source).
+  // record here; it does NOT take it down from the public site (do that at the source).
   async function remove(slug: string) {
     const p = (posts || []).find((x) => x.slug === slug);
     const title = p?.title || slug;
     const live = !!p?.published;
-    if (!confirm(`Delete "${title}"?\n\nThis removes the post from the Command Center${live ? '. It does NOT unpublish it from nyyon.com — take the live post down separately.' : '.'}\n\nThis can't be undone.`)) return;
+    if (!confirm(`Delete "${title}"?\n\nThis removes the post from the Command Center${live ? '. It does NOT unpublish it from the public site — take the live post down separately.' : '.'}\n\nThis can't be undone.`)) return;
     setDeleting(slug);
     try { await api.deleteBlogPost(slug); if (openSlug === slug) setOpenSlug(null); await refresh(); }
     catch (e: any) { alert('Delete failed: ' + String(e?.message || e)); }
@@ -158,7 +159,7 @@ export function Blog() {
         return;
       }
       setPendingSend(
-        `I just drafted social posts for the blog article "${post.title}" (slug: ${post.slug}). They're in the Social module awaiting approval.\n\nHelp me refine them: call list_social_posts with slug "${post.slug}" to see all three (company LinkedIn, personal LinkedIn, company Facebook), then as I ask for changes call edit_social_post with each post's id and the FULL new text so it updates live. This is shaping, not publishing, I approve them myself.\n\nWhen we're done, fold what you learned about how I want these posts written into the relevant voice doc (nyyon-voice-lev / nyyon-brand-voice / nyyon-editorial-taste) with write_knowledge, read-and-append.\n\nStart by listing the three drafts and giving me a one-line read of each.`,
+        `I just drafted social posts for the blog article "${post.title}" (slug: ${post.slug}). They're in the Social module awaiting approval.\n\nHelp me refine them: call list_social_posts with slug "${post.slug}" to see all three (company LinkedIn, personal LinkedIn, company Facebook), then as I ask for changes call edit_social_post with each post's id and the FULL new text so it updates live. This is shaping, not publishing, I approve them myself.\n\nWhen we're done, fold what you learned about how I want these posts written into the relevant voice doc (personal-voice / brand-voice / editorial-taste) with write_knowledge, read-and-append.\n\nStart by listing the three drafts and giving me a one-line read of each.`,
       );
       navigateTo('social');
       openChat();
@@ -294,7 +295,7 @@ export function Blog() {
   return (
     <div className="h-full flex flex-col">
       {/* "Going live" banner — after approve, tracks the rebuild until the post
-          is actually served on nyyon.com, then confirms it's live. */}
+          is actually served on the public site, then confirms it's live. */}
       {liveBanner && (
         <div className={'px-6 py-2 shrink-0 flex items-center justify-between gap-3 text-[12px] border-b border-line ' + (liveBanner.kind === 'ok' ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-300' : 'bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-300')}>
           <span className="flex items-center gap-2">
@@ -467,7 +468,7 @@ function BlogRow({
                 (publishOff ? 'hairline bg-card text-mute opacity-60 cursor-not-allowed'
                   : approving ? 'bg-card text-mute cursor-wait hairline' : 'bg-ink text-paper hover:opacity-90')
               }
-              title={publishOff ? `${publishOffWhy} The draft stays here, edited and ready.` : 'Publish this draft to nyyon.com'}
+              title={publishOff ? `${publishOffWhy} The draft stays here, edited and ready.` : 'Publish this draft to the public site'}
             >
               {publishOff ? 'publishing off' : approving ? 'publishing…' : 'Approve → publish'}
             </button>
@@ -530,10 +531,12 @@ function BlogDetail({ post, onRegenerated, onDraftSocial, drafting, publishOff, 
   const wordCount = post.body ? post.body.trim().split(/\s+/).filter(Boolean).length : 0;
   const [previewMode, setPreviewMode] = useState<PreviewMode>(loadPreviewMode);
   const base = previewMode === 'live' ? PROD_URL : STAGING_URL;
-  const publicUrl = `${base}/blog/${post.slug}`;
+  // An empty base means no public site is configured yet; the preview block
+  // below says so instead of rendering a dead iframe.
+  const publicUrl = base ? `${base}/blog/${post.slug}` : '';
   // External "open" link always points at production — local dev URL has
   // no meaning outside the operator's laptop.
-  const prodUrl = `${PROD_URL}/blog/${post.slug}`;
+  const prodUrl = PROD_URL ? `${PROD_URL}/blog/${post.slug}` : '';
   function flipMode(m: PreviewMode) { setPreviewMode(m); savePreviewMode(m); }
   const [regenerating, setRegenerating] = useState(false);
   const [imgError, setImgError]         = useState<string | null>(null);
@@ -559,7 +562,7 @@ function BlogDetail({ post, onRegenerated, onDraftSocial, drafting, publishOff, 
   // rebuild. Every attempt lands in the Outbox under channel='blog'.
   async function publishToProd() {
     if (publishing) return;
-    if (!confirm(`Publish "${post.title}" to nyyon.com?\n\nThe post goes live on nyyon.com straight away (edge-rendered from the database — no rebuild).`)) return;
+    if (!confirm(`Publish "${post.title}" to the live site?\n\nThe post goes live straight away (edge-rendered from the database — no rebuild).`)) return;
     setPublishing(true);
     setPublishMsg(null);
     if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
@@ -568,18 +571,18 @@ function BlogDetail({ post, onRegenerated, onDraftSocial, drafting, publishOff, 
       // r.ok/r.live is the edge-verified truth (the blog-edge worker serves it
       // from D1 — no sidecar, no rebuild). Trust it.
       if (r.ok || r.live) {
-        setPublishMsg({ kind: 'ok', text: '✓ Live on nyyon.com' });
+        setPublishMsg({ kind: 'ok', text: '✓ Live on the public site' });
         return;
       }
       // Not live yet — cache lag or a mirror error. Poll briefly then report.
-      setPublishMsg({ kind: 'pending', text: r.mirror_error ? `Mirror issue: ${r.mirror_error} — confirming…` : 'Confirming it\'s live on nyyon.com…' });
+      setPublishMsg({ kind: 'pending', text: r.mirror_error ? `Mirror issue: ${r.mirror_error} — confirming…` : 'Confirming it\'s live on the public site…' });
       let tries = 0;
       pollRef.current = window.setInterval(async () => {
         tries++;
         try {
           const s = await api.blogLiveStatus(post.slug);
           if (s.live) {
-            setPublishMsg({ kind: 'ok', text: '✓ Live on nyyon.com' });
+            setPublishMsg({ kind: 'ok', text: '✓ Live on the public site' });
             if (pollRef.current) { window.clearInterval(pollRef.current); pollRef.current = null; }
             return;
           }
@@ -597,7 +600,7 @@ function BlogDetail({ post, onRegenerated, onDraftSocial, drafting, publishOff, 
   }
 
   // Drafts (unpublished, with a body) get true inline editing below. Published
-  // posts keep the accurate nyyon.com iframe preview.
+  // posts keep the accurate live-site iframe preview.
   const isDraftEditable = !post.published && !!post.body;
 
   return (
@@ -656,7 +659,7 @@ function BlogDetail({ post, onRegenerated, onDraftSocial, drafting, publishOff, 
           trail (and a retry button on failure). */}
       <div className="hairline rounded-sm bg-card/60 p-3 flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <div className="mono text-[10px] uppercase tracking-[0.2em] text-mute mb-0.5">publish to nyyon.com</div>
+          <div className="mono text-[10px] uppercase tracking-[0.2em] text-mute mb-0.5">publish to the public site</div>
           <div className="text-[11px] text-mute leading-relaxed">
             {publishOff
               ? `${publishOffWhy} The post stays here, edited and ready to go the moment it is.`
@@ -687,7 +690,7 @@ function BlogDetail({ post, onRegenerated, onDraftSocial, drafting, publishOff, 
         <div className="min-w-0">
           <div className="mono text-[10px] uppercase tracking-[0.2em] text-mute mb-0.5">social posts</div>
           <div className="text-[11px] text-mute leading-relaxed">
-            Draft LinkedIn + Facebook posts from this article (company + Lev's voice). Lands in the Social module for review, and opens Nyo to refine them.
+            Draft LinkedIn + Facebook posts from this article (company + personal voice). Lands in the Social module for review, and opens Nyo to refine them.
           </div>
         </div>
         <button
@@ -707,21 +710,27 @@ function BlogDetail({ post, onRegenerated, onDraftSocial, drafting, publishOff, 
           <div className="flex items-center gap-2 min-w-0">
             {!isDraftEditable && <PreviewModePill mode={previewMode} onChange={flipMode} />}
             <span className="mono text-[10px] uppercase tracking-[0.2em] text-mute truncate">
-              {isDraftEditable ? 'click any section to edit · autosaves' : publicUrl.replace(/^https?:\/\//, '')}
+              {isDraftEditable ? 'click any section to edit · autosaves' : publicUrl ? publicUrl.replace(/^https?:\/\//, '') : 'no public site connected'}
             </span>
           </div>
-          <a href={prodUrl} target="_blank" rel="noopener noreferrer" className="mono text-[10px] uppercase tracking-[0.2em] text-mute hover:text-ink transition shrink-0">open live ↗</a>
+          {prodUrl && <a href={prodUrl} target="_blank" rel="noopener noreferrer" className="mono text-[10px] uppercase tracking-[0.2em] text-mute hover:text-ink transition shrink-0">open live ↗</a>}
         </div>
 
         {isDraftEditable ? (
           <InlineBodyEditor post={post} />
         ) : post.body ? (
-          <SitePreview
-            key={`${post.slug}:${previewMode}`}
-            src={publicUrl}
-            title={post.title}
-            className="w-full h-[640px] hairline rounded-sm bg-paper"
-          />
+          publicUrl ? (
+            <SitePreview
+              key={`${post.slug}:${previewMode}`}
+              src={publicUrl}
+              title={post.title}
+              className="w-full h-[640px] hairline rounded-sm bg-paper"
+            />
+          ) : (
+            <div className="hairline rounded-sm bg-card p-6 mono text-[10px] uppercase tracking-[0.18em] text-mute text-center">
+              No public site connected. Configure the site origin to preview the live page here.
+            </div>
+          )
         ) : (
           <div className="hairline rounded-sm bg-card p-6 mono text-[10px] uppercase tracking-[0.18em] text-mute text-center">
             Empty stub — body still pending. Ask Nyo to write it.

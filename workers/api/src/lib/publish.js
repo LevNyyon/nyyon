@@ -1,40 +1,38 @@
-// publish.js — make a blog post live on nyyon.com and log the attempt.
+// publish.js — make a blog post live on the operator's public site and log
+// the attempt.
 //
-// How posts go live (since 2026-07-09): the `nyyon-blog-edge` worker is
-// routed on nyyon.com/blog* + /sitemap.xml + /snapshot/posts.json* and
-// renders any published post STRAIGHT FROM the `nyyon` D1. Publishing is
-// therefore a data operation — flip published=1 and the post is served
-// within ~60s (edge cache). There is NO site rebuild in this path.
-//
-// The old path (laptop deploy sidecar on 127.0.0.1:8791 rebuilding the whole
-// static site) is retired for posts — the deployed worker could never reach
-// it, which froze the site 2026-07-03→09. Full-site rebuilds (homepage,
-// templates, assets) still use the sidecar via /api/system/deploy and the
-// deploy_public_site tool; posts don't need them.
+// How posts go live: a blog-edge worker routed on the public site's /blog*
+// (+ /sitemap.xml + /snapshot/posts.json*) renders any published post
+// STRAIGHT FROM the same D1 this worker writes. Publishing is therefore a
+// data operation — flip published=1 and the post is served within ~60s
+// (edge cache). There is NO site rebuild in this path.
 //
 // Where this runs matters for the mirror step:
-//   - At cmd.nyyon.com: env.DB IS the `nyyon` D1 the edge reads. The flip
-//     alone makes it live; the prod-mirror PUT is a harmless no-op-ish write
-//     through the old worker into the same DB.
+//   - In production: env.DB IS the D1 the edge reads. The flip alone makes
+//     the post live; the prod-mirror PUT is a harmless no-op-ish write
+//     through the production worker into the same DB.
 //   - On the local dev worker: env.DB is the LOCAL D1; the mirror PUT (to a
-//     worker bound to the prod `nyyon` D1) is what promotes the content.
+//     worker bound to the production D1) is what promotes the content.
 // Either way, the honest arbiter is verifyLiveOnEdge() — we check that the
 // edge worker actually serves the post before reporting success.
 //
-// NOTE: the live check goes to the edge worker's workers.dev URL, NOT
-// https://nyyon.com/... — a Worker's subrequest to its own zone bypasses
-// Workers routes and would hit the static origin (false "not live" for
-// every new post). workers.dev exercises the same code + same D1.
+// NOTE: the live check goes to the edge worker's own direct URL
+// (BLOG_EDGE_URL), NOT the public origin — a Worker's subrequest to its own
+// zone bypasses Workers routes and would hit the static origin (false "not
+// live" for every new post). The direct URL exercises the same code + same D1.
+//
+// Configuration — all env vars, EMPTY by default. Each external step stays
+// off until the operator configures its var:
+//   PROD_API_URL   — production API base for the mirror PUT (dev → prod promote)
+//   BLOG_EDGE_URL  — the blog-edge worker's direct URL, for the live check
+//   PUBLIC_ORIGIN  — the public site origin used in reported/announced URLs
+//   INDEXNOW_KEY   — IndexNow key for search-engine pings
 //
 // Every publish attempt — success, no-op, or failure — is logged to the
 // Outbox as a `channel='blog'` row, same audit trail as WhatsApp/LinkedIn.
 
 import { beginSend, markSent, markFailed } from './outbox.js';
 
-const DEFAULT_PROD_API_URL  = 'https://nyyon-cmd-api.lev-f6b.workers.dev';
-const DEFAULT_BLOG_EDGE_URL = 'https://nyyon-blog-edge.lev-f6b.workers.dev';
-const DEFAULT_INDEXNOW_KEY  = '127636bcd7bf27beed45faa6ab345cc4';
-const PUBLIC_ORIGIN         = 'https://nyyon.com';
 const PUBLISHABLE_BLOG_FIELDS = [
   'title', 'excerpt', 'body', 'tags',
   'published', 'published_at',
@@ -42,17 +40,24 @@ const PUBLISHABLE_BLOG_FIELDS = [
   'featured_image_model', 'featured_image_generated_at',
 ];
 
+// Deployment endpoints come from env vars only. An empty value means that
+// step (mirror / live-check / announce) is skipped until configured.
 function prodApiUrl(env) {
-  return (env.PROD_API_URL || DEFAULT_PROD_API_URL).replace(/\/+$/, '');
+  return String(env.PROD_API_URL || '').replace(/\/+$/, '');
 }
 function blogEdgeUrl(env) {
-  return (env.BLOG_EDGE_URL || DEFAULT_BLOG_EDGE_URL).replace(/\/+$/, '');
+  return String(env.BLOG_EDGE_URL || '').replace(/\/+$/, '');
+}
+function publicOrigin(env) {
+  return String(env.PUBLIC_ORIGIN || '').replace(/\/+$/, '');
 }
 
 // Confirm the edge worker serves the post — the ground truth for "live".
 // Retries because a just-flipped row can race the first render. ~12s worst case.
 export async function verifyLiveOnEdge(env, slug, { attempts = 3 } = {}) {
-  const url = `${blogEdgeUrl(env)}/blog/${encodeURIComponent(slug)}/`;
+  const base = blogEdgeUrl(env);
+  if (!base) return { live: false, status: 0, skipped: 'BLOG_EDGE_URL not configured' };
+  const url = `${base}/blog/${encodeURIComponent(slug)}/`;
   let last = { live: false, status: 0 };
   for (let i = 0; i < attempts; i++) {
     if (i > 0) await new Promise((r) => setTimeout(r, i * 4000));
@@ -75,7 +80,10 @@ export async function verifyLiveOnEdge(env, slug, { attempts = 3 } = {}) {
 // Google doesn't do IndexNow; it rides the (edge-served, always-fresh) sitemap.
 export async function pingIndexNow(env, urls) {
   try {
-    const key = env.INDEXNOW_KEY || DEFAULT_INDEXNOW_KEY;
+    const key = env.INDEXNOW_KEY || '';
+    const origin = publicOrigin(env);
+    // Feature off until both the key and the public origin are configured.
+    if (!key || !origin) return { ok: false, skipped: 'INDEXNOW_KEY / PUBLIC_ORIGIN not configured' };
     // Through the web gateway's post_json mode — the IndexNow ping is a plain
     // public-endpoint POST, and service boundaries live in gateways, not here.
     const { postJson } = await import('./web-gateway.js');
@@ -83,9 +91,9 @@ export async function pingIndexNow(env, urls) {
       url: 'https://api.indexnow.org/indexnow',
       headers: { 'content-type': 'application/json; charset=utf-8' },
       body: {
-        host: 'nyyon.com',
+        host: new URL(origin).host,
         key,
-        keyLocation: `${PUBLIC_ORIGIN}/${key}.txt`,
+        keyLocation: `${origin}/${key}.txt`,
         urlList: urls.slice(0, 100),
       },
       timeout_ms: 8000,
@@ -110,9 +118,10 @@ function buildPublishPayload(localRow) {
   return out;
 }
 
-// When a post goes live, fan out social drafts (company LinkedIn + Facebook in
-// brand voice, personal LinkedIn in Lev's voice). Lazy import so publish.js
-// stays light. Fully guarded — social drafting must NEVER break a publish.
+// When a post goes live, fan out social drafts (company channels in the brand
+// voice, the personal channel in the operator's voice). Lazy import so
+// publish.js stays light. Fully guarded — social drafting must NEVER break a
+// publish.
 async function generateSocialDrafts(env, slug) {
   try {
     // Run the declarative workflow (draft → save, once per channel) so every
@@ -148,7 +157,7 @@ export async function publishBlogPostToProd(env, slug, { source = 'operator', de
   if (!slug) throw new Error('slug required');
 
   // Idempotent flip; keeps an existing published_at, stamps one the first time.
-  // At cmd.nyyon.com this alone makes the post live (the edge reads this D1).
+  // In production this alone makes the post live (the edge reads this D1).
   await env.DB.prepare(
     `UPDATE blog_posts SET published = 1, published_at = COALESCE(published_at, ?) WHERE slug = ?`,
   ).bind(Date.now(), slug).run();
@@ -157,8 +166,8 @@ export async function publishBlogPostToProd(env, slug, { source = 'operator', de
   if (!row) throw new Error(`blog post "${slug}" not found`);
 
   const payload = buildPublishPayload(row);
-  const url     = `${prodApiUrl(env)}/api/blog/${encodeURIComponent(slug)}`;
-  const postUrl = `${PUBLIC_ORIGIN}/blog/${slug}/`;
+  const mirror  = prodApiUrl(env); // empty = mirror step off
+  const postUrl = `${publicOrigin(env)}/blog/${slug}/`;
 
   // Log the attempt first — a network blip still leaves a row.
   const log = await beginSend(env, {
@@ -172,28 +181,34 @@ export async function publishBlogPostToProd(env, slug, { source = 'operator', de
     source_ref: slug,
   });
 
-  // 1. Mirror — BEST-EFFORT. Redundant when running at cmd.nyyon.com (same
-  //    D1); the promotion step when running on the local dev worker. Either
-  //    way the verify below is the arbiter, so never block on this.
+  // 1. Mirror — BEST-EFFORT, and only when PROD_API_URL is configured.
+  //    Redundant when running in production (same D1); the promotion step
+  //    when running on the local dev worker. Either way the verify below is
+  //    the arbiter, so never block on this.
   let prodPost = null;
   let mirrorError = null;
-  try {
-    const r = await fetch(url, {
-      method:  'PUT',
-      headers: { 'content-type': 'application/json' },
-      body:    JSON.stringify(payload),
-    });
-    const text = await r.text();
-    if (!r.ok) throw new Error(`prod PUT ${r.status}: ${text.slice(0, 300)}`);
-    try { prodPost = JSON.parse(text).post; } catch { /* ignore */ }
-  } catch (e) {
-    mirrorError = String(e?.message || e);
+  if (mirror) {
+    try {
+      const r = await fetch(`${mirror}/api/blog/${encodeURIComponent(slug)}`, {
+        method:  'PUT',
+        headers: { 'content-type': 'application/json' },
+        body:    JSON.stringify(payload),
+      });
+      const text = await r.text();
+      if (!r.ok) throw new Error(`prod PUT ${r.status}: ${text.slice(0, 300)}`);
+      try { prodPost = JSON.parse(text).post; } catch { /* ignore */ }
+    } catch (e) {
+      mirrorError = String(e?.message || e);
+    }
   }
 
   // 2. Verify the edge actually serves it, then announce. In batch mode
   //    (deploy:false) the caller verifies + announces once at the end.
-  const edge = deploy ? await verifyLiveOnEdge(env, slug) : null;
-  const live = !deploy || !!edge?.live;
+  //    With no BLOG_EDGE_URL configured there is nothing to verify against —
+  //    the local flip is the whole publish, so it counts as live.
+  const canVerify = !!blogEdgeUrl(env);
+  const edge = deploy && canVerify ? await verifyLiveOnEdge(env, slug) : null;
+  const live = !deploy || !canVerify || !!edge?.live;
 
   let indexnow = null;
   if (live) {
@@ -203,7 +218,7 @@ export async function publishBlogPostToProd(env, slug, { source = 'operator', de
       await logEvent(env, { kind: 'blog_post_published', actor: source, payload: { slug, url: postUrl } });
     } catch { /* never blocks a publish */ }
     if (deploy) {
-      const announce = pingIndexNow(env, [postUrl, `${PUBLIC_ORIGIN}/blog/`]).then((r) => { indexnow = r; });
+      const announce = pingIndexNow(env, [postUrl, `${publicOrigin(env)}/blog/`]).then((r) => { indexnow = r; });
       if (ctx?.waitUntil) ctx.waitUntil(announce); else await announce;
     }
     if (social) {
@@ -212,7 +227,7 @@ export async function publishBlogPostToProd(env, slug, { source = 'operator', de
     }
   } else {
     await markFailed(env, log.id, new Error(
-      `blog-edge is not serving ${postUrl} (status ${edge?.status}${edge?.error ? `, ${edge.error}` : ''}) — check the nyyon-blog-edge worker + zone routes${mirrorError ? `; mirror also failed: ${mirrorError}` : ''}`,
+      `blog-edge is not serving ${postUrl} (status ${edge?.status}${edge?.error ? `, ${edge.error}` : ''}) — check the blog-edge worker + zone routes${mirrorError ? `; mirror also failed: ${mirrorError}` : ''}`,
     ));
   }
 
@@ -244,9 +259,10 @@ export async function publishBlogPostsToProd(env, slugs, { source = 'operator' }
     }
   }
   const okSlugs = results.filter((r) => r.ok).map((r) => r.slug);
+  const origin  = publicOrigin(env);
   const edge = okSlugs.length ? await verifyLiveOnEdge(env, okSlugs[okSlugs.length - 1]) : null;
   const indexnow = okSlugs.length
-    ? await pingIndexNow(env, [...okSlugs.map((s) => `${PUBLIC_ORIGIN}/blog/${s}/`), `${PUBLIC_ORIGIN}/blog/`])
+    ? await pingIndexNow(env, [...okSlugs.map((s) => `${origin}/blog/${s}/`), `${origin}/blog/`])
     : null;
   return { results, edge, indexnow };
 }

@@ -12,7 +12,7 @@ INSERT OR IGNORE INTO modules (slug, name, status, description, surface, created
   ('knowledge', 'Knowledge', 'shipped', 'Markdown docs Nyo reads + writes. System design as it actually lives.',              'knowledge', strftime('%s','now') * 1000, strftime('%s','now') * 1000),
   ('roadmap',   'Roadmap',   'shipped', 'Relational nodes + edges describing what shipped and what is next.',                 'roadmap',   strftime('%s','now') * 1000, strftime('%s','now') * 1000),
   ('activity',  'Activity',  'shipped', 'Append-only log of everything Nyo and the operator do.',                              'activity',  strftime('%s','now') * 1000, strftime('%s','now') * 1000),
-  ('website',   'Website',   'planned', 'Public marketing site with identity stitching + funnel. Same model as Inrepute.',     'website',   strftime('%s','now') * 1000, strftime('%s','now') * 1000),
+  ('website',   'Website',   'planned', 'Public marketing site with identity stitching + funnel.',     'website',   strftime('%s','now') * 1000, strftime('%s','now') * 1000),
   ('blog',      'Blog',      'planned', 'Nyo writes posts. Knowledge + topic queue -> drafts -> publish.',                     'blog',      strftime('%s','now') * 1000, strftime('%s','now') * 1000),
   ('ai-sdr',    'AI SDR',    'idea',    'Outbound sales pipeline. Campaigns, prospects, signals, drafts.',                     'ai-sdr',    strftime('%s','now') * 1000, strftime('%s','now') * 1000),
   ('osint',     'OSINT',     'idea',    'Listens to Reddit, WhatsApp, other groups. Surfaces signals.',                        'osint',     strftime('%s','now') * 1000, strftime('%s','now') * 1000);

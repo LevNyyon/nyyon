@@ -1,6 +1,6 @@
 // TTS gateway — the boundary to the local Piper TTS daemon (one service).
 //
-// TTS_BASE_URL points at the tunneled gateway (tts-7154851.nyyon.com); the
+// TTS_BASE_URL points at the tunneled gateway (your TTS tunnel hostname); the
 // optional TTS_API_KEY rides as X-API-Key. No reasoning here: text in, WAV
 // stream out. The /api/nyo/tts route is a thin caller.
 
