@@ -79,7 +79,7 @@ const LAYOUT: { path: string; what: string }[] = [
 ];
 
 const COMMANDS: { cmd: string; what: string }[] = [
-  { cmd: `cd ${REPO} && claude`, what: 'Open a coding agent in the repo, then paste the prompt below.' },
+  { cmd: `cd ${REPO} && claude --model claude-fable-5`, what: 'Open a coding agent in the repo on Claude Fable 5 (the build model this prompt assumes), then paste the prompt below.' },
   { cmd: 'npm start',            what: 'Run it: worker on :8799, interface on :5180.' },
   { cmd: 'npm run package',      what: 'Rebuild the desktop app after your changes.' },
 ];

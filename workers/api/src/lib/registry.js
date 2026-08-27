@@ -35,10 +35,9 @@ const GATEWAY_META = {
   llm:      { kind: 'saas',       knowledge: [] },
   social:   { kind: 'saas',       knowledge: ['brand-voice', 'personal-voice'] },
   linkedin: { kind: 'tunnel',     knowledge: [] },
-  image:    { kind: 'binding',    knowledge: [] },
+  image:    { kind: 'saas',       knowledge: [] },
   assets:   { kind: 'binding',    knowledge: [] },
   whatsapp: { kind: 'tunnel',     knowledge: ['prompt-wa-reply'] },
-  deploy:   { kind: 'tunnel',     knowledge: [] },
   tts:      { kind: 'tunnel',     knowledge: ['nyo-voice'] },
   web:      { kind: 'public-api', knowledge: [] },
   pdl:      { kind: 'saas',       knowledge: [] },
@@ -63,7 +62,7 @@ const WORKFLOWS = [
     steps: 'scan calendar_events, WhatsApp the operator a reminder N minutes before a meeting (no-op until a reminder chat is set)',
     touches: 'calendar_events, wa (via outbox)', knowledge: [], run_slug: 'meeting-reminders' },
   { name: 'Daily AEO publish', kind: 'automated', trigger: 'cron · 0 6 * * *',
-    steps: 'publish any AEO article whose interview is captured + scheduled straight to the public site (readyOnly — never auto-interviews or nags, never double-posts)',
+    steps: 'publish any AEO article whose interview is captured + scheduled — live locally at once; mirrored to a public site only when one is configured in env (readyOnly — never auto-interviews or nags, never double-posts)',
     touches: 'aeo_questions, blog_posts',
     knowledge: ['brand-voice', 'personal-voice', 'article-playbook', 'brand'], run_slug: 'aeo-daily-writer' },
 
@@ -117,7 +116,7 @@ const WORKFLOWS = [
     steps: 'ask the weekly questions → derive the week\'s article slate → schedule each across the week + create calendar events',
     touches: 'brain_sessions, aeo_questions, calendar_events', knowledge: ['brand-voice'] },
   { name: 'Blog publish → prod', kind: 'on-demand', trigger: 'on-demand · Publish button / Nyo',
-    steps: 'render the article + push it to the public site through the publish sidecar, then mirror it to the calendar',
+    steps: 'publish the article locally at once (mirror + search-engine ping fire only when a public site is configured), then mirror it to the calendar',
     touches: 'blog_posts, calendar_events', knowledge: [] },
 ];
 

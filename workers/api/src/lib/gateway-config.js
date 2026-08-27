@@ -79,7 +79,7 @@ export const CREDENTIALS = {
     { key: 'NYYON_GW_FACEBOOK_COMPANY_URL',  label: 'Facebook company webhook',  required: false, secret: true },
   ],
   image: [
-    { key: 'OPENAI_API_KEY', label: 'OpenAI API key', required: false, secret: true, help: 'For gpt-image-1. Without it the Workers AI models still render.' },
+    { key: 'OPENAI_API_KEY', label: 'OpenAI API key', required: true, secret: true, help: 'For gpt-image-1 — image generation is off until this is set.' },
   ],
   assets: [
     { key: 'ASSETS_BASE_URL', label: 'Public asset base URL', required: false, secret: false, help: 'Public origin in front of the R2 bucket. The bucket itself is a binding.' },

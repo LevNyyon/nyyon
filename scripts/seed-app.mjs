@@ -882,6 +882,29 @@ The local database is SQLite under workers/api/.wrangler. Query it with:
 - Writing a shared file means writing the COMPLETE file. A partial write that
   silently drops the rest of the file is the most common way this repo breaks.
 
+## The build harness — non-negotiable for self-editing
+
+This install edits its own code, so every change runs inside these rails:
+
+1. **Model**: run as Claude Fable 5 (model id \`claude-fable-5\`). If your
+   harness cannot select a model, ask the operator to start you with it.
+2. **Checkpoint first**: this checkout must be a git repo before you edit. If
+   \`git status\` fails, run \`git init && git add -A && git commit -m baseline\`.
+   Commit a checkpoint before any multi-file change so a bad apply is one
+   \`git restore .\` away.
+3. **Read before write**: read every file you will touch, fully, in this
+   session. Never write a shared file from memory — write the COMPLETE file.
+4. **Validate after write**: run \`node scripts/validate.mjs\` and
+   \`npm run typecheck\`, and \`node --check\` any edited worker file. Fix what
+   they report before moving on.
+5. **Prove it runs**: restart the app and check
+   \`curl -s -o /dev/null -w '%{http_code}' localhost:8799/\` returns 200
+   (\`/health\` needs a signed-in session, so it 401s from curl — that is the
+   gate working, not the app failing). A change is not done until the running
+   app answers.
+6. **Never touch the database while the server is running** — the live worker
+   holds it open and silently overwrites outside edits. Stop the app first.
+
 ## How I want you to work
 
 Tell me which layer a change belongs in before you edit, and say so if the thing
