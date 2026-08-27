@@ -258,20 +258,6 @@ export type GtmGreenLead = GtmLead & {
   replied_at?: number | null;
 };
 
-// ─── Registry (live: gateways / tools / workflows + knowledge deps) ──
-export type RegistryGateway = { name: string; service: string; kind: 'tunnel' | 'saas' | 'public-api' | 'binding'; ops: string; config: string[]; knowledge: string[]; configured: boolean; missing: string[] };
-export type RegistryToolGroup = { group: string; count: number; knowledge: string[]; tools: { name: string; description: string }[] };
-export type RegistryWorkflow = { name: string; kind: 'automated' | 'continuous' | 'event' | 'on-demand'; trigger: string; steps: string; touches: string; knowledge: string[]; last_run_at: number | null };
-export type RegistryModule = { key: string; title: string; area: 'module' | 'system'; description: string };
-export type Registry = {
-  gateways: RegistryGateway[];
-  tools: RegistryToolGroup[];
-  workflows: RegistryWorkflow[];
-  modules: RegistryModule[];
-  counts: { gateways: number; gateways_configured: number; tools: number; tool_groups: number; workflows: number; modules: number };
-  generated_at: number;
-};
-
 // ─── Daily Planner (per-day plan + weekly objectives) ──────────
 export type PlanBlock = { id: string; start: string | null; end: string | null; title: string; deliverable: string | null; done: boolean; focus?: boolean };
 export type PlanTodo  = { id: string; text: string; done: boolean; priority: number; star?: boolean };
@@ -901,8 +887,6 @@ export const api = {
     j<{ ok?: boolean; error?: string }>(`/api/gtm/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   gtmToPipeline: (id: string) =>
     j<{ ok?: boolean; client_id?: string; error?: string }>(`/api/gtm/leads/${encodeURIComponent(id)}/to-pipeline`, { method: 'POST', body: '{}' }),
-
-  registry: () => j<Registry>('/api/registry'),
 };
 
 // ── Outreach · WA — the prospect inbox (module: outreach) ──────────────────

@@ -22,10 +22,10 @@ const SURFACE_ITEMS: Record<SurfaceSlug, Item> = {
 
 // System tools — always pinned. Knowledge (the live doc tree Nyo reads/writes)
 // + Activity (the real event log) + Settings are the ones with day-to-day
-// value. The old Roadmap / Modules / Tools pages are fully REMOVED (routes
-// deleted from App.tsx too) — the Registry page is their live replacement
-// (machine-readable modules/gateways/tools/workflows from GET /api/registry).
-// Restoring one would need a Nav key + route in App.tsx AND a line here.
+// value. The old Roadmap / Modules / Tools / Registry pages are fully REMOVED
+// (routes deleted from App.tsx too) — Nyo's read_registry tool is the live
+// answer to "what is wired up". Restoring a page would need a Nav key + route
+// in App.tsx AND a line here.
 const SYSTEM_ITEMS: Item[] = [
   { key: 'knowledge', label: 'Knowledge', Icon: BookOpen },
   { key: 'activity',  label: 'Activity',  Icon: ActivityIcon },

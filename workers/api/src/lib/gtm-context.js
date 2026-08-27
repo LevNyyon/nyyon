@@ -5,7 +5,7 @@
 // (fuzzy-match the operator's connections from `gtm-you` against org people).
 
 import { readKnowledge, writeKnowledge, logEvent } from './db.js';
-import { getLiCompany, getLiCompanyJobs } from './linkedin.js';
+import { getLiCompany, getLiCompanyJobs } from './unipile.js';
 import { getLead, updateLead, listLeads, gtmLLM, extractJson, storeLeadPhoto, namesMatch } from './gtm.js';
 
 const now = () => Date.now();

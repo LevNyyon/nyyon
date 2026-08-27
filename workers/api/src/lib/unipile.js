@@ -142,7 +142,16 @@ export async function getLiCompany(env, universalName) {
   const id = await accountId(env);
   const r = await call(env, 'GET', `/api/v1/linkedin/company/${encodeURIComponent(universalName)}?account_id=${encodeURIComponent(id)}`);
   if (!r.ok) throw new Error(r.error);
-  return r.data;
+  const d = r.data || {};
+  // Normalized to the shape consumers were built on (gtm-context reads
+  // company_id / staff_count / universal_name / url) on top of the raw payload.
+  return {
+    ...d,
+    company_id: d.id ?? null,
+    universal_name: d.public_identifier ?? universalName,
+    staff_count: d.employee_count ?? null,
+    url: d.profile_url ?? null,
+  };
 }
 
 export async function getLiCompanyJobs() {

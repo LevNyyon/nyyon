@@ -269,7 +269,7 @@ export const tools = {
   react_linkedin_post: {
     def: {
       name: 'react_linkedin_post',
-      description: 'React to one LinkedIn post by its full /feed/update/urn:li:activity:... URL. Browser-driven, so use it sparingly — automated reactions get accounts flagged. Reserve it for posts by people in the pipeline or by people worth signal-boosting.',
+      description: 'React to one LinkedIn post by its full /feed/update/urn:li:activity:... URL. Use it sparingly — automated reactions get accounts flagged. Reserve it for posts by people in the pipeline or by people worth signal-boosting.',
       input_schema: {
         type: 'object',
         properties: {

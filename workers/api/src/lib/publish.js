@@ -62,10 +62,10 @@ export async function verifyLiveOnEdge(env, slug, { attempts = 3 } = {}) {
   for (let i = 0; i < attempts; i++) {
     if (i > 0) await new Promise((r) => setTimeout(r, i * 4000));
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-      const rendered = r.headers.get('x-nyyon-blog-edge') === 'render';
-      const html = r.ok ? await r.text() : '';
-      const hasPost = html.includes(`/blog/${slug}/`);
+      const { fetchText } = await import('./web-gateway.js');
+      const r = await fetchText(env, { url, timeout_ms: 8000, header_names: ['x-nyyon-blog-edge'] });
+      const rendered = r.headers_out['x-nyyon-blog-edge'] === 'render';
+      const hasPost = r.ok && r.text.includes(`/blog/${slug}/`);
       last = { live: r.ok && rendered && hasPost, status: r.status, rendered, attempt: i + 1 };
       if (last.live) return last;
     } catch (e) {
@@ -189,14 +189,13 @@ export async function publishBlogPostToProd(env, slug, { source = 'operator', de
   let mirrorError = null;
   if (mirror) {
     try {
-      const r = await fetch(`${mirror}/api/blog/${encodeURIComponent(slug)}`, {
-        method:  'PUT',
-        headers: { 'content-type': 'application/json' },
-        body:    JSON.stringify(payload),
+      const { postJson } = await import('./web-gateway.js');
+      const r = await postJson(env, {
+        url: `${mirror}/api/blog/${encodeURIComponent(slug)}`,
+        method: 'PUT', body: payload,
       });
-      const text = await r.text();
-      if (!r.ok) throw new Error(`prod PUT ${r.status}: ${text.slice(0, 300)}`);
-      try { prodPost = JSON.parse(text).post; } catch { /* ignore */ }
+      if (!r.ok) throw new Error(`prod PUT ${r.status}: ${r.text.slice(0, 300)}`);
+      try { prodPost = JSON.parse(r.text).post; } catch { /* ignore */ }
     } catch (e) {
       mirrorError = String(e?.message || e);
     }

@@ -11,13 +11,17 @@
 const DEFAULT_TIMEOUT_MS = 15_000;
 const DEFAULT_MAX_BYTES  = 500_000;
 
-export async function fetchText(env, { url, timeout_ms = DEFAULT_TIMEOUT_MS, max_bytes = DEFAULT_MAX_BYTES, headers } = {}) {
+export async function fetchText(env, { url, timeout_ms = DEFAULT_TIMEOUT_MS, max_bytes = DEFAULT_MAX_BYTES, headers, header_names } = {}) {
   if (!/^https?:\/\//i.test(String(url || ''))) throw new Error('web gateway: url must be http(s)');
   const r = await fetch(url, { headers, signal: AbortSignal.timeout(timeout_ms), redirect: 'follow' });
   const raw = await r.text();
+  // header_names: response headers the caller wants back (lowercased keys).
+  const headers_out = {};
+  for (const h of header_names || []) headers_out[h.toLowerCase()] = r.headers.get(h) ?? null;
   return {
     ok: r.ok, status: r.status, status_text: r.statusText,
     content_type: r.headers.get('content-type') || null,
+    headers_out,
     truncated: raw.length > max_bytes,
     text: raw.slice(0, max_bytes),
   };
@@ -34,10 +38,10 @@ export async function head(env, { url, timeout_ms = DEFAULT_TIMEOUT_MS } = {}) {
 // Bounded JSON POST to a public endpoint (IndexNow-style pings). Returns
 // {ok, status, text} — never throws on HTTP error status, throws on bad
 // url / network / timeout, same contract as fetchText.
-export async function postJson(env, { url, body, headers, timeout_ms = DEFAULT_TIMEOUT_MS } = {}) {
+export async function postJson(env, { url, body, headers, timeout_ms = DEFAULT_TIMEOUT_MS, method = 'POST' } = {}) {
   if (!/^https?:\/\//i.test(String(url || ''))) throw new Error('web gateway: url must be http(s)');
   const r = await fetch(url, {
-    method: 'POST',
+    method,
     headers: { 'content-type': 'application/json', ...(headers || {}) },
     body: typeof body === 'string' ? body : JSON.stringify(body ?? {}),
     signal: AbortSignal.timeout(timeout_ms),

@@ -186,7 +186,7 @@ export const tools = {
   fetch_open_roles: {
     def: {
       name: 'fetch_open_roles',
-      description: "Fetch a company's currently open roles from LinkedIn's public jobs API. Needs the LinkedIn company id from fetch_company_profile; without one it self-skips. Saves nothing.",
+      description: "Fetch a company's currently open roles. NOT available through the current LinkedIn provider (Unipile) — the call fails cleanly and enrichment treats it as an optional, skipped step. Kept for providers that support it.",
       input_schema: { type: 'object', properties: { company_id: { type: 'string' } }, required: [] },
     },
     run: async (env, input) => fetchOpenRoles(env, { company_id: input.company_id || input.lead?.company_li_id || null }),

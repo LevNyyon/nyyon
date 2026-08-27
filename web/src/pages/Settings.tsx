@@ -111,7 +111,7 @@ function SidebarPlacement() {
   }
 
   return (
-    <Section title="Sidebar modules" hint="Off = module lives only inside the Modules registry page.">
+    <Section title="Sidebar modules" hint="Off = hidden from the sidebar (Nyo can still use its tools).">
       <ul className="hairline rounded-sm bg-card/80 divide-y divide-line">
         {SURFACE_MODULES.map(({ slug, label }) => {
           const on = slugs.includes(slug);

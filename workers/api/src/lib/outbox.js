@@ -151,7 +151,7 @@ export async function retryOutboxRow(env, id) {
     throw new Error(`outbox retry: unsupported wa kind ${row.kind}`);
   }
   if (row.channel === 'li') {
-    const li = await import('./linkedin.js');
+    const li = await import('./unipile.js');
     if (li.sendLinkedInMessage) {
       return li.sendLinkedInMessage(env, {
         profile_urn_id: payload.profile_urn_id || row.to_id,
