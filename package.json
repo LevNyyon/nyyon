@@ -10,6 +10,7 @@
   "scripts": {
     "setup": "node scripts/setup.mjs",
     "start": "node scripts/dev.mjs",
+    "server": "node scripts/server.mjs",
     "dev": "node scripts/dev.mjs",
     "seed:demo": "node scripts/seed-app.mjs --demo-only > /tmp/nyyon-demo.sql && cd workers/api && npx wrangler d1 execute nyyon --local --file /tmp/nyyon-demo.sql",
     "seed:clear-demo": "node scripts/seed-app.mjs --clear-demo > /tmp/nyyon-clear.sql && cd workers/api && npx wrangler d1 execute nyyon --local --file /tmp/nyyon-clear.sql",

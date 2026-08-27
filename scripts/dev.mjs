@@ -61,8 +61,12 @@ function start(name, cmd, args, cwd, colour) {
 }
 
 console.log(`\nStarting…  api :${API_PORT}   web :${WEB_PORT}\n`);
-start('api', 'npx', ['wrangler', 'dev', '--port', API_PORT, '--local'], api, '36');
-start('web', 'npx', ['vite', '--port', WEB_PORT], web, '35');
+// NYYON_HOST=0.0.0.0 opens the app to the network — the VM/server edition
+// sets it so the web UI is reachable from outside the guest. Unset (the
+// default, laptop install) everything stays loopback-only.
+const HOST = process.env.NYYON_HOST || '';
+start('api', 'npx', ['wrangler', 'dev', '--port', API_PORT, '--local', ...(HOST ? ['--ip', HOST] : [])], api, '36');
+start('web', 'npx', ['vite', '--port', WEB_PORT, ...(HOST ? ['--host', HOST] : [])], web, '35');
 
 setTimeout(() => {
   console.log(`\n\x1b[1m\x1b[32m→ http://localhost:${WEB_PORT}\x1b[0m\n`);

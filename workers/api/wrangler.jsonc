@@ -53,15 +53,10 @@
     { "binding": "ASSETS", "bucket_name": "nyyon-assets" }
   ],
 
-  // Workers AI — text-to-image generation for blog featured images (via
-  // lib/image-gateway.js). Free up to 10k neurons/day; well under that at
-  // current cadence (1 article/day). `remote: true` is required: AI calls
-  // always hit real Cloudflare (no local mock), so wrangler dev needs the
-  // explicit opt-in or it errors.
-  // account_id is intentionally absent: wrangler takes it from your own
-  // `wrangler login` (or CLOUDFLARE_ACCOUNT_ID) when you deploy. Local runs
-  // never need it.
-  "ai": { "binding": "AI", "remote": true },
+  // Workers AI: deliberately NOT bound. The VM/server edition runs with no
+  // Cloudflare account at all; image generation degrades gracefully without
+  // it (lib/image-gateway.js throws only when invoked). Text runs on the
+  // operator's own LLM key.
 
   "vars": {
     // LLM_PROVIDER picks the brain for Nyo chat + digest synthesis + AEO writer.
