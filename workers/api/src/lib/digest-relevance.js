@@ -64,7 +64,7 @@ export async function learnFromDismissals(env, { force = false, lookbackDays = 2
 
   const doc = await readKnowledge(env, DOC_SLUG);
   const base = String(doc?.body || '').split(LEARN_MARK)[0].trimEnd();
-  const profileForModel = base.slice(0, 2500);
+  const profileForModel = base;
   const items = dismissed.slice(0, 60).map((d, i) => `[${i}] (${d.kind}) ${String(d.title || '').slice(0, 140)}${d.summary ? ' — ' + String(d.summary).slice(0, 120) : ''}`).join('\n');
 
   const model = (await loadModelConfig(env)).writer_small;

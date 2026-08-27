@@ -80,7 +80,7 @@ export async function classifyBatch(env, items) {
 
 ${rubric}
 
-${guide ? `Our actual outreach guide (source of truth for what our outreach content sounds like):\n${String(guide).slice(0, 2500)}\n` : ''}
+${guide ? `Our actual outreach guide (source of truth for what our outreach content sounds like):\n${String(guide)}\n` : ''}
 You will get a numbered list of outbound messages (messages WE sent). For each, decide if it is a genuine outreach pitch (true) or not (false). Judge by CONTENT and language, not length. Messages may be in Hebrew or English.
 Return STRICT JSON only: {"verdicts":[{"i":<number>,"outreach":true|false,"why":"<=6 words"}]}`;
   const prompt = items.map((it, n) => `[${n}] ${String(it.body || '').replace(/\s+/g, ' ').slice(0, 300)}`).join('\n');

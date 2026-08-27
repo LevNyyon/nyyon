@@ -1311,7 +1311,7 @@ async function analyzeChatWithLLM(env, chat, messages) {
   let interests = '';
   try {
     const doc = await readKnowledge(env, 'digest-interests');
-    if (doc?.body) interests = `\n\nOPERATOR'S INTEREST PROFILE (editable knowledge doc digest-interests — weigh items against this):\n${doc.body.slice(0, 2000)}`;
+    if (doc?.body) interests = `\n\nOPERATOR'S INTEREST PROFILE (editable knowledge doc digest-interests — weigh items against this):\n${doc.body}`;
   } catch { /* doc unreadable — prompt works without it */ }
   const user = `Group: ${chat.name || chat.id}\nWindow: last 7 days\nMessages (${ordered.length}, oldest first):\n\n${lines}\n\nNow extract every actionable item per the rules.`;
   const result = await callLLMJson(env, WA_DIGEST_SYSTEM + interests, user);

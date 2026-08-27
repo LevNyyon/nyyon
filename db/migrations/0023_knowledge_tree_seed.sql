@@ -74,40 +74,6 @@ Every doc points at its parent via `parent_slug`. The breadcrumb above any doc i
 -- STACK + BRAND (orienting branches)
 -- ────────────────────────────────────────────────────────────────
 (
-  'nyyon-stack',
-  'Stack — architecture, ports, deploys',
-  '# Stack
-
-Cloudflare-only for production. Local sidecars for things Cloudflare can''t do (browser puppeteer, daemons).
-
-## Production surfaces
-- **Public site**: a Cloudflare Pages project on your account. The path to production is the Publish panel in `module-website` or a manual `wrangler pages deploy`.
-- **API**: a Cloudflare Worker + a single D1 database, deployed with `wrangler deploy` from `workers/api/`.
-
-## Local services (developer machine)
-- **Ops UI**: Vite, `http://localhost:5174` (`web/`). React + Tailwind.
-- **Public site preview**: Vite, `http://localhost:5176` (`web-public/`).
-- **API worker**: wrangler dev, `http://localhost:8788` (`workers/api/`). Hono router + D1.
-- **Deploy sidecar**: Node, `http://localhost:8791` (`scripts/deploy-server.mjs`). Runs the build + Pages deploy when the Publish button is clicked.
-- **WhatsApp gateway**: `http://localhost:2785/api` (separate repo). WhatsApp Web puppet.
-- **LinkedIn gateway**: `http://localhost:2786` (separate repo).
-
-## D1 database
-- Single D1 binding `DB`. Migrations in `db/migrations/` (numbered, append-only). Latest migration: see `ls db/migrations/ | tail -3`.
-- Local: `wrangler d1 execute <db-name> --local --file=db/migrations/000X.sql` from `workers/api/`.
-
-## How a marketing change ships
-1. Edit `web-public/src/...` locally.
-2. Vite hot-reloads at :5176.
-3. Click Publish in ops UI → Website → Manager.
-4. The sidecar runs `npm run build` (snapshot D1 → JSON, vite, prerender blog posts) then `wrangler pages deploy dist --branch=main` against your Pages project.
-5. Edge cache propagates in about 30 seconds.',
-  'global',
-  NULL,
-  'knowledge-root',
-  strftime('%s','now')*1000
-),
-(
   'brand',
   'Brand — voice, positioning, visual',
   '# Brand
@@ -216,8 +182,7 @@ Pulls actionable items from WhatsApp groups, OSINT mentions, and (soon) email in
 Every outbound message — WhatsApp reply/text/image/document/reaction, LinkedIn DM, future email — passes through the send wrappers and lands here. Three states: `queued` → `sent` (with provider message id) or `failed` (with the error text).
 
 ## Today
-- Sidebar entry "Outbox" (paper-plane Send icon).
-- Page: filter bar (channel/status), counts pills, 12-col list, rose tint on failed rows.
+- Headless: no page of its own — every send wrapper logs here and failures surface through the sending module and Nyo.
 - Expand any row for body + payload + Retry button.
 - Auto-refresh every 4 seconds.
 
@@ -241,60 +206,6 @@ An optional backfill can seed past WhatsApp outbound messages from `wa_messages`
   strftime('%s','now')*1000
 ),
 (
-  'module-website',
-  'Module · Website — content + ship to prod',
-  '# Website
-
-Edits your public marketing site and ships it to production from inside the ops UI.
-
-## Today
-- Two tabs: **Content** + **Manager** (`web/src/pages/WebsiteContent.tsx`, `WebsiteManager.tsx`).
-- **Content** — block-level editor with live preview iframe pointing at `localhost:5176`. Click any block to edit; preview reloads on save.
-- **Manager** — Status panel (heartbeat to the production site), **Publish panel** (one-click build + deploy), Pages list, Layout (per-section visibility + reorder via drag), SEO meta editor.
-- **Publish** — confirmation modal → calls local sidecar (`scripts/deploy-server.mjs` on :8791) → runs `npm run build && wrangler pages deploy dist --branch=main` in `web-public/`. Live build log streams into the panel.
-
-## Public site features (shipped)
-- Blog posts served from D1. Bodies via `prose-body` class. Inline `<aside>` CTA ribbon prerendered into every post for AEO.
-- JSON-LD blocks on home (Organization, WebSite, ProfessionalService, FAQPage, HowTo). Full OG + Twitter cards. Canonical. sitemap.xml. robots.txt with AI crawler allows. llms.txt.
-- Scheduling popup on every "Book a call" surface via `web-public/src/lib/cta.ts`.
-- Dynamic GridLights canvas overlay: cell under cursor + 8 neighbors light up; random ambient flares every 700ms. CSS gridlines use `background-attachment: fixed` so canvas + lines stay aligned during scroll.
-
-## Where it lives
-- Public site source: `web-public/src/`
-- Build pipeline: `web-public/scripts/snapshot.mjs` (D1 → JSON) → `sitemap.mjs` → vite build → `prerender-blog.mjs` (static HTML per post).
-- Worker content routes: `GET/POST/PATCH/DELETE /api/content`, `GET /api/sections/:page`, `PATCH /api/sections/:id`, `POST /api/sections/reorder`.
-
-## Deploying
-**Always via the Publish button.** Manual fallback: from `web-public/`, `npm run build && npx wrangler pages deploy dist --project-name=<your-pages-project> --branch=main`.',
-  'module',
-  'website',
-  'knowledge-root',
-  strftime('%s','now')*1000
-),
-(
-  'module-funnel',
-  'Module · Funnel — identity stitching + stages',
-  '# Funnel
-
-Tracks every prospect through 9 stages from anonymous web visit to signed client. Identity-stitched across email, phone, WhatsApp, and cookie ID.
-
-## Today
-- 5 tabs: Overview / Pipeline / Live / Sessions / Identities / Conversions.
-- Stitching: cookie → email → phone via `identity_links` table. Merging is automatic on email or phone match.
-- 9 stages: anonymous, lead, mql, sql, opportunity, customer, expansion, churn, recovered.
-- Identity drawer shows stage history, conversions, and per-stage advance buttons.
-
-## Where it lives
-- Worker lib: `workers/api/src/lib/web.js` (ingest sessions/events, identifyByEmail, conversions, sankey).
-- Routes: `/api/web/sessions`, `/api/web/events`, `/api/identities`, `/api/identities/:id`, `/api/conversions`, `/api/funnel/stats`, `/api/funnel/sankey`, `/api/funnel/stages/:stage`.
-- Migrations: `0005_funnel.sql`, `0006_identity_links.sql`.
-- Tracker JS: `web-public/public/tracker.js` (vanilla, loaded by every public page).',
-  'module',
-  'funnel',
-  'knowledge-root',
-  strftime('%s','now')*1000
-),
-(
   'module-channels',
   'Module · Channels — WhatsApp + LinkedIn',
   '# Channels
@@ -302,7 +213,7 @@ Tracks every prospect through 9 stages from anonymous web visit to signed client
 Inbound + outbound WhatsApp (and LinkedIn). The raw plumbing that feeds the Digest and is fed by Outbox.
 
 ## Today
-- Two tabs: **Chats** + **Feed**.
+- Headless plumbing: no Channels page — conversations are read inside Outreach; per-chat policy is set there or via Nyo.
 - WhatsApp via the bundled gateway at `127.0.0.1:2785`. Its key is generated per install and its session id defaults to `default`.
 - Per-chat policy: `auto_listen` (digest it?) + `can_send` (allowed to send to?). Defaults are both OFF.
 - 1000ms throttle between gateway calls (`waChain` Promise queue in `whatsapp.js`).
@@ -319,35 +230,6 @@ Inbound + outbound WhatsApp (and LinkedIn). The raw plumbing that feeds the Dige
 - Real sends only via UI click. No script ever hits `/api/wa/send` directly.',
   'module',
   'channels',
-  'knowledge-root',
-  strftime('%s','now')*1000
-),
-(
-  'module-contacts',
-  'Module · Contacts — operator-curated people',
-  '# Contacts
-
-Explicit "I care about this person" decisions on top of the identities table. Identities are auto-created from every funnel touch; contacts are deliberate.
-
-## Today
-- Filter bar (search + status + source + owner + tag + starred toggle).
-- 12-column list. Click row to expand read-only detail.
-- LinkedIn URL field added (migration `0017_contacts_linkedin.sql`).
-- Taxonomy:
-  - status = prospect | lead | client | past_client | partner | do_not_contact
-  - source = referral | inbound_form | inbound_wa | inbound_email | paid_ad | event | cold_outreach | social | other
-- Nyo tools: `list_contacts`, `read_contact`, `write_contact`.
-
-## Where it lives
-- Migration: `0010_contacts.sql` + `0017_contacts_linkedin.sql`.
-- Worker lib: `workers/api/src/lib/db.js` (contacts CRUD).
-- Routes: `GET /api/contacts`, `/taxonomy`, `/:id`, `PUT /:id`, `POST /api/contacts`, `DELETE /:id`.
-- Page: `web/src/pages/Contacts.tsx`.
-
-## Wishlist hook
-The "★ mark interesting" action on a digest item creates or updates a contact via `writeContact`. Auto-extracts LinkedIn / email from the digest context. Tag `wishlist` added; existing status preserved if already client/partner.',
-  'module',
-  'contacts',
   'knowledge-root',
   strftime('%s','now')*1000
 ),
@@ -458,7 +340,7 @@ Saved multi-step playbooks the operator can run. Each workflow is a sequence of 
 
 ## Today
 - Workflow registry + runs table (`0013_workflows.sql`).
-- Page lists workflows with last run timestamp.
+- Headless: run and inspect via Nyo (run_workflow / workflow runs); no page of its own.
 - Run history captured for replay/debug.
 
 ## Where it lives
@@ -499,71 +381,6 @@ The thing you''re reading right now. A tree of markdown docs that grounds Nyo, o
 
 ## See also
 - `how-knowledge-works` — older rationale + writing tips',
-  'global',
-  NULL,
-  'knowledge-root',
-  strftime('%s','now')*1000
-),
-(
-  'system-roadmap',
-  'System · Roadmap — planned next nodes',
-  '# Roadmap
-
-The shape of "what we''re about to build, and which existing thing it extends." Lives as a graph (`roadmap_nodes` + `roadmap_edges`) and renders as a React Flow canvas.
-
-## Today
-- Each node has: id, title, status (shipped / building / planned / idea), description, owner.
-- Edges connect a parent (existing) to a child (planned).
-
-## Where it lives
-- Worker lib: `workers/api/src/lib/db.js` (roadmap CRUD).
-- Routes: `/api/roadmap`, `/nodes`, `/edges`.
-- Page: `web/src/pages/Roadmap.tsx` (React Flow).
-
-## See also
-- `how-roadmap-works` — older rationale + node lifecycle',
-  'global',
-  NULL,
-  'knowledge-root',
-  strftime('%s','now')*1000
-),
-(
-  'system-modules',
-  'System · Modules registry',
-  '# Modules registry
-
-The list every sidebar surface is registered in. `modules` table — slug, name, status, description, surface (UI key, null if headless).
-
-## Today
-- See `SELECT slug, status FROM modules` for the current registry.
-- Page lists modules with status pill + description; operator can flip status.
-
-## Where it lives
-- Schema: `db/schema.sql`.
-- Worker lib: `workers/api/src/lib/db.js` (`listModules`, `upsertModule`).
-- Routes: `/api/modules`, `/:slug`.
-- Page: `web/src/pages/Modules.tsx`.',
-  'global',
-  NULL,
-  'knowledge-root',
-  strftime('%s','now')*1000
-),
-(
-  'system-tools',
-  'System · Tools registry',
-  '# Tools registry
-
-Tracks every external service the system talks to — LLM providers, the WhatsApp gateway, LinkedIn, Cloudflare, third-party APIs. Each row reports status (connected / planned / broken) and the env binding name.
-
-## Today
-- Status drives the sidebar health dot.
-- Page lists tools grouped by kind (llm / image / video / data / channel / storage / analytics).
-
-## Where it lives
-- Schema: `db/schema.sql` (`tools` table).
-- Worker lib: `workers/api/src/lib/db.js` (`listTools`, `upsertTool`).
-- Routes: `/api/tools`, `/:slug`.
-- Page: `web/src/pages/Tools.tsx`.',
   'global',
   NULL,
   'knowledge-root',
@@ -641,6 +458,5 @@ How the operator answers "is everything OK right now?" without leaving the dashb
 UPDATE knowledge_docs SET parent_slug = 'brand'            WHERE slug = 'brand-voice';
 UPDATE knowledge_docs SET parent_slug = 'module-aeo'       WHERE slug = 'article-playbook';
 UPDATE knowledge_docs SET parent_slug = 'system-knowledge' WHERE slug = 'how-knowledge-works';
-UPDATE knowledge_docs SET parent_slug = 'system-roadmap'   WHERE slug = 'how-roadmap-works';
 UPDATE knowledge_docs SET parent_slug = 'knowledge-root'   WHERE slug = 'about';
 -- Reparenting of the author's remaining private docs was removed for the shipped product.

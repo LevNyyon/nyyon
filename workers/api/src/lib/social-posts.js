@@ -58,9 +58,9 @@ async function draftOne(env, channel, article, voiceBody, { sourceKind = 'blog',
     // Hard constraints FIRST and last — the banned-phrase list the operator
     // maintains. A draft that uses any banned phrase (or a variant of the same
     // reveal-tease construction) is INVALID; these override the voice guide.
-    styleRules ? `HARD CONSTRAINTS — highest priority, override everything below. A draft that violates ANY of these is invalid and must be rewritten before you return it:\n${String(styleRules).slice(0, 2000)}\n` : '',
+    styleRules ? `HARD CONSTRAINTS — highest priority, override everything below. A draft that violates ANY of these is invalid and must be rewritten before you return it:\n${String(styleRules)}\n` : '',
     `VOICE GUIDE (write IN this voice — its personality, wit, and rhythm, not just its rules):`,
-    (voiceBody || '(no voice doc found — write plainly, concretely, no hype)').slice(0, 2600),
+    (voiceBody || '(no voice doc found — write plainly, concretely, no hype)'),
     ``,
     `RULES:`,
     `- Output ONE post as plain text. No markdown, no headings, no hashtags spam.`,

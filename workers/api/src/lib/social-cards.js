@@ -295,7 +295,7 @@ export const SOCIAL_CARD_TEMPLATES = Object.keys(TEMPLATES);
 async function withBrandVoice(env, base) {
   try {
     const row = await env.DB.prepare("SELECT body FROM knowledge_docs WHERE slug = 'brand-voice'").first();
-    if (row?.body) return `${base}\n\nBrand voice (operator-editable):\n${String(row.body).slice(0, 1500)}`;
+    if (row?.body) return `${base}\n\nBrand voice (operator-editable):\n${String(row.body)}`;
   } catch { /* fallback */ }
   return base;
 }

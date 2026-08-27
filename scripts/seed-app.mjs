@@ -456,6 +456,20 @@ decision being communicated, not how nicely it is phrased.
 ` },
 
   // ── prospecting ──────────────────────────────────────────────────────────
+  { slug: 'brand-icp', title: 'Brand · ICP — ideal customer profile', parent: ROOT, scope: 'global', module: null, body:
+`Ideal customer profile. Prospecting ICP scoring and the outreach angle
+generator judge prospects against THIS doc — fill it in your own words.
+
+For: describe your target company (stage, size, industry, geography).
+Reachable: who you can realistically get to (e.g. a founder or a senior exec).
+Fit signals: what makes a company a strong fit for what you offer.
+Disqualifiers: what rules a company out.` },
+
+  { slug: 'brand-positioning', title: 'Brand · Positioning', parent: ROOT, scope: 'global', module: null, body:
+`How you position what you sell. The outreach angle generator reads THIS doc
+for positioning language — one-liner, who it is for, why now, and the proof.
+Replace this placeholder with your own positioning.` },
+
   { slug: 'gtm-you', title: 'Prospecting · who you are', parent: 'module-gtm', scope: 'global', module: 'gtm', body:
 `# Who you are (the sender)
 

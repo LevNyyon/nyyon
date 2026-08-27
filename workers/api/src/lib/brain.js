@@ -88,7 +88,7 @@ export async function generateBrainQuestions(env) {
 
   const prompt = [
     '## Nyyon brand + positioning',
-    (brand?.body || voice?.body || 'Premium AI-native marketing agency.').slice(0, 2500),
+    (brand?.body || voice?.body || 'Premium AI-native marketing agency.'),
     '',
     taste ? '## The founder\'s editorial taste (learned from past reactions — lean into this)\n' + taste + '\n' : '',
     pulse ? '## Live industry pulse (from the heartbeat — ground the [LIVE] questions in THIS)\n' + pulse + '\n' : '',

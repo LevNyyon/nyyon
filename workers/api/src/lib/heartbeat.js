@@ -740,7 +740,7 @@ export async function signalToSocialDraft(env, signalId) {
   const { callOpenAIText } = await import('./openai.js');
   const voice = await readKnowledge(env, 'brand-voice').catch(() => null);
   const draft = await callOpenAIText(env, {
-    system: `You write LinkedIn posts for the operator, in their company's voice. Sharp, contrarian-but-earned, no hashtags spam, no "thrilled to announce". One strong idea, a clear take, ends on a line that lands. 80-150 words.\n\n${voice?.body ? 'Brand voice:\n' + voice.body.slice(0, 1500) : ''}`,
+    system: `You write LinkedIn posts for the operator, in their company's voice. Sharp, contrarian-but-earned, no hashtags spam, no "thrilled to announce". One strong idea, a clear take, ends on a line that lands. 80-150 words.\n\n${voice?.body ? 'Brand voice:\n' + voice.body : ''}`,
     prompt: `React to this industry item with a post that gives the operator's POV:\n\nTitle: ${sig.title}\nAngle: ${sig.suggested_angle || ''}\nSource: ${sig.url}\n\nWrite the post.`,
   });
   return { ok: true, draft, signal_title: sig.title, note: 'Draft only — operator reviews before posting. Use the LinkedIn post tool to publish if approved.' };
