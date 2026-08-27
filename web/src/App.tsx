@@ -9,7 +9,6 @@ import { AUTH_EVENT, onboarding } from './lib/api';
 import { Sidebar } from './components/Sidebar';
 import { ChatDrawer } from './components/ChatDrawer';
 import { Knowledge }       from './pages/Knowledge';
-import { Registry }        from './pages/Registry';
 import { ExpandBuild }     from './pages/ExpandBuild';
 import { Activity }        from './pages/Activity';
 import { Settings }        from './pages/Settings';
@@ -31,7 +30,7 @@ import { ChatProvider, useChatState } from './lib/chat';
 // session ended on a since-removed surface would otherwise land on a blank page.
 const NAVS = [
   'nyo', 'daily-planner', 'prospecting', 'outreach', 'blog', 'social', 'hot-takes',
-  'knowledge', 'registry', 'activity', 'expand-build', 'settings',
+  'knowledge', 'activity', 'expand-build', 'settings',
 ] as const;
 export type Nav = typeof NAVS[number];
 
@@ -282,7 +281,6 @@ export default function App() {
         {nav === 'social'    && <Social />}
         {nav === 'hot-takes' && <HotTakes />}
         {nav === 'knowledge' && <Knowledge />}
-        {nav === 'registry'  && <Registry />}
         {nav === 'activity'  && <Activity />}
         {nav === 'expand-build' && <ExpandBuild />}
         {nav === 'settings'  && <Settings />}

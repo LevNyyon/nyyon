@@ -139,7 +139,6 @@ const MODULES = [
   { key: 'social',    title: 'Social',    area: 'module', description: 'per-channel social drafts → operator approve → Make webhooks' },
   { key: 'hot-takes', title: 'Hot Takes', area: 'module', description: 'editorial command center — topic → take → brief → article → review → social → schedule, one publication package; Publications tab carries the whole blog (any draft schedules into a release)' },
   { key: 'knowledge', title: 'Knowledge', area: 'system', description: 'the editable rules layer — doc tree Nyo and the code read at runtime' },
-  { key: 'registry',  title: 'Registry',  area: 'system', description: 'this page — live map of gateways / tools / workflows / modules' },
   { key: 'activity',  title: 'Activity',  area: 'system', description: 'the event bus log — every mutation, live' },
   { key: 'expand-build', title: 'Expand build', area: 'system', description: 'where the source lives (the checkout IS the install) + the handoff prompt that briefs a coding agent on the layout and the five-layer rules; prompt body is the expand-build-prompt knowledge note' },
   { key: 'settings',  title: 'Settings',  area: 'system', description: 'theme, Nyo brain provider, sidebar module toggles' },

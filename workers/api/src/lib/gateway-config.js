@@ -69,8 +69,9 @@ export const CREDENTIALS = {
     { key: 'WA_SESSION_ID', label: 'Session id',     required: false, secret: false, help: 'Defaults to "default".' },
   ],
   linkedin: [
-    { key: 'LI_BASE_URL', label: 'linkedin-gateway URL', required: true, secret: false, help: 'e.g. http://127.0.0.1:2786' },
-    { key: 'LI_API_KEY',  label: 'linkedin-gateway key', required: true, secret: true },
+    { key: 'UNIPILE_DSN',        label: 'Unipile DSN',        required: true,  secret: false, help: 'from your Unipile dashboard, e.g. api1.unipile.com:13111' },
+    { key: 'UNIPILE_API_KEY',    label: 'Unipile API key',    required: true,  secret: true },
+    { key: 'UNIPILE_ACCOUNT_ID', label: 'Unipile account id', required: false, secret: false, help: 'optional — first connected LinkedIn account is used otherwise' },
   ],
   social: [
     // A Make.com webhook URL is bearer-equivalent: the URL IS the credential.

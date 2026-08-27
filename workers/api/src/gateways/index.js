@@ -18,7 +18,8 @@ import {
   probeLinkedIn, getMyProfile, getProfile, getFeed, getLiCompany, getLiCompanyJobs,
   searchPeople, listSentInvitations, sendDirectMessage, sendConnectionRequest, postText,
   listConversations, getConversationMessages, getSentMessages, reactToPost,
-} from '../lib/linkedin.js';
+  connectLink,
+} from '../lib/unipile.js';
 import {
   renderImage, storeImageBytes, readImage, generateImage, IMAGE_MODELS,
 } from '../lib/image-gateway.js';
@@ -58,10 +59,11 @@ export const GATEWAYS = {
   },
   linkedin: {
     slug: 'linkedin',
-    service: 'linkedin-gateway daemon (tunneled FastAPI, LI_BASE_URL)',
-    description: 'Reads/writes the operator LinkedIn account through the local gateway daemon.',
+    service: 'LinkedIn via Unipile (api.unipile.com — off until connected)',
+    description: 'Reads/writes the operator LinkedIn account through Unipile (hosted sessions, hosted auth).',
     modes: {
       probe:        (env) => probeLinkedIn(env),
+      connect_link: (env, input) => connectLink(env, input || {}),
       me:           (env) => getMyProfile(env),
       profile:      (env, input) => getProfile(env, input?.public_id),
       feed:         (env, input) => getFeed(env, input || {}),
@@ -92,7 +94,7 @@ export const GATEWAYS = {
   },
   assets: {
     slug: 'assets',
-    service: 'Cloudflare R2 bucket (nyyon-assets)',
+    service: 'asset storage (R2 when deployed, local simulation otherwise)',
     description: 'Binary asset store behind ASSETS_BASE_URL — featured images, lead photos, org-chart avatars.',
     modes: {
       store: (env, input) => storeImageBytes(env, input?.key, input?.bytes, input?.metadata || {}),
@@ -101,7 +103,7 @@ export const GATEWAYS = {
   },
   whatsapp: {
     slug: 'whatsapp',
-    service: 'wa-gateway daemon (tunneled Node service, WA_BASE_URL)',
+    service: 'WhatsApp service (bundled with the install; WA_BASE_URL)',
     description: 'WhatsApp session, chats, and sends through the local gateway daemon.',
     modes: {
       health:     (env) => checkWaHealth(env),
@@ -129,7 +131,7 @@ export const GATEWAYS = {
 
   tts: {
     slug: 'tts',
-    service: 'local Piper TTS daemon (tunneled, TTS_BASE_URL)',
+    service: 'text-to-speech service (TTS_BASE_URL — off until connected)',
     description: 'Text-to-speech for Nyo voice mode. probe reports config; synthesize streams WAV (route-only, not JSON-safe for the dev bench).',
     modes: {
       probe: (env) => ({ configured: ttsConfigured(env) }),

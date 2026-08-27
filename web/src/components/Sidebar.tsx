@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../lib/api';
 import { loadSidebarSlugs, type SurfaceSlug } from '../lib/theme';
 import type { Nav } from '../App';
-import { BookOpen, Cube, Activity as ActivityIcon, Gear, Terminal, MessageSquare, Newspaper, CalendarCheck, LinkedIn, Flame, Target, WhatsApp, X } from './Icons';
+import { BookOpen, Activity as ActivityIcon, Gear, Terminal, MessageSquare, Newspaper, CalendarCheck, LinkedIn, Flame, Target, WhatsApp, X } from './Icons';
 
 type Item = {
   key: Nav;
@@ -28,7 +28,6 @@ const SURFACE_ITEMS: Record<SurfaceSlug, Item> = {
 // Restoring one would need a Nav key + route in App.tsx AND a line here.
 const SYSTEM_ITEMS: Item[] = [
   { key: 'knowledge', label: 'Knowledge', Icon: BookOpen },
-  { key: 'registry',  label: 'Registry',  Icon: Cube },
   { key: 'activity',  label: 'Activity',  Icon: ActivityIcon },
   // Where the source lives + the prompt that briefs a coding agent on it. The
   // install has no other place that admits the checkout IS the app.

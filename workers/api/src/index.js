@@ -53,8 +53,8 @@ import {
 import { listWaIntakePeople, listWaIntakeGroups, listWaGroupCandidates, importWaLeads, resolveWaIntakeBacklog } from './lib/gtm-wa-intake.js';
 import { writeYou, probeTheorg } from './lib/gtm-context.js';
 import { listSends, leadThread } from './lib/gtm-outreach.js';
-import { buildRegistry } from './lib/registry.js';
 import { runTool } from './tools/index.js';
+import { callGateway } from './gateways/index.js';
 import { runWorkflow } from './workflows/runner.js';
 import { getLlmHealth } from './lib/llm.js';
 import { listSocialCards } from './lib/social-cards.js';
@@ -62,7 +62,6 @@ import { regenerateOneFigure } from './lib/article-figures.js';
 // Raw li_at / JSESSIONID capture is not a tool and has no gateway mode — the
 // 11-tool LinkedIn family deliberately does not cover it, so this one lib
 // symbol stays. Every other LinkedIn route goes through the pool.
-import { setLinkedInCookies } from './lib/linkedin.js';
 // OSINT is HEADLESS now: the scraper page is cut, but the scrape itself is the
 // first leg of the hourly awareness sweep that feeds the Hot Takes topic feed,
 // so the cron entry point stays. Every other osint.js symbol is reached from
@@ -431,7 +430,7 @@ app.get('/api/system/health', async (c) => {
     checks.push({
       name: 'LinkedIn gateway', severity: 'degraded',
       status: li?.reachable ?? li?.ok ? 'green' : 'yellow',
-      note: (li?.reachable ?? li?.ok) ? null : (li?.error || `unreachable at ${env.LI_BASE_URL || '(LI_BASE_URL unset)'} — is the gateway + tunnel up?`),
+      note: (li?.reachable ?? li?.ok) ? null : (li?.error || 'Unipile not configured — connect LinkedIn in Settings'),
     });
   } catch (e) {
     checks.push({ name: 'LinkedIn gateway', status: 'yellow', severity: 'degraded',
@@ -2097,13 +2096,13 @@ app.post('/api/social/generate/:slug', async (c) => {
     });
   } catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
 });
-// ─── LinkedIn (local hybrid gateway: voyager reads + Playwright posts) ─
+// ─── LinkedIn (via Unipile — hosted sessions, hosted auth) ─
 app.get('/api/li/probe', async (c) => c.json(await runTool(c.env, 'probe_linkedin', {})));
-// KEPT ON THE LIB deliberately: raw li_at / JSESSIONID session cookies are not
-// a tool and have no gateway mode; the 11-tool family does not cover capture.
-app.post('/api/li/cookies', async (c) => {
+// Connecting an account is Unipile's hosted auth page: this returns the URL
+// the operator opens. Cookie pasting is gone with the daemon it belonged to.
+app.post('/api/li/connect-link', async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  try { return c.json(await setLinkedInCookies(c.env, body)); }
+  try { return c.json(await callGateway(c.env, 'linkedin', 'connect_link', body)); }
   catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
 });
 app.get('/api/li/me',    async (c) => safeLi(c, () => runTool(c.env, 'read_my_linkedin_profile', {})));
@@ -2275,7 +2274,6 @@ app.post('/api/gateways', async (c) => {
   }
 });
 
-app.get('/api/registry', async (c) => c.json(await buildRegistry(c.env)));
 
 // ─── module prerequisites ─────────────────────────────────────────
 // What a module needs before it is worth opening: the operator's own voice

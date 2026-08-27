@@ -86,7 +86,8 @@
     "WA_BASE_URL":     "",
     // 'default', not a session id copied from whoever built this.
     "WA_SESSION_ID":   "default",
-    "LI_BASE_URL":     "",
+    "UNIPILE_DSN":     "",
+    "UNIPILE_ACCOUNT_ID": "",
     "WEBSITE_BASE_URL": "",
     "ASSETS_BASE_URL": ""
   },
