@@ -116,7 +116,9 @@ function checkCode(code, { kind, toolName, pluginName, declaredGateways }) {
 
   // Lint: literal table names outside the namespace. Runtime is authoritative.
   const ns = tableNamespace(pluginName);
-  for (const m of src.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+([a-z_][a-z0-9_]*)/gi)) {
+  // `ON CONFLICT … DO UPDATE SET` is an upsert clause — the DO-preceded UPDATE
+  // names no table (the runtime tokenizer already knew; this lint has to agree).
+  for (const m of src.matchAll(/\b(?:FROM|JOIN|INTO|(?<!\bdo\s)UPDATE|TABLE)\s+([a-z_][a-z0-9_]*)/gi)) {
     const t = m[1].toLowerCase();
     if (!t.startsWith(ns) && !['select', 'values'].includes(t)) {
       errors.push(`${kind} ${toolName}: references table "${t}" outside ${ns}*`);
