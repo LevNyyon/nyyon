@@ -463,7 +463,20 @@ export function generateIndex(rows) {
     if (!NAME_RE.test(m?.name || '')) continue;
     let binding = {};
     try { binding = JSON.parse(row.binding_json || '{}'); } catch { /* none */ }
-    bindings[m.name] = binding;
+    // Bindings stored before modes were enforced carry only {via, target}.
+    // Backfill from the manifest the operator actually approved, so tightening
+    // the rule does not silently break an already-installed plugin (its calls
+    // would fail with "declared for mode(s) [none]"). No DB migration, no
+    // operator action — the manifest is the record of what was agreed.
+    const declaredModes = Object.fromEntries(
+      arr(m.requires?.gateways).map((g) => [g?.slug, arr(g?.modes)]),
+    );
+    bindings[m.name] = Object.fromEntries(
+      Object.entries(binding).map(([slug, b]) => [
+        slug,
+        { ...b, modes: arr(b?.modes).length ? b.modes : (declaredModes[slug] || []) },
+      ]),
+    );
     // The EXACT tables this plugin declared. Access is decided by membership in
     // this set, never by a name prefix: `plugin_a_` is a prefix of
     // `plugin_a_b_`, so prefix matching let plugin "a" read plugin "a-b"'s data.
