@@ -72,6 +72,14 @@ for (;;) {
         if (current !== f.content) { safeWrite(f.path, f.content); healed++; }
       }
     }
+    // The aggregator itself is part of the reconcile — a source sync
+    // overwrites it with the repo's empty copy while the tool files survive.
+    {
+      const abs = resolve(REPO, work.index_file.path);
+      let current = null;
+      try { current = readFileSync(abs, 'utf8'); } catch { /* missing */ }
+      if (current !== work.index_file.content) healed++;
+    }
     if (healed) {
       safeWrite(work.index_file.path, work.index_file.content);
       console.log(`[plugin-apply] reconciled ${healed} missing/stale file(s); restarting`);
