@@ -75,7 +75,7 @@ Tone: terse, direct, plain. No marketing voice. No emoji. No filler ("Sure!", "O
 // second system block (after the cached SYSTEM prefix) only when speech is on.
 const SPEECH_SYSTEM = `SPEECH MODE IS ON — the operator is LISTENING, not reading, and every reply is spoken aloud. Answer in the FEWEST words possible: all signal, no noise. One or two short sentences, aim for under 25 words. No preamble, no lists, no markdown, no headings, no emoji, no restating the question. Lead with the answer / the number / the status, then stop. Add detail ONLY if the operator explicitly asks for it. This is a quick operational back-and-forth, not an essay.`;
 
-// Lean system prompt for the LOW tier (local qwen2.5:3b). The full SYSTEM above
+// Lean system prompt for the LOW tier (a fast small API model). The full SYSTEM above
 // (~thousands of tokens, written for Claude + ~130 tools) overwhelms a 3B: prompt
 // eval alone can blow the 60s hop budget, and the model gets lost. This is scoped
 // to exactly the LOW_TOOLS set and keeps the model fast + on-task.
@@ -320,7 +320,7 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
 // model; the tier is sent per message so it can change mid-conversation. Because
 // the loop keeps history in Anthropic shape and callOpenAI adapts both ways,
 // switching tiers between turns is seamless. Models are env-overridable.
-//   low  → local Qwen via the Ollama tunnel (OpenAI-compatible), curated tool
+//   low  → a fast small API model (Haiku), curated tool
 //          set (LOW_TOOLS: WhatsApp + diagnostics + knowledge).
 //   mid  → Claude Sonnet.    high → Claude Opus.
 function resolveTier(env, tier, mc = null) {
@@ -328,7 +328,7 @@ function resolveTier(env, tier, mc = null) {
   if (t === 'low') {
     return {
       tier: 'low', provider: 'openai',
-      model:   mc?.nyo_low || env.NYO_MODEL_LOW || 'qwen2.5:3b',
+      model:   mc?.nyo_low || env.NYO_MODEL_LOW || 'claude-haiku-4-5',
       baseUrl: (env.OLLAMA_BASE_URL || '').replace(/\/+$/, ''),
       apiKey:  env.OLLAMA_API_KEY,
       tokenParam: 'max_tokens',   // Ollama's OpenAI shim wants max_tokens, not max_completion_tokens
@@ -408,7 +408,7 @@ async function callAnthropic(env, messages, tools, cfg, speech = false, personaS
 // shape no matter which provider answered.
 async function callOpenAI(env, messages, tools, cfg = {}, speech = false, personaSystem = null) {
   // Works for any OpenAI-compatible endpoint. For tier 'low' the cfg points at the
-  // local Ollama tunnel (base URL + proxy key + qwen model); with no cfg it falls
+  // an optional self-hosted OpenAI-compatible base URL; with no cfg it falls
   // back to OpenAI proper.
   const model  = cfg.model  || env.LLM_MODEL || env.OPENAI_MODEL || 'gpt-4o';
   const base   = cfg.baseUrl || 'https://api.openai.com/v1';

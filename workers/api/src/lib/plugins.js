@@ -275,6 +275,15 @@ export async function validateManifest(env, m) {
     for (const sf of arr(p.surfaces)) {
       if (!SLUG_RE.test(sf?.slug || '')) { errors.push(`surface slug invalid: ${sf?.slug}`); continue; }
       if (!sf?.title) errors.push(`surface ${sf.slug}: needs a title`);
+      // An icon travels WITH the surface: a host icon-set NAME, an emoji, or
+      // inline SVG (≤4KB, no script/handlers — it renders in the sidebar).
+      if (sf?.icon !== undefined) {
+        const ic = String(sf.icon);
+        if (ic.length > 4096) errors.push(`surface ${sf.slug}: icon over 4KB`);
+        if (/^\s*</.test(ic) && /<script|on\w+\s*=|javascript:/i.test(ic)) {
+          errors.push(`surface ${sf.slug}: svg icon may not carry scripts or handlers`);
+        }
+      }
       // Two forms. `page_code` is the REAL page — TSX, byte-identical, same UX
       // as a native module page, materialized into the SPA by the applier.
       // `tabs` is the declarative form for small plugins. Exactly one of them.
@@ -831,6 +840,7 @@ export async function pluginSurfaces(env) {
         title: sf.title || sf.slug,
         // 'page' = a real materialized page in the bundle; 'tabs' = declarative.
         kind: (typeof sf.page_code === 'string' && sf.page_code.trim()) ? 'page' : 'tabs',
+        icon: sf.icon || null,
         tabs: arr(sf.tabs).map((t) => ({ key: t.key, title: t.title, view: t.view || {} })),
       });
     }

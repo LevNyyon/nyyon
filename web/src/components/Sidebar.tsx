@@ -32,11 +32,28 @@ const SYSTEM_ITEMS: Item[] = [
   { key: 'settings',  label: 'Settings',  Icon: Gear },
 ];
 
+// A plugin surface ships its icon in the manifest: a NAME from this host's
+// icon set, inline SVG (validated at import), or an emoji. Cube if absent.
+import * as AllIcons from './Icons';
+function pluginIcon(icon?: string | null): Item['Icon'] {
+  if (!icon) return Cube;
+  const named = (AllIcons as Record<string, unknown>)[icon];
+  if (typeof named === 'function') return named as Item['Icon'];
+  if (/^\s*</.test(icon)) {
+    return ({ size = 16 }: { size?: number }) => (
+      <span style={{ width: size, height: size }} className="inline-block [&>svg]:w-full [&>svg]:h-full" dangerouslySetInnerHTML={{ __html: icon }} />
+    );
+  }
+  return ({ size = 16 }: { size?: number }) => (
+    <span style={{ fontSize: size - 2, lineHeight: 1 }} className="inline-block">{icon}</span>
+  );
+}
+
 type Props = {
   active: Nav; onNav: (k: Nav) => void; mobileOpen?: boolean; onClose?: () => void;
   // Pages contributed by installed plugins. They sit in their own section so
   // it is always obvious which parts of the app came from a plugin.
-  pluginSurfaces?: { plugin: string; slug: string; title: string }[];
+  pluginSurfaces?: { plugin: string; slug: string; title: string; icon?: string | null }[];
 };
 
 export function Sidebar({ active, onNav, mobileOpen = false, onClose, pluginSurfaces = [] }: Props) {
@@ -50,7 +67,7 @@ export function Sidebar({ active, onNav, mobileOpen = false, onClose, pluginSurf
 
   const moduleItems: Item[] = slugs.map((s) => SURFACE_ITEMS[s]);
   const pluginItems: Item[] = pluginSurfaces.map((sf) => ({
-    key: `plugin:${sf.slug}` as Nav, label: sf.title, Icon: Cube,
+    key: `plugin:${sf.slug}` as Nav, label: sf.title, Icon: pluginIcon(sf.icon),
   }));
 
   return (

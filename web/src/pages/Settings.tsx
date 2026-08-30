@@ -395,7 +395,7 @@ function Toggle({ on, onToggle, pending, label }: { on: boolean; onToggle: () =>
 
 // ─── per-surface model editor (writes the llm-models knowledge doc) ──────────
 const MODEL_FIELDS: { key: keyof Omit<import('../lib/api').NyoModelMap, 'source'>; label: string; hint: string }[] = [
-  { key: 'nyo_low',      label: 'Nyo · Low',   hint: 'local model via the Ollama tunnel' },
+  { key: 'nyo_low',      label: 'Nyo · Low',   hint: 'the fast, cheap chat tier' },
   { key: 'nyo_mid',      label: 'Nyo · Mid',   hint: 'the default chat tier' },
   { key: 'nyo_high',     label: 'Nyo · High',  hint: 'hard reasoning in chat' },
   { key: 'writer',       label: 'Writers',      hint: 'digest synthesis · AEO articles · GTM angles' },

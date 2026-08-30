@@ -113,7 +113,7 @@ export async function localComplete(env, { system, prompt, maxTokens = 2000 }) {
     method: 'POST',
     signal: AbortSignal.timeout(60000),
     headers: { 'Content-Type': 'application/json', ...(env.OLLAMA_API_KEY ? { Authorization: `Bearer ${env.OLLAMA_API_KEY}` } : {}) },
-    body: JSON.stringify({ model: (await import('./model-config.js').then((m) => m.loadModelConfig(env)).catch(() => null))?.nyo_low || env.NYO_MODEL_LOW || 'qwen2.5:3b', messages, max_tokens: maxTokens }),
+    body: JSON.stringify({ model: (await import('./model-config.js').then((m) => m.loadModelConfig(env)).catch(() => null))?.nyo_low || env.NYO_MODEL_LOW || 'claude-haiku-4-5', messages, max_tokens: maxTokens }),
   });
   if (!r.ok) throw new Error(`local model ${r.status}: ${(await r.text().catch(() => '')).slice(0, 200)}`);
   const j = await r.json();

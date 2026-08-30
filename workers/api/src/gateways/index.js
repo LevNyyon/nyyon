@@ -110,7 +110,7 @@ export const GATEWAYS = {
   },
   whatsapp: {
     slug: 'whatsapp',
-    service: 'WhatsApp service (bundled with the install; WA_BASE_URL)',
+    service: 'an external WhatsApp gateway service (WA_BASE_URL; unconfigured until connected in Settings)',
     description: 'WhatsApp session, chats, and sends through the local gateway daemon.',
     modes: {
       health:     (env) => checkWaHealth(env),

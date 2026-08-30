@@ -18,7 +18,7 @@ const DOC_SLUG = 'llm-models';
 
 export function modelDefaults(env) {
   return {
-    nyo_low:      env.NYO_MODEL_LOW  || 'qwen2.5:3b',
+    nyo_low:      env.NYO_MODEL_LOW  || 'claude-haiku-4-5',
     nyo_mid:      env.NYO_MODEL_MID  || 'claude-sonnet-5',
     nyo_high:     env.NYO_MODEL_HIGH || 'claude-opus-4-8',
     writer:       env.ANTHROPIC_MODEL || 'claude-opus-4-8',
@@ -85,7 +85,7 @@ export async function saveModelConfig(env, patch = {}) {
 function seedBody(models) {
   return `Which model each surface runs on. The code reads the JSON block below at run time (\`loadModelConfig\` in lib/model-config.js) — edit here or in Settings, no deploy. Invalid or missing fields fall back to the wrangler.jsonc env vars, then the coded defaults.
 
-- \`nyo_low\` / \`nyo_mid\` / \`nyo_high\` — the chat tier switch (Low runs on the local Ollama tunnel)
+- \`nyo_low\` / \`nyo_mid\` / \`nyo_high\` — the chat tier switch (Low = fast + cheap, High = deep reasoning)
 - \`writer\` — heavy background writers: digest synthesis, AEO articles, GTM outreach angles
 - \`writer_small\` — the cheap utility model "mini/haiku" call sites map to
 - \`vision\` — image judging (featured-image picker)

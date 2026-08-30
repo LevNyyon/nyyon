@@ -68,11 +68,10 @@
     "OPENAI_MODEL":    "gpt-5.5",
     // Nyo chat Low/Mid/High switch (chat only; digest/AEO still use ANTHROPIC_MODEL).
     // Low routes to the local Qwen through the Ollama proxy tunnel; needs the
-    // OLLAMA_API_KEY secret (= the ollama-proxy key). Mid=Sonnet, High=Opus.
-    "NYO_MODEL_LOW":   "qwen2.5:3b",
+    // Low=Haiku, Mid=Sonnet, High=Opus — all through the one Anthropic key.
+    "NYO_MODEL_LOW":   "claude-haiku-4-5",
     "NYO_MODEL_MID":   "claude-sonnet-5",
     "NYO_MODEL_HIGH":  "claude-opus-4-8",
-    "OLLAMA_BASE_URL": "",
     // Deliberately EMPTY, even though the service ships with this app and
     // always lands on 127.0.0.1:2785.
     //

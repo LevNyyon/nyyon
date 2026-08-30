@@ -2304,7 +2304,8 @@
             "path": "prospecting-data.ts",
             "code_file": "surface/prospecting-data.ts"
           }
-        ]
+        ],
+        "icon": "Target"
       },
       {
         "slug": "outreach",
@@ -2323,7 +2324,8 @@
             "path": "outreach-data.ts",
             "code_file": "surface/outreach-data.ts"
           }
-        ]
+        ],
+        "icon": "WhatsApp"
       }
     ]
   }

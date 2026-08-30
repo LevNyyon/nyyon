@@ -51,7 +51,7 @@
         "code_file": "tools/save_daily_plan.mjs",
         "def": {
           "name": "save_daily_plan",
-          "description": "Write (or replace) a day's plan — this is what fills the plan panel. schedule = time blocks [{start:'HH:MM', end:'HH:MM', title, deliverable, focus}]. Mark each ~2-hour FOCUS SESSION block focus:true (the operator says how many fit in a day) — those are the day's backbone; supporting blocks are focus:false. todos = [{text, priority, star}], star:true for the extra-important few. mode 'strategic' (aligned to the week's objectives, set weekly_ref = that week's Sunday) or 'wing_it'. date defaults to today. Replaces the whole plan; use update_daily_plan to change part of one.",
+          "description": "Write (or replace) a day's plan \u2014 this is what fills the plan panel. schedule = time blocks [{start:'HH:MM', end:'HH:MM', title, deliverable, focus}]. Mark each ~2-hour FOCUS SESSION block focus:true (the operator says how many fit in a day) \u2014 those are the day's backbone; supporting blocks are focus:false. todos = [{text, priority, star}], star:true for the extra-important few. mode 'strategic' (aligned to the week's objectives, set weekly_ref = that week's Sunday) or 'wing_it'. date defaults to today. Replaces the whole plan; use update_daily_plan to change part of one.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -192,7 +192,7 @@
               },
               "date": {
                 "type": "string",
-                "description": "any day (YYYY-MM-DD) — its workweek is anchored server-side"
+                "description": "any day (YYYY-MM-DD) \u2014 its workweek is anchored server-side"
               }
             },
             "required": []
@@ -204,7 +204,7 @@
         "code_file": "tools/set_weekly_objectives.mjs",
         "def": {
           "name": "set_weekly_objectives",
-          "description": "Set a week's strategic objectives — the 2-4 outcomes that move the business in the intended direction. objectives is a list of short outcome strings (or {text, done} objects) and REPLACES the week's list. week_start defaults to the current week's Sunday.",
+          "description": "Set a week's strategic objectives \u2014 the 2-4 outcomes that move the business in the intended direction. objectives is a list of short outcome strings (or {text, done} objects) and REPLACES the week's list. week_start defaults to the current week's Sunday.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -234,7 +234,7 @@
     "knowledge": [
       {
         "slug": "plugin-daily-planner-persona",
-        "title": "Daily Planner — planner persona (system prompt)",
+        "title": "Daily Planner \u2014 planner persona (system prompt)",
         "body_file": "knowledge/plugin-daily-planner-persona.md"
       }
     ],
@@ -252,7 +252,8 @@
             "path": "data.ts",
             "code_file": "surface/data.ts"
           }
-        ]
+        ],
+        "icon": "CalendarCheck"
       }
     ]
   }

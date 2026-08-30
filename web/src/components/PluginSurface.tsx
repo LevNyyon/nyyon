@@ -24,6 +24,7 @@ export type PluginSurfaceDef = {
   plugin_title: string;
   slug: string;
   title: string;
+  icon?: string | null;
   tabs: { key: string; title: string; view: SurfaceView }[];
 };
 

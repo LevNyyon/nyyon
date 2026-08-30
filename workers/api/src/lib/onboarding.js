@@ -72,9 +72,6 @@ import { listGatewayStatus, saveGatewayConfig, resolveCredential } from './gatew
 // verifyLlmKey, which spends a real (tiny) request to find out.
 export async function llmConfigured(env) {
   try {
-    if (String(env?.LLM_PROVIDER || '').toLowerCase() === 'ollama') {
-      return Boolean(await resolveCredential(env, 'OLLAMA_BASE_URL'));
-    }
     return Boolean(await resolveCredential(env, 'ANTHROPIC_API_KEY'));
   } catch { return false; }
 }

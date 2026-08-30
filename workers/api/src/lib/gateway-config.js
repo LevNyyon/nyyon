@@ -60,8 +60,6 @@ export const CREDENTIALS = {
     { key: 'ANTHROPIC_API_KEY', label: 'Anthropic API key', required: true,  secret: true,  help: 'console.anthropic.com → API keys. Everything that writes runs on this.' },
     { key: 'OPENAI_API_KEY',    label: 'OpenAI API key',    required: false, secret: true,  help: 'Optional. Only vision (image judging) and gpt-image-1 need it.' },
     { key: 'LLM_PROVIDER',      label: 'Provider',          required: false, secret: false, help: 'anthropic (default) or openai.' },
-    { key: 'OLLAMA_BASE_URL',   label: 'Ollama base URL',   required: false, secret: false, help: 'Optional local fallback, used when the Anthropic credit breaker opens.' },
-    { key: 'OLLAMA_API_KEY',    label: 'Ollama API key',    required: false, secret: true },
   ],
   whatsapp: [
     { key: 'WA_BASE_URL',   label: 'wa-gateway URL', required: true,  secret: false, help: 'e.g. https://wa.example.com/api or http://127.0.0.1:2785/api' },

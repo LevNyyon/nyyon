@@ -3,7 +3,7 @@
   "name": "editorial",
   "title": "Editorial",
   "version": "1.0.0",
-  "description": "The editorial organism whole: Hot Takes (signals, topics, packages, releases), Blog/AEO (questions, writer, figures, publish) and Social (drafts, cards, gated pushes) as one plugin — 15 shared libs, the full tool set, the cron entry tools, 20 workflows, every editable rule as plugin knowledge, and the three real pages.",
+  "description": "The editorial organism whole: Hot Takes (signals, topics, packages, releases), Blog/AEO (questions, writer, figures, publish) and Social (drafts, cards, gated pushes) as one plugin \u2014 15 shared libs, the full tool set, the cron entry tools, 20 workflows, every editable rule as plugin knowledge, and the three real pages.",
   "origin": {
     "system": "nyyon-app"
   },
@@ -295,7 +295,7 @@
         "code_file": "tools/add_hottake_link.mjs",
         "def": {
           "name": "add_hottake_link",
-          "description": "Turn a pasted article URL into a Selected Topic: fetch the page, extract title/publication/summary/why-it-matters, and pin it as a package at status \"topic\". Idempotent — the same link never pins twice.",
+          "description": "Turn a pasted article URL into a Selected Topic: fetch the page, extract title/publication/summary/why-it-matters, and pin it as a package at status \"topic\". Idempotent \u2014 the same link never pins twice.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -315,7 +315,7 @@
         "code_file": "tools/adopt_blog_draft.mjs",
         "def": {
           "name": "adopt_blog_draft",
-          "description": "Adopt an existing blog post into the Hot Takes release pipeline by slug, creating the package it needs to be scheduled and distributed. Idempotent — a slug that already has a package returns it unchanged.",
+          "description": "Adopt an existing blog post into the Hot Takes release pipeline by slug, creating the package it needs to be scheduled and distributed. Idempotent \u2014 a slug that already has a package returns it unchanged.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -357,7 +357,7 @@
         "code_file": "tools/approve_social_post.mjs",
         "def": {
           "name": "approve_social_post",
-          "description": "Approve one draft for release: refuses a post that already went out, resolves the article's CURRENT cover over whatever image the row captured at draft time, and opens the outbox send claim that push_social_post requires. This is the operator gate — only run it when the operator has approved this specific post.",
+          "description": "Approve one draft for release: refuses a post that already went out, resolves the article's CURRENT cover over whatever image the row captured at draft time, and opens the outbox send claim that push_social_post requires. This is the operator gate \u2014 only run it when the operator has approved this specific post.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -386,7 +386,7 @@
               },
               "attempts": {
                 "type": "number",
-                "description": "edge probe attempts (default 1 — polling callers retry themselves)"
+                "description": "edge probe attempts (default 1 \u2014 polling callers retry themselves)"
               }
             },
             "required": [
@@ -419,7 +419,7 @@
         "code_file": "tools/build_hottake_seed.mjs",
         "def": {
           "name": "build_hottake_seed",
-          "description": "Assemble the article seed for a package: deterministic prose built from the approved take, the brief and the playbook's Article instruction. No model, no writes — hand the result straight to the article writer.",
+          "description": "Assemble the article seed for a package: deterministic prose built from the approved take, the brief and the playbook's Article instruction. No model, no writes \u2014 hand the result straight to the article writer.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -466,7 +466,7 @@
         "code_file": "tools/claim_aeo_question.mjs",
         "def": {
           "name": "claim_aeo_question",
-          "description": "Claim one interviewed AEO question for writing, so only one run can ever write it. With no slug it claims the next ready question that is due. It refuses a question whose interview is not answered yet, and refuses one another run already claimed — treat either refusal as final rather than retrying.",
+          "description": "Claim one interviewed AEO question for writing, so only one run can ever write it. With no slug it claims the next ready question that is due. It refuses a question whose interview is not answered yet, and refuses one another run already claimed \u2014 treat either refusal as final rather than retrying.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -522,7 +522,7 @@
         "code_file": "tools/delete_osint_target.mjs",
         "def": {
           "name": "delete_osint_target",
-          "description": "Remove one monitored target and its mentions. Use sparingly — prefer leaving a stale target in place and simply not scraping it.",
+          "description": "Remove one monitored target and its mentions. Use sparingly \u2014 prefer leaving a stale target in place and simply not scraping it.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -541,7 +541,7 @@
         "code_file": "tools/delete_social_group.mjs",
         "def": {
           "name": "delete_social_group",
-          "description": "Delete EVERY social post for one source slug at once — an article's whole fan-out group, a digest:<id> reaction set, or a standalone: row. The Outbox, activity feed, and calendar keep the record of anything already posted. Irreversible: confirm the slug with the operator first.",
+          "description": "Delete EVERY social post for one source slug at once \u2014 an article's whole fan-out group, a digest:<id> reaction set, or a standalone: row. The Outbox, activity feed, and calendar keep the record of anything already posted. Irreversible: confirm the slug with the operator first.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -561,7 +561,7 @@
         "code_file": "tools/delete_social_post.mjs",
         "def": {
           "name": "delete_social_post",
-          "description": "Delete one social post from the queue by id — a draft the operator does not want, a duplicate, a test row. Irreversible: resolve the exact id with list_social_posts and confirm with the operator first.",
+          "description": "Delete one social post from the queue by id \u2014 a draft the operator does not want, a duplicate, a test row. Irreversible: resolve the exact id with list_social_posts and confirm with the operator first.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -652,7 +652,7 @@
         "code_file": "tools/draft_card.mjs",
         "def": {
           "name": "draft_card",
-          "description": "Pick the share-card template that fits the article and write its slot text (one cheap LLM step). Templates: split, statement, checklist, flow — split for a contrast, statement for one sharp claim, checklist for criteria, flow for a sequence of steps. Pass template to force one, or slots to dictate the exact wording and skip the drafting entirely.",
+          "description": "Pick the share-card template that fits the article and write its slot text (one cheap LLM step). Templates: split, statement, checklist, flow \u2014 split for a contrast, statement for one sharp claim, checklist for criteria, flow for a sequence of steps. Pass template to force one, or slots to dictate the exact wording and skip the drafting entirely.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -681,7 +681,7 @@
               },
               "slots": {
                 "type": "object",
-                "description": "exact slot text — skips the drafter; must respect the template char limits"
+                "description": "exact slot text \u2014 skips the drafter; must respect the template char limits"
               }
             },
             "required": []
@@ -745,7 +745,7 @@
         "code_file": "tools/draft_hottake_social.mjs",
         "def": {
           "name": "draft_hottake_social",
-          "description": "Draft a publication's LinkedIn legs (company + personal) from its written article. Pass the package id, or a blog slug (a plain draft is adopted into the pipeline first). Pass channel to redraft ONE leg. Redrafting replaces the unposted leg in place — never duplicates.",
+          "description": "Draft a publication's LinkedIn legs (company + personal) from its written article. Pass the package id, or a blog slug (a plain draft is adopted into the pipeline first). Pass channel to redraft ONE leg. Redrafting replaces the unposted leg in place \u2014 never duplicates.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -755,7 +755,7 @@
               },
               "slug": {
                 "type": "string",
-                "description": "blog slug — used when there is no package yet"
+                "description": "blog slug \u2014 used when there is no package yet"
               },
               "channel": {
                 "type": "string",
@@ -821,7 +821,7 @@
         "code_file": "tools/draft_social_post.mjs",
         "def": {
           "name": "draft_social_post",
-          "description": "Write ONE channel's post text in that channel's voice (brand for the company pages, the operator's personal voice for linkedin-personal), under the operator's style rules. Pass source_kind 'blog' (default) to promote one of our articles, 'news' to react to someone else's item with our point of view. Drafts only — nothing is saved or published. With a slug, it skips a channel that already has a post unless force is true.",
+          "description": "Write ONE channel's post text in that channel's voice (brand for the company pages, the operator's personal voice for linkedin-personal), under the operator's style rules. Pass source_kind 'blog' (default) to promote one of our articles, 'news' to react to someone else's item with our point of view. Drafts only \u2014 nothing is saved or published. With a slug, it skips a channel that already has a post unless force is true.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -864,11 +864,11 @@
               },
               "slug": {
                 "type": "string",
-                "description": "blog slug — fills title/url from the context and enables the already-drafted check"
+                "description": "blog slug \u2014 fills title/url from the context and enables the already-drafted check"
               },
               "package_id": {
                 "type": "string",
-                "description": "Hot Takes package — a leg of that release"
+                "description": "Hot Takes package \u2014 a leg of that release"
               },
               "force": {
                 "type": "boolean",
@@ -1001,7 +1001,7 @@
         "code_file": "tools/edit_social_post.mjs",
         "def": {
           "name": "edit_social_post",
-          "description": "Replace a queued post's text with a full new version — use this while refining a draft with the operator. Pass the whole new text, not a diff. Edits only; it never publishes and never changes the channel.",
+          "description": "Replace a queued post's text with a full new version \u2014 use this while refining a draft with the operator. Pass the whole new text, not a diff. Edits only; it never publishes and never changes the channel.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1118,7 +1118,7 @@
         "code_file": "tools/generate_blog_image.mjs",
         "def": {
           "name": "generate_blog_image",
-          "description": "Generate (or regenerate) one blog post's AI featured image: brief → candidate renders → vision judge → the winner becomes the cover. Pass prompt_override to skip the brief drafter and render exactly that scene. Returns {image:{url, model, prompt, ...}}.",
+          "description": "Generate (or regenerate) one blog post's AI featured image: brief \u2192 candidate renders \u2192 vision judge \u2192 the winner becomes the cover. Pass prompt_override to skip the brief drafter and render exactly that scene. Returns {image:{url, model, prompt, ...}}.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1146,7 +1146,7 @@
         "code_file": "tools/generate_digest.mjs",
         "def": {
           "name": "generate_digest",
-          "description": "Regenerate the morning digest from every enabled channel: prune what has gone stale, pull each channel, dedupe against what is already there. A step in the hourly awareness sweep — read the result with the digest listing tools.",
+          "description": "Regenerate the morning digest from every enabled channel: prune what has gone stale, pull each channel, dedupe against what is already there. A step in the hourly awareness sweep \u2014 read the result with the digest listing tools.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1164,7 +1164,7 @@
         "code_file": "tools/generate_social_posts.mjs",
         "def": {
           "name": "generate_social_posts",
-          "description": "Draft the whole social set for one blog article (company LinkedIn, personal LinkedIn, company Facebook) into the Social review queue. Skips an article that already has posts unless force=true (force replaces only unposted drafts, never the audit trail of what shipped). Drafts only — publishing stays the operator's approval.",
+          "description": "Draft the whole social set for one blog article (company LinkedIn, personal LinkedIn, company Facebook) into the Social review queue. Skips an article that already has posts unless force=true (force replaces only unposted drafts, never the audit trail of what shipped). Drafts only \u2014 publishing stays the operator's approval.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1188,7 +1188,7 @@
         "code_file": "tools/ingest_signals.mjs",
         "def": {
           "name": "ingest_signals",
-          "description": "Pull every enabled feed and insert the items we have not seen before as unscored signals. The read half of the awareness sweep — it never judges anything.",
+          "description": "Pull every enabled feed and insert the items we have not seen before as unscored signals. The read half of the awareness sweep \u2014 it never judges anything.",
           "input_schema": {
             "type": "object",
             "properties": {},
@@ -1225,7 +1225,7 @@
         "code_file": "tools/learn_dismissals.mjs",
         "def": {
           "name": "learn_dismissals",
-          "description": "Learn from what the operator dismissed in the digest and tune the interest filter: reads the recent dismissed-not-starred items, asks the model what to avoid, and appends the learned avoid-list to the digest policy note. No-op unless enough new dismissals accumulated since the last pass — pass force:true to learn now regardless.",
+          "description": "Learn from what the operator dismissed in the digest and tune the interest filter: reads the recent dismissed-not-starred items, asks the model what to avoid, and appends the learned avoid-list to the digest policy note. No-op unless enough new dismissals accumulated since the last pass \u2014 pass force:true to learn now regardless.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1247,7 +1247,7 @@
         "code_file": "tools/link_hottake_article.mjs",
         "def": {
           "name": "link_hottake_article",
-          "description": "Link a written blog draft to its Hot Takes package by slug — stores the slug, headline and intro and moves the package to review. Also emits the article's title, url, excerpt, tags, body and cover so the distribution drafters can use them.",
+          "description": "Link a written blog draft to its Hot Takes package by slug \u2014 stores the slug, headline and intro and moves the package to review. Also emits the article's title, url, excerpt, tags, body and cover so the distribution drafters can use them.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1332,7 +1332,7 @@
         "code_file": "tools/list_heartbeat_sources.mjs",
         "def": {
           "name": "list_heartbeat_sources",
-          "description": "List the industry-awareness feed sources — the RSS feeds and Google News topic queries the hourly sweep ingests, with each one's theme, enabled state and last fetch result.",
+          "description": "List the industry-awareness feed sources \u2014 the RSS feeds and Google News topic queries the hourly sweep ingests, with each one's theme, enabled state and last fetch result.",
           "input_schema": {
             "type": "object",
             "properties": {},
@@ -1345,7 +1345,7 @@
         "code_file": "tools/list_hot_topics.mjs",
         "def": {
           "name": "list_hot_topics",
-          "description": "List the current synthesized hot topics — blog-grade angles on what is happening now, each with a thesis, why-now and source links. Use when asked \"what should we write about\" or \"what is hot\".",
+          "description": "List the current synthesized hot topics \u2014 blog-grade angles on what is happening now, each with a thesis, why-now and source links. Use when asked \"what should we write about\" or \"what is hot\".",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1368,7 +1368,7 @@
         "code_file": "tools/list_hottake_packages.mjs",
         "def": {
           "name": "list_hottake_packages",
-          "description": "List the Hot Takes publication packages — the editorial pipeline from selected topic through take, brief, article, review, ready, scheduled and published. Filter by status to answer \"what is waiting on me\".",
+          "description": "List the Hot Takes publication packages \u2014 the editorial pipeline from selected topic through take, brief, article, review, ready, scheduled and published. Filter by status to answer \"what is waiting on me\".",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1452,7 +1452,7 @@
         "code_file": "tools/list_signals.mjs",
         "def": {
           "name": "list_signals",
-          "description": "List recent scored industry signals — real news and blog items with a content score (how write-worthy) and a suggested angle. Use to find content opportunities or answer \"what is new in X\".",
+          "description": "List recent scored industry signals \u2014 real news and blog items with a content score (how write-worthy) and a suggested angle. Use to find content opportunities or answer \"what is new in X\".",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1490,7 +1490,7 @@
         "code_file": "tools/list_social_posts.mjs",
         "def": {
           "name": "list_social_posts",
-          "description": "List queued social posts — id, channel, status (draft | claimed | posted | failed | skipped), source article (blog_slug/blog_title), package_id for Hot Takes release legs, and the content. Filter by status, blog slug, or package. Use this to find the post the operator wants to work on.",
+          "description": "List queued social posts \u2014 id, channel, status (draft | claimed | posted | failed | skipped), source article (blog_slug/blog_title), package_id for Hot Takes release legs, and the content. Filter by status, blog slug, or package. Use this to find the post the operator wants to work on.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1504,7 +1504,7 @@
               },
               "package_id": {
                 "type": "string",
-                "description": "Hot Takes package id — its release legs"
+                "description": "Hot Takes package id \u2014 its release legs"
               }
             },
             "required": []
@@ -1516,7 +1516,7 @@
         "code_file": "tools/list_topic_feed.mjs",
         "def": {
           "name": "list_topic_feed",
-          "description": "The live feed of topics worth a company response — synthesized hot topics, scored industry signals and actionable digest items merged, deduped and newest-first. Read-only; pin a card with pin_hottake_topic to start a package. Pass history:true (with a bigger limit) or q to browse and search everything retained.",
+          "description": "The live feed of topics worth a company response \u2014 synthesized hot topics, scored industry signals and actionable digest items merged, deduped and newest-first. Read-only; pin a card with pin_hottake_topic to start a package. Pass history:true (with a bigger limit) or q to browse and search everything retained.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1563,7 +1563,7 @@
               },
               "origin_ref": {
                 "type": "string",
-                "description": "the card's stable id — what makes pinning idempotent"
+                "description": "the card's stable id \u2014 what makes pinning idempotent"
               },
               "source_name": {
                 "type": "string"
@@ -1597,13 +1597,13 @@
         "code_file": "tools/propose_heartbeat_sources.mjs",
         "def": {
           "name": "propose_heartbeat_sources",
-          "description": "Scout the feeds and news queries this operator should watch, and VALIDATE every one by fetching it before offering it — only sources that really parsed come back, each with the item count seen. Reads what onboarding learned; returns reason:\"no_material\" (and proposes nothing) when the knowledge notes are still the shipped placeholders and no hint is given. Read-only: nothing is saved until save_hottakes_setup.",
+          "description": "Scout the feeds and news queries this operator should watch, and VALIDATE every one by fetching it before offering it \u2014 only sources that really parsed come back, each with the item count seen. Reads what onboarding learned; returns reason:\"no_material\" (and proposes nothing) when the knowledge notes are still the shipped placeholders and no hint is given. Read-only: nothing is saved until save_hottakes_setup.",
           "input_schema": {
             "type": "object",
             "properties": {
               "hint": {
                 "type": "string",
-                "description": "one line from the operator about what they do and who it is for — required when the knowledge notes are still generic"
+                "description": "one line from the operator about what they do and who it is for \u2014 required when the knowledge notes are still generic"
               }
             },
             "required": []
@@ -1639,7 +1639,7 @@
         "code_file": "tools/publish_hottake_website.mjs",
         "def": {
           "name": "publish_hottake_website",
-          "description": "Publish a package's article to the live site right now, skipping the schedule: shared blog publish (edge-verified, IndexNow, Outbox audit), the package moves to published, the calendar mirrors it, and the release auto-completes if its legs are already done. Operator approval gate — call only on an explicit publish.",
+          "description": "Publish a package's article to the live site right now, skipping the schedule: shared blog publish (edge-verified, IndexNow, Outbox audit), the package moves to published, the calendar mirrors it, and the release auto-completes if its legs are already done. Operator approval gate \u2014 call only on an explicit publish.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1658,7 +1658,7 @@
         "code_file": "tools/push_social_post.mjs",
         "def": {
           "name": "push_social_post",
-          "description": "Send one CLAIMED post through its channel's connection and close the claim. Requires the open claim approve_social_post takes: an unclaimed, already-posted, or image-less post is refused rather than sent. Never call this to \"retry\" on your own — a repeat send is the operator's decision.",
+          "description": "Send one CLAIMED post through its channel's connection and close the claim. Requires the open claim approve_social_post takes: an unclaimed, already-posted, or image-less post is refused rather than sent. Never call this to \"retry\" on your own \u2014 a repeat send is the operator's decision.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1797,7 +1797,7 @@
         "code_file": "tools/read_hottakes_notes.mjs",
         "def": {
           "name": "read_hottakes_notes",
-          "description": "The Hot Takes editorial library — every editable rule note (pov, patterns, quality, playbook, timing, identities) keyed by role, seeded with defaults on first read. Edit with save_hottakes_note.",
+          "description": "The Hot Takes editorial library \u2014 every editable rule note (pov, patterns, quality, playbook, timing, identities) keyed by role, seeded with defaults on first read. Edit with save_hottakes_note.",
           "input_schema": {
             "type": "object",
             "properties": {},
@@ -1836,7 +1836,7 @@
         "code_file": "tools/read_industry_pulse.mjs",
         "def": {
           "name": "read_industry_pulse",
-          "description": "Read the current industry pulse — the synthesized awareness note plus the top scored signals behind it. Pull this into any strategic conversation (positioning, campaigns, client calls, content) where current external context would sharpen the answer.",
+          "description": "Read the current industry pulse \u2014 the synthesized awareness note plus the top scored signals behind it. Pull this into any strategic conversation (positioning, campaigns, client calls, content) where current external context would sharpen the answer.",
           "input_schema": {
             "type": "object",
             "properties": {},
@@ -1868,7 +1868,7 @@
         "code_file": "tools/read_signal.mjs",
         "def": {
           "name": "read_signal",
-          "description": "Read the full article behind one signal, not just its headline (fetched and cached on first read). Use before reacting to a piece of news, and as the first step of turning a signal into an article — it also returns the question, notes and expert context that seed one.",
+          "description": "Read the full article behind one signal, not just its headline (fetched and cached on first read). Use before reacting to a piece of news, and as the first step of turning a signal into an article \u2014 it also returns the question, notes and expert context that seed one.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1887,7 +1887,7 @@
         "code_file": "tools/read_social_identities.mjs",
         "def": {
           "name": "read_social_identities",
-          "description": "The poster identities for the social-post previews, keyed by channel (name, headline, avatar_url) — from the editable plugin-editorial-hottakes-social-identities note.",
+          "description": "The poster identities for the social-post previews, keyed by channel (name, headline, avatar_url) \u2014 from the editable plugin-editorial-hottakes-social-identities note.",
           "input_schema": {
             "type": "object",
             "properties": {},
@@ -1900,7 +1900,7 @@
         "code_file": "tools/read_social_post.mjs",
         "def": {
           "name": "read_social_post",
-          "description": "Read one social post by id — channel, status, source article, package link, and the full current text.",
+          "description": "Read one social post by id \u2014 channel, status, source article, package link, and the full current text.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1959,7 +1959,7 @@
         "code_file": "tools/regenerate_blog_figure.mjs",
         "def": {
           "name": "regenerate_blog_figure",
-          "description": "Redesign one in-article chart: a replacement figure is drafted from the article text around that spot (operator instructions win when given), rendered, and swapped into the body in place. Returns {ok, url, figure_html} — the caller swaps figure_html into its editor view.",
+          "description": "Redesign one in-article chart: a replacement figure is drafted from the article text around that spot (operator instructions win when given), rendered, and swapped into the body in place. Returns {ok, url, figure_html} \u2014 the caller swaps figure_html into its editor view.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1988,7 +1988,7 @@
         "code_file": "tools/release_social_post.mjs",
         "def": {
           "name": "release_social_post",
-          "description": "Release one queued post in a single call: take the atomic outbox send claim, resolve the article's CURRENT cover, send through the channel's connection and close the claim — approve_social_post + push_social_post as one step. This is the operator gate: only run it when the operator approved this exact post. A 'failed' row may be released again; that retry is the operator's decision too. A 'posted' row is refused.",
+          "description": "Release one queued post in a single call: take the atomic outbox send claim, resolve the article's CURRENT cover, send through the channel's connection and close the claim \u2014 approve_social_post + push_social_post as one step. This is the operator gate: only run it when the operator approved this exact post. A 'failed' row may be released again; that retry is the operator's decision too. A 'posted' row is refused.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -2091,7 +2091,7 @@
         "code_file": "tools/render_images.mjs",
         "def": {
           "name": "render_images",
-          "description": "Render N candidate AI images from one prompt and store them. Only their URLs come back — the image bytes never enter the conversation. Hand the candidates to judge_images to pick a winner.",
+          "description": "Render N candidate AI images from one prompt and store them. Only their URLs come back \u2014 the image bytes never enter the conversation. Hand the candidates to judge_images to pick a winner.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -2155,7 +2155,7 @@
         "code_file": "tools/run_aeo_cron.mjs",
         "def": {
           "name": "run_aeo_cron",
-          "description": "Cron entry: run the AEO writer sweep — claim the next due, interviewed question, write its article in the assembled voice, illustrate it and save it as a draft. Returns the writer run report; a run with nothing due reports that instead of failing.",
+          "description": "Cron entry: run the AEO writer sweep \u2014 claim the next due, interviewed question, write its article in the assembled voice, illustrate it and save it as a draft. Returns the writer run report; a run with nothing due reports that instead of failing.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -2199,7 +2199,7 @@
         "code_file": "tools/run_due_releases.mjs",
         "def": {
           "name": "run_due_releases",
-          "description": "Run the Hot Takes due-scan the cron runs hourly: publish every scheduled website whose time has come (real publishes — same trust as the Blog Approve button) and fire the scheduled LinkedIn legs that are due (dry-run unless the hottakes.live flag is on). Returns {live, posts_dry_run, website_published, posts_sent, errors}.",
+          "description": "Run the Hot Takes due-scan the cron runs hourly: publish every scheduled website whose time has come (real publishes \u2014 same trust as the Blog Approve button) and fire the scheduled LinkedIn legs that are due (dry-run unless the hottakes.live flag is on). Returns {live, posts_dry_run, website_published, posts_sent, errors}.",
           "input_schema": {
             "type": "object",
             "properties": {},
@@ -2212,7 +2212,7 @@
         "code_file": "tools/run_heartbeat.mjs",
         "def": {
           "name": "run_heartbeat",
-          "description": "Run the full hourly awareness heartbeat: ingest every enabled feed source, score the new signals against the priorities rubric, enrich the high-relevance ones from their full article text, rebuild the industry pulse and cluster fresh hot topics. The cron's :15 leg — safe to run by hand for an immediate sweep.",
+          "description": "Run the full hourly awareness heartbeat: ingest every enabled feed source, score the new signals against the priorities rubric, enrich the high-relevance ones from their full article text, rebuild the industry pulse and cluster fresh hot topics. The cron's :15 leg \u2014 safe to run by hand for an immediate sweep.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -2379,7 +2379,7 @@
         "code_file": "tools/save_blog_post.mjs",
         "def": {
           "name": "save_blog_post",
-          "description": "Save one drafted article to the blog as a DRAFT. Pass the {article} object a drafter produced; pass a slug too to overwrite that exact post, otherwise a fresh unique slug is minted from the title. This never publishes and never changes an existing post's published state — publishing is the operator's separate approval.",
+          "description": "Save one drafted article to the blog as a DRAFT. Pass the {article} object a drafter produced; pass a slug too to overwrite that exact post, otherwise a fresh unique slug is minted from the title. This never publishes and never changes an existing post's published state \u2014 publishing is the operator's separate approval.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -2393,7 +2393,7 @@
               },
               "published_at": {
                 "type": "number",
-                "description": "ms epoch — preserves an imported stub's original date on a first save"
+                "description": "ms epoch \u2014 preserves an imported stub's original date on a first save"
               },
               "actor": {
                 "type": "string",
@@ -2411,7 +2411,7 @@
         "code_file": "tools/save_heartbeat_gates.mjs",
         "def": {
           "name": "save_heartbeat_gates",
-          "description": "Edit the sweep's score gates in place (0-100 each; pass only the keys to change). Writes the json block of the plugin-editorial-heartbeat-priorities note — the sweep reads it live, so the change applies on the next run.",
+          "description": "Edit the sweep's score gates in place (0-100 each; pass only the keys to change). Writes the json block of the plugin-editorial-heartbeat-priorities note \u2014 the sweep reads it live, so the change applies on the next run.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -2457,7 +2457,7 @@
               },
               "query": {
                 "type": "string",
-                "description": "gnews only — plain search query"
+                "description": "gnews only \u2014 plain search query"
               },
               "theme": {
                 "type": "string"
@@ -2475,7 +2475,7 @@
         "code_file": "tools/save_hottake_article.mjs",
         "def": {
           "name": "save_hottake_article",
-          "description": "Edit a package's written article — title, excerpt and/or body. Saves through the blog store and keeps the package headline in sync with a title change. Returns the fresh article view.",
+          "description": "Edit a package's written article \u2014 title, excerpt and/or body. Saves through the blog store and keeps the package headline in sync with a title change. Returns the fresh article view.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -2504,7 +2504,7 @@
         "code_file": "tools/save_hottake_package.mjs",
         "def": {
           "name": "save_hottake_package",
-          "description": "Patch one Hot Takes package — the topic fields, the take and its four inputs, the headline, notes, pinned, or the status. Pass only the keys to change. status:\"dismissed\" retires the package (reversible by patching the status back).",
+          "description": "Patch one Hot Takes package \u2014 the topic fields, the take and its four inputs, the headline, notes, pinned, or the status. Pass only the keys to change. status:\"dismissed\" retires the package (reversible by patching the status back).",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -2562,7 +2562,7 @@
         "code_file": "tools/save_hottake_post.mjs",
         "def": {
           "name": "save_hottake_post",
-          "description": "Patch one Hot Takes release leg (a social post): body, notes, image_url, status or scheduled_at. Approving is status:\"scheduled\" — the one state the hourly due-scan sends; \"ready\" holds it back; \"not_planned\" skips it.",
+          "description": "Patch one Hot Takes release leg (a social post): body, notes, image_url, status or scheduled_at. Approving is status:\"scheduled\" \u2014 the one state the hourly due-scan sends; \"ready\" holds it back; \"not_planned\" skips it.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -2625,7 +2625,7 @@
         "code_file": "tools/save_hottakes_setup.mjs",
         "def": {
           "name": "save_hottakes_setup",
-          "description": "Commit the Hot Takes first run: add the chosen feed sources, add brand/competitor listeners, write the operator's own words into the heartbeat-priorities note, and record that this module has been set up so its first-run panel never opens unattended again. Everything is optional — saving with nothing chosen still closes the first run and leaves a working, empty module.",
+          "description": "Commit the Hot Takes first run: add the chosen feed sources, add brand/competitor listeners, write the operator's own words into the heartbeat-priorities note, and record that this module has been set up so its first-run panel never opens unattended again. Everything is optional \u2014 saving with nothing chosen still closes the first run and leaves a working, empty module.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -2864,7 +2864,7 @@
               },
               "slug": {
                 "type": "string",
-                "description": "source blog slug — omit for a standalone post"
+                "description": "source blog slug \u2014 omit for a standalone post"
               },
               "title": {
                 "type": "string",
@@ -2899,7 +2899,7 @@
         "code_file": "tools/scan_hottake_article.mjs",
         "def": {
           "name": "scan_hottake_article",
-          "description": "Scan a package's written article for review: pull out the factual claims that matter (typed directly_supported / company_experience / opinion / unsupported, each confirmed or needing confirmation) and flag concrete quality weaknesses. Decision support for the operator — it never approves anything.",
+          "description": "Scan a package's written article for review: pull out the factual claims that matter (typed directly_supported / company_experience / opinion / unsupported, each confirmed or needing confirmation) and flag concrete quality weaknesses. Decision support for the operator \u2014 it never approves anything.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -2928,7 +2928,7 @@
               },
               "slug": {
                 "type": "string",
-                "description": "blog slug — used when there is no package yet"
+                "description": "blog slug \u2014 used when there is no package yet"
               },
               "website_at": {
                 "type": "number",
@@ -2968,7 +2968,7 @@
         "code_file": "tools/scrape_osint_targets.mjs",
         "def": {
           "name": "scrape_osint_targets",
-          "description": "Run the enabled listeners and harvest fresh mentions. Pass an id to scrape one target now; omit it to sweep the targets that have gone stale, bounded by stale_after_ms and max_targets. Slow — each engine has its own throttle.",
+          "description": "Run the enabled listeners and harvest fresh mentions. Pass an id to scrape one target now; omit it to sweep the targets that have gone stale, bounded by stale_after_ms and max_targets. Slow \u2014 each engine has its own throttle.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -3063,7 +3063,7 @@
         "code_file": "tools/skip_hottakes_setup.mjs",
         "def": {
           "name": "skip_hottakes_setup",
-          "description": "Record that the operator declined the Hot Takes first run. The module keeps working (empty, not broken) and the panel never opens on its own again. Pass reopen:true to undo — the setup can then be started again deliberately from Approved Sources.",
+          "description": "Record that the operator declined the Hot Takes first run. The module keeps working (empty, not broken) and the panel never opens on its own again. Pass reopen:true to undo \u2014 the setup can then be started again deliberately from Approved Sources.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -3081,7 +3081,7 @@
         "code_file": "tools/skip_social_post.mjs",
         "def": {
           "name": "skip_social_post",
-          "description": "Mark one queued social post 'skipped' — the operator decided this channel sits this release out. The row stays in the queue as the record of that decision; nothing is deleted and nothing is sent. A skipped post can still be redrafted (force) or approved later. Returns the updated post.",
+          "description": "Mark one queued social post 'skipped' \u2014 the operator decided this channel sits this release out. The row stays in the queue as the record of that decision; nothing is deleted and nothing is sent. A skipped post can still be redrafted (force) or approved later. Returns the updated post.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -3122,7 +3122,7 @@
         "code_file": "tools/synthesize_pulse.mjs",
         "def": {
           "name": "synthesize_pulse",
-          "description": "Rebuild the industry-pulse knowledge note from this week's strongest signals — what is happening in our world right now and what we could do about it. Writes the note; read it back with read_industry_pulse.",
+          "description": "Rebuild the industry-pulse knowledge note from this week's strongest signals \u2014 what is happening in our world right now and what we could do about it. Writes the note; read it back with read_industry_pulse.",
           "input_schema": {
             "type": "object",
             "properties": {},
@@ -3154,7 +3154,7 @@
         "code_file": "tools/write_hottake_article.mjs",
         "def": {
           "name": "write_hottake_article",
-          "description": "Write the full article from a package's approved brief — the long step (about a minute): seed from the take + brief, compose in house HTML with charts and cover, save as a blog draft and link it back to the package (status → review). Never overwrites an approved take; run it once the brief is approved.",
+          "description": "Write the full article from a package's approved brief \u2014 the long step (about a minute): seed from the take + brief, compose in house HTML with charts and cover, save as a blog draft and link it back to the package (status \u2192 review). Never overwrites an approved take; run it once the brief is approved.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -3181,7 +3181,7 @@
     "workflows": [
       {
         "slug": "blog-shape",
-        "name": "Blog · shape a draft",
+        "name": "Blog \u00b7 shape a draft",
         "goal": "A house-styled DRAFT in Blog > Needs review with 2-5 embedded figures and a code-drawn cover; never published. Run with {title, body?, voice?, target_keyword?}; pass {slug} to reshape an existing post in place.",
         "steps": [
           {
@@ -3220,7 +3220,7 @@
       },
       {
         "slug": "blog-expand",
-        "name": "Blog · expand an article",
+        "name": "Blog \u00b7 expand an article",
         "goal": "Existing post expanded to 1600-2200 words with an FAQ + FAQPage JSON-LD, refreshed figures and cover; publish stays a separate operator action. Run with {slug}.",
         "steps": [
           {
@@ -3262,7 +3262,7 @@
       },
       {
         "slug": "article-figures",
-        "name": "Blog · article figures",
+        "name": "Blog \u00b7 article figures",
         "goal": "2-5 editorial diagrams regenerated and embedded at their anchor sentences, cover refreshed and set as the featured image. Run with {slug}.",
         "steps": [
           {
@@ -3287,7 +3287,7 @@
       },
       {
         "slug": "blog-cover",
-        "name": "Blog · refresh the cover",
+        "name": "Blog \u00b7 refresh the cover",
         "goal": "Reliable code-drawn cover regenerated at a cache-busted URL and set as the featured image. No AI image model, no key, zero cost. Run with {slug}.",
         "steps": [
           {
@@ -3306,7 +3306,7 @@
       },
       {
         "slug": "blog-featured-image",
-        "name": "Blog · featured image",
+        "name": "Blog \u00b7 featured image",
         "goal": "AI-illustration featured image: visual brief, N candidates, vision judge, winner set on the post. Run with {slug, n?, model?}.",
         "steps": [
           {
@@ -3328,7 +3328,7 @@
       },
       {
         "slug": "social-card",
-        "name": "Social · share card",
+        "name": "Social \u00b7 share card",
         "goal": "Brand-locked share-card PNG in R2 plus a social-cards record. Run with {slug}; a custom-title card starts at draft_card with {title, excerpt}.",
         "steps": [
           {
@@ -3347,7 +3347,7 @@
       },
       {
         "slug": "article-from-social",
-        "name": "Blog · article from a social post",
+        "name": "Blog \u00b7 article from a social post",
         "goal": "A social post expanded into a full article DRAFT through the same shape pipeline. Run with {id} of the social post; nothing publishes.",
         "steps": [
           {
@@ -3389,7 +3389,7 @@
       },
       {
         "slug": "aeo-interview-start",
-        "name": "AEO · start an interview",
+        "name": "AEO \u00b7 start an interview",
         "goal": "Question queued (or created on the fly) with 4 saved interview questions awaiting the operator's answers. Run with {question_slug} or {question}.",
         "steps": [
           {
@@ -3405,8 +3405,8 @@
       },
       {
         "slug": "aeo-write",
-        "name": "AEO · write a drafted article",
-        "goal": "A ready (interviewed) AEO question written as a DRAFT article with figures and cover, the question marked drafted, the operator notified. The claim gate blocks un-interviewed or concurrently-claimed questions. Run with {question_slug}, or with nothing to take the next due ready question — the daily cron runs it by slug with no input.",
+        "name": "AEO \u00b7 write a drafted article",
+        "goal": "A ready (interviewed) AEO question written as a DRAFT article with figures and cover, the question marked drafted, the operator notified. The claim gate blocks un-interviewed or concurrently-claimed questions. Run with {question_slug}, or with nothing to take the next due ready question \u2014 the daily cron runs it by slug with no input.",
         "steps": [
           {
             "tool": "claim_aeo_question"
@@ -3459,7 +3459,7 @@
       },
       {
         "slug": "aeo-write-with-answers",
-        "name": "AEO · answers then write",
+        "name": "AEO \u00b7 answers then write",
         "goal": "The operator's answers are saved, then the full aeo-write chain runs and produces the drafted article from their expertise. Run with {question_slug, answers} the moment they reply.",
         "steps": [
           {
@@ -3516,7 +3516,7 @@
       },
       {
         "slug": "aeo-react",
-        "name": "AEO · learn the operator's taste",
+        "name": "AEO \u00b7 learn the operator's taste",
         "goal": "Reaction recorded and the plugin-editorial-editorial-taste knowledge doc refreshed from every recent reaction. Run with {reaction, note?, question_slug?|idea_title?}.",
         "steps": [
           {
@@ -3532,7 +3532,7 @@
       },
       {
         "slug": "aeo-suggestion-generator",
-        "name": "AEO · suggestions from signals",
+        "name": "AEO \u00b7 suggestions from signals",
         "goal": "Up to the policy cap of pending suggestion rows developed from the top-scored unconverted OSINT signals; source signals are marked actioned so the same news is never re-suggested. Caps live in the plugin-editorial-aeo-suggestion-policy doc. Runs daily from cron by slug; also manual via run_workflow.",
         "steps": [
           {
@@ -3551,8 +3551,8 @@
       },
       {
         "slug": "social-drafts-for-article",
-        "name": "Social · draft posts for an article",
-        "goal": "One draft per channel (linkedin-company, facebook-company, linkedin-personal) into the Social review queue, each in that channel's voice. Nothing is published: the operator approves each post themselves. Idempotent per slug — a channel that already has a post is skipped unless force is true. Fires on blog publish; also runnable with {slug, force?}.",
+        "name": "Social \u00b7 draft posts for an article",
+        "goal": "One draft per channel (linkedin-company, facebook-company, linkedin-personal) into the Social review queue, each in that channel's voice. Nothing is published: the operator approves each post themselves. Idempotent per slug \u2014 a channel that already has a post is skipped unless force is true. Fires on blog publish; also runnable with {slug, force?}.",
         "steps": [
           {
             "tool": "read_blog_post"
@@ -3588,7 +3588,7 @@
       },
       {
         "slug": "social-release-post",
-        "name": "Social · release an approved post",
+        "name": "Social \u00b7 release an approved post",
         "goal": "Send one approved post through its connection under the outbox no-duplicate claim, and flip the row to posted or failed with the full audit trail. The operator pressing Approve IS the gate; run with {id}.",
         "steps": [
           {
@@ -3601,7 +3601,7 @@
       },
       {
         "slug": "social-post-now",
-        "name": "Social · post now",
+        "name": "Social \u00b7 post now",
         "goal": "Publish an ad-hoc post the operator wrote in chat to ONE connection, through the same claim path as everything else (the old direct-post tool bypassed the outbox). Run with {channel, content, image_url, title?} only after the operator has explicitly confirmed the text, the image and the channel. Cross-posting is one run per connection.",
         "steps": [
           {
@@ -3617,7 +3617,7 @@
       },
       {
         "slug": "hottake-add-link",
-        "name": "Hot Takes · add a link",
+        "name": "Hot Takes \u00b7 add a link",
         "goal": "Turn a pasted article URL into a standard Selected Topics card. Fetches the page, extracts title/source/summary/date per the plugin-editorial-hottakes-link-extract note, and pins the result as a package at status \"topic\". Run with {url}.",
         "steps": [
           {
@@ -3633,8 +3633,8 @@
       },
       {
         "slug": "hottake-produce",
-        "name": "Hot Takes · produce a publication",
-        "goal": "A selected topic becomes a full package at review: take, brief, article draft with figures and cover, claim/quality scan, and both LinkedIn legs drafted into the social queue. Nothing publishes — the operator reviews, approves each post, and schedules. Run with {id}.",
+        "name": "Hot Takes \u00b7 produce a publication",
+        "goal": "A selected topic becomes a full package at review: take, brief, article draft with figures and cover, claim/quality scan, and both LinkedIn legs drafted into the social queue. Nothing publishes \u2014 the operator reviews, approves each post, and schedules. Run with {id}.",
         "steps": [
           {
             "tool": "draft_hottake_take"
@@ -3705,7 +3705,7 @@
       },
       {
         "slug": "hourly-awareness-sweep",
-        "name": "Cron · hourly awareness",
+        "name": "Cron \u00b7 hourly awareness",
         "goal": "Fresh mentions scraped, new signals ingested, scored and content-enriched, the plugin-editorial-industry-pulse note rebuilt, hot topics synthesized, and the morning digest regenerated from every enabled channel. The whole awareness layer in one chain. Runs hourly from cron; the runner may stagger legs across ticks for the Worker subrequest budget.",
         "steps": [
           {
@@ -3739,7 +3739,7 @@
       },
       {
         "slug": "hottakes-first-ingest",
-        "name": "Hot Takes · first ingest",
+        "name": "Hot Takes \u00b7 first ingest",
         "goal": "The shortest path from \"sources saved\" to \"the Topics tab has cards in it\": pull every enabled feed, score what came back, and cluster the survivors into hot topics. Run once at the end of the module first run so the operator sees their own industry instead of an empty state. Deliberately shorter than hourly-awareness-sweep: no scraping, no per-signal article enrichment, no digest; synthesis is optional because a first pull can legitimately return too few scored signals to cluster.",
         "steps": [
           {
@@ -3756,7 +3756,7 @@
       },
       {
         "slug": "signal-to-blog",
-        "name": "Signals · signal → blog opportunity",
+        "name": "Signals \u00b7 signal \u2192 blog opportunity",
         "goal": "An industry signal becomes a pending AEO question seeded with the article's real content and our angle, and the signal is marked actioned so it is never re-suggested. Run with {signal_id}.",
         "steps": [
           {
@@ -3847,7 +3847,7 @@
       },
       {
         "slug": "plugin-editorial-hottakes-source-scout",
-        "title": "Hot Takes — source scout (first run)",
+        "title": "Hot Takes \u2014 source scout (first run)",
         "body_file": "knowledge/plugin-editorial-hottakes-source-scout.md"
       },
       {
@@ -3872,7 +3872,7 @@
       },
       {
         "slug": "plugin-editorial-publish-config",
-        "title": "Blog publishing — external endpoints",
+        "title": "Blog publishing \u2014 external endpoints",
         "body_file": "knowledge/plugin-editorial-publish-config.md"
       },
       {
@@ -3903,7 +3903,8 @@
             "path": "hot-takes-data.ts",
             "code_file": "surface/hot-takes-data.ts"
           }
-        ]
+        ],
+        "icon": "Flame"
       },
       {
         "slug": "blog",
@@ -3922,7 +3923,8 @@
             "path": "blog-data.ts",
             "code_file": "surface/blog-data.ts"
           }
-        ]
+        ],
+        "icon": "Newspaper"
       },
       {
         "slug": "social",
@@ -3933,7 +3935,8 @@
             "path": "social-data.ts",
             "code_file": "surface/social-data.ts"
           }
-        ]
+        ],
+        "icon": "LinkedIn"
       }
     ]
   }
