@@ -1,13 +1,9 @@
-// The renderer for a plugin's page.
+// The renderer for DECLARATIVE plugin surfaces (`tabs`) — the lightweight
+// form for small packs: data, so it activates on import with no rebuild.
 //
-// A plugin ships a DESCRIPTION of its surface, never code. This file is the
-// only thing that executes, and it renders every plugin in the host's own look.
-//
-// That is what makes a module exchangeable between users: installing someone
-// else's module must not inject their React into your app with your session,
-// and their TSX failing to compile must not break YOUR build. It also keeps
-// the split that already works — a surface is data, so it activates the moment
-// the plugin imports, with no applier and no rebuild.
+// A module's REAL page ships as `page_code` instead, materialized into the
+// bundle by the applier behind a build gate (App.tsx routes those through
+// PLUGIN_PAGES before falling back here).
 
 import { useEffect, useState } from 'react';
 

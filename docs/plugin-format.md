@@ -145,7 +145,29 @@ A plugin ships its page as a **description**, never as code:
 View kinds: `list`, `form`, `markdown`. The host renders them in its own look
 and adds the page to the sidebar under Plugins.
 
-**Why described and not compiled.** This format exists so operators can exchange
+### Page surfaces — the module's REAL page
+
+A surface may instead carry its actual page: `page_code` (TSX, an
+`export default` component) plus optional flat support files:
+
+```json
+"surfaces": [{
+  "slug": "planner", "title": "Daily Planner",
+  "page_code": "…the page, verbatim…",
+  "files": [{ "path": "PlanPanel.tsx", "code": "…" }, { "path": "data.ts", "code": "…" }]
+}]
+```
+
+The applier materializes them under `web/src/plugins/<name>/` and **proves the
+SPA builds before the plugin is reported applied** — a page that fails to
+compile is rolled back and the failure lands on that plugin, never as the
+receiver's outage. Pages import the host UI kit relatively
+(`../../components/…`) and drive their own plugin's tools via
+`/api/plugins/<name>/invoke/<tool>`. This is the same deal as tool code:
+importing a plugin is trusting its author — a page runs in the operator's
+browser session, and the import screen says so.
+
+**Why tabs exist at all.** This format exists so operators can exchange
 modules. Installing someone else's module must not inject their React into your
 app with your session, and their code failing to compile must not break YOUR
 build. Describing the surface also keeps it DATA, so it activates the moment the
