@@ -2172,6 +2172,16 @@ app.delete('/api/plugins/:name', async (c) => {
   try { return c.json(await removePlugin(c.env, c.req.param('name'))); }
   catch (e) { return c.json({ ok: false, error: String(e?.message || e) }, 404); }
 });
+app.get('/api/plugins/surfaces', async (c) => {
+  const { pluginSurfaces } = await import('./lib/plugins.js');
+  return c.json({ surfaces: await pluginSurfaces(c.env) });
+});
+app.post('/api/plugins/:name/invoke/:tool', async (c) => {
+  const input = await c.req.json().catch(() => ({}));
+  const { invokePluginTool } = await import('./lib/plugins.js');
+  const r = await invokePluginTool(c.env, c.req.param('name'), c.req.param('tool'), input);
+  return c.json(r, r.ok ? 200 : 400);
+});
 app.get('/api/plugins/registry', async (c) => {
   const { pluginRegistry } = await import('./lib/plugins.js');
   return c.json({ plugins: await pluginRegistry(c.env) });

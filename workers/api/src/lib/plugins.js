@@ -37,6 +37,9 @@ const CODE_FORMAT_VERSION = 2;
 const NAME_RE = /^[a-z][a-z0-9-]{1,40}$/;
 const TOOL_RE = /^[a-z][a-z0-9_]{1,60}$/;
 const SLUG_RE = /^[a-z][a-z0-9-]{1,60}$/;
+// The view kinds the host knows how to render. A surface is a DESCRIPTION,
+// so the renderer is the only thing that ever executes.
+const SURFACE_VIEWS = new Set(['list', 'form', 'markdown']);
 
 // Anything that brings another module into a plugin's scope. v2 code imports
 // NOTHING — it is handed everything it may use — so the rule is simply "none",
@@ -170,7 +173,7 @@ export async function validateManifest(env, m) {
   const knowledge = arr(p.knowledge);
   const declaredGateways = new Set(arr(m.requires?.gateways).map((g) => g?.slug).filter(Boolean));
 
-  if (!tools.length && !workflows.length && !knowledge.length) errors.push('provides: empty plugin');
+  if (!tools.length && !workflows.length && !knowledge.length && !arr(p.surfaces).length) errors.push('provides: empty plugin');
 
   // v1 is data-only. A v1 tool was written for raw `env` and cannot be run
   // under the capability contract, so refuse it with a migration pointer.
@@ -212,6 +215,44 @@ export async function validateManifest(env, m) {
       if (!nm) { errors.push('requires.tables: every entry needs a name'); continue; }
       if (!nm.startsWith(ns)) errors.push(`requires.tables: "${nm}" is outside this plugin's namespace (${ns}*)`);
       else if (!created.has(nm)) errors.push(`requires.tables: "${nm}" is not created by this plugin's own DDL`);
+    }
+  }
+
+  // Surfaces: a module IS its page, so a plugin that cannot ship one cannot be
+  // a module. It ships a DESCRIPTION, not code — the host renders it in its own
+  // look. That is what makes a module exchangeable between users: nobody
+  // installing a stranger's module should be injecting their React into their
+  // own app with their own session, and a stranger's TSX that fails to compile
+  // would break the RECEIVER's build. Declarative also means a surface is data,
+  // so it activates at import with no applier and no rebuild.
+  {
+    const toolNames = new Set(tools.map((t) => t?.name).filter(Boolean));
+    for (const sf of arr(p.surfaces)) {
+      if (!SLUG_RE.test(sf?.slug || '')) { errors.push(`surface slug invalid: ${sf?.slug}`); continue; }
+      if (!sf?.title) errors.push(`surface ${sf.slug}: needs a title`);
+      const tabs = arr(sf?.tabs);
+      if (!tabs.length) errors.push(`surface ${sf.slug}: needs at least one tab`);
+      for (const tab of tabs) {
+        if (!tab?.key || !tab?.title) { errors.push(`surface ${sf.slug}: every tab needs a key and a title`); continue; }
+        const view = tab.view || {};
+        if (!SURFACE_VIEWS.has(view.kind)) {
+          errors.push(`surface ${sf.slug}/${tab.key}: view.kind must be one of ${[...SURFACE_VIEWS].join(', ')}`);
+          continue;
+        }
+        // A surface may only drive THIS plugin's own tools — it must not become
+        // a remote control for the host pool.
+        if (view.kind !== 'markdown') {
+          if (!view.tool) errors.push(`surface ${sf.slug}/${tab.key}: ${view.kind} needs a tool`);
+          else if (!toolNames.has(view.tool)) {
+            errors.push(`surface ${sf.slug}/${tab.key}: tool "${view.tool}" is not one this plugin provides`);
+          }
+        }
+        for (const a of arr(view.actions)) {
+          if (a?.tool && !toolNames.has(a.tool)) {
+            errors.push(`surface ${sf.slug}/${tab.key}: action tool "${a.tool}" is not one this plugin provides`);
+          }
+        }
+      }
     }
   }
 
@@ -645,13 +686,59 @@ export async function pluginRegistry(env) {
         tables: arr(m.requires?.tables).map((t) => t?.name),
         // v2 plugins ship no UI surfaces; the field is present so the registry
         // shape is complete and future surface support renders here for free.
-        surfaces: arr(p.surfaces).map((sf) => ({ slug: sf?.slug, path: sf?.path || null })),
+        surfaces: arr(p.surfaces).map((sf) => ({ slug: sf?.slug, title: sf?.title, tabs: arr(sf?.tabs).length })),
       };
     } catch (e) {
       // One unreadable row must not 500 the whole registry.
       return { name: r.name, status: r.status, error: String(e?.message || e) };
     }
   });
+}
+
+// Every active plugin's surfaces, for the sidebar and the renderer. Only
+// `active` plugins appear: a surface whose tools are not yet live would render
+// a page whose every button fails.
+export async function pluginSurfaces(env) {
+  const rows = (await env.DB.prepare(
+    "SELECT name, title, manifest_json FROM plugins WHERE status = 'active' ORDER BY name",
+  ).all()).results || [];
+  const out = [];
+  for (const r of rows) {
+    let m = {};
+    try { m = JSON.parse(r.manifest_json) || {}; } catch { continue; }
+    for (const sf of arr(m.provides?.surfaces)) {
+      if (!sf?.slug) continue;
+      out.push({
+        plugin: r.name,
+        plugin_title: r.title,
+        slug: `${r.name}:${sf.slug}`,
+        title: sf.title || sf.slug,
+        tabs: arr(sf.tabs).map((t) => ({ key: t.key, title: t.title, view: t.view || {} })),
+      });
+    }
+  }
+  return out;
+}
+
+// Run ONE tool belonging to ONE plugin, for that plugin's own surface. Scoped
+// deliberately: the surface renderer must not become a way to call the host
+// pool from the browser, so a tool that this plugin does not provide is
+// refused even though the caller is the signed-in operator.
+export async function invokePluginTool(env, pluginName, toolName, input) {
+  const row = await env.DB.prepare('SELECT status, manifest_json FROM plugins WHERE name = ?').bind(pluginName).first();
+  if (!row) return { ok: false, error: 'unknown plugin' };
+  if (row.status !== 'active') return { ok: false, error: `plugin is ${row.status}, not active` };
+  let m = {};
+  try { m = JSON.parse(row.manifest_json) || {}; } catch { return { ok: false, error: 'stored manifest unreadable' }; }
+  const owns = arr(m.provides?.tools).some((t) => t?.name === toolName);
+  if (!owns) return { ok: false, error: `"${toolName}" is not a tool this plugin provides` };
+  const { runTool } = await import('../tools/index.js');
+  try {
+    const result = await runTool(env, toolName, input || {});
+    return { ok: true, result };
+  } catch (e) {
+    return { ok: false, error: String(e?.message || e) };
+  }
 }
 
 export async function exportPlugin(env, name) {

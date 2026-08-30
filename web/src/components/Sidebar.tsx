@@ -36,9 +36,14 @@ const SYSTEM_ITEMS: Item[] = [
   { key: 'settings',  label: 'Settings',  Icon: Gear },
 ];
 
-type Props = { active: Nav; onNav: (k: Nav) => void; mobileOpen?: boolean; onClose?: () => void };
+type Props = {
+  active: Nav; onNav: (k: Nav) => void; mobileOpen?: boolean; onClose?: () => void;
+  // Pages contributed by installed plugins. They sit in their own section so
+  // it is always obvious which parts of the app came from a plugin.
+  pluginSurfaces?: { plugin: string; slug: string; title: string }[];
+};
 
-export function Sidebar({ active, onNav, mobileOpen = false, onClose }: Props) {
+export function Sidebar({ active, onNav, mobileOpen = false, onClose, pluginSurfaces = [] }: Props) {
   const [slugs, setSlugs] = useState<SurfaceSlug[]>(() => loadSidebarSlugs());
 
   useEffect(() => {
@@ -48,6 +53,9 @@ export function Sidebar({ active, onNav, mobileOpen = false, onClose }: Props) {
   }, []);
 
   const moduleItems: Item[] = slugs.map((s) => SURFACE_ITEMS[s]);
+  const pluginItems: Item[] = pluginSurfaces.map((sf) => ({
+    key: `plugin:${sf.slug}` as Nav, label: sf.title, Icon: Cube,
+  }));
 
   return (
     <>
@@ -102,6 +110,9 @@ export function Sidebar({ active, onNav, mobileOpen = false, onClose }: Props) {
 
       <nav className="flex-1 p-3 flex flex-col overflow-y-auto">
         <Section title="Modules" items={moduleItems} active={active} onNav={onNav} />
+        {pluginItems.length > 0 && (
+          <Section title="Plugins" items={pluginItems} active={active} onNav={onNav} />
+        )}
         <div className="mt-auto pt-6">
           <Section title="System" items={SYSTEM_ITEMS} active={active} onNav={onNav} />
         </div>

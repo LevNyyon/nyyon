@@ -123,6 +123,35 @@ underscores: `plugin-a-b-c` was ambiguous between plugin `a-b`/slug `c` and
 plugin `a`/slug `b-c`, so one plugin could shadow another's gateway). A bundle
 is only installed when the binding actually chose it.
 
+## Surfaces — a module IS its page
+
+A plugin ships its page as a **description**, never as code:
+
+```json
+"surfaces": [{
+  "slug": "main", "title": "Headlines",
+  "tabs": [
+    { "key": "read", "title": "Read a page",
+      "view": { "kind": "form", "tool": "read_page_headline",
+                "fields": [{ "key": "url", "label": "Page URL" }],
+                "submit_label": "Read headline" } },
+    { "key": "log", "title": "History",
+      "view": { "kind": "list", "tool": "list_page_headlines", "rows_path": "rows",
+                "columns": [{ "key": "at", "label": "when" }, { "key": "title", "label": "headline" }] } }
+  ]
+}]
+```
+
+View kinds: `list`, `form`, `markdown`. The host renders them in its own look
+and adds the page to the sidebar under Plugins.
+
+**Why described and not compiled.** This format exists so operators can exchange
+modules. Installing someone else's module must not inject their React into your
+app with your session, and their code failing to compile must not break YOUR
+build. Describing the surface also keeps it DATA, so it activates the moment the
+plugin imports — no applier, no rebuild. A surface may only drive its own
+plugin's tools; it is not a remote control for the host pool.
+
 ## Tables
 
 `requires.tables[].ddl` must match, for the whole statement:

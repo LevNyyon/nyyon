@@ -1192,7 +1192,13 @@ export const modulePrereqs = {
   // Every gateway with its live configured/missing state — the same resolver
   // the gateways themselves read through, so Settings never invents its own.
   gatewayStatus: () => j<{ gateways: GatewayStatus[] }>('/api/gateways'),
+  // Installed plugins' pages. A surface is data, so it appears the moment the
+  // plugin is active — no rebuild, no restart.
+  pluginSurfaces: () => j<{ surfaces: PluginSurfaceDef[] }>('/api/plugins/surfaces'),
 };
+
+export type { PluginSurfaceDef } from '../components/PluginSurface';
+import type { PluginSurfaceDef } from '../components/PluginSurface';
 
 export type GatewayStatus = {
   slug: string;

@@ -5,10 +5,11 @@ import { OnboardingKey } from './components/OnboardingKey';
 import { OnboardingAccount } from './components/OnboardingAccount';
 import { SetupResumeBanner } from './components/SetupResumeBanner';
 import { OPEN_INTERVIEW_EVENT, announcePrereqsChanged } from './components/ModuleSetupGate';
-import { AUTH_EVENT, onboarding } from './lib/api';
+import { AUTH_EVENT, onboarding, modulePrereqs } from './lib/api';
 import { Sidebar } from './components/Sidebar';
 import { ChatDrawer } from './components/ChatDrawer';
 import { Plugins }         from './pages/Plugins';
+import { PluginSurface, type PluginSurfaceDef } from './components/PluginSurface';
 import { Knowledge }       from './pages/Knowledge';
 import { ExpandBuild }     from './pages/ExpandBuild';
 import { Activity }        from './pages/Activity';
@@ -150,6 +151,15 @@ export default function App() {
   const [chatOpen, setChatOpen] = useState<boolean>(() => localStorage.getItem(CHAT_OPEN_KEY) === '1');
   // Off-canvas sidebar state (mobile only; desktop keeps the static rail).
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Installed plugins' pages. Fetched once signed in; a surface is data, so a
+  // newly imported plugin shows up on the next load with no rebuild.
+  const [pluginSurfaces, setPluginSurfaces] = useState<PluginSurfaceDef[]>([]);
+  useEffect(() => {
+    if (boot !== 'app') return;
+    modulePrereqs.pluginSurfaces()
+      .then((d) => setPluginSurfaces(d.surfaces || []))
+      .catch(() => setPluginSurfaces([]));
+  }, [boot]);
   const handleNav = (n: Nav) => { setNav(n); setSidebarOpen(false); };
 
   // Apply persisted theme on mount + react to OS changes when in system mode.
@@ -252,7 +262,7 @@ export default function App() {
   return (
     <ChatProvider>
     <div className="flex h-full">
-      <Sidebar active={nav} onNav={handleNav} mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <Sidebar active={nav} onNav={handleNav} mobileOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} pluginSurfaces={pluginSurfaces} />
 
       <main className="flex-1 min-w-0 overflow-hidden flex flex-col">
         {/* Mobile top bar — hamburger + current section. Hidden on desktop (lg+), where the static rail shows.
@@ -283,6 +293,12 @@ export default function App() {
         {nav === 'hot-takes' && <HotTakes />}
         {nav === 'knowledge' && <Knowledge />}
         {nav === 'plugins'   && <Plugins />}
+        {/* A plugin's own page. The nav key carries which one, so a surface
+            needs no route registration — installing the plugin is enough. */}
+        {String(nav).startsWith('plugin:') && (() => {
+          const def = pluginSurfaces.find((s) => `plugin:${s.slug}` === nav);
+          return def ? <PluginSurface def={def} /> : null;
+        })()}
         {nav === 'activity'  && <Activity />}
         {nav === 'expand-build' && <ExpandBuild />}
         {nav === 'settings'  && <Settings />}
