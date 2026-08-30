@@ -60,10 +60,13 @@ const BANNED_WORDS = new Set([
 ]);
 // After these, the next identifier position names a table.
 const TABLE_LEAD = new Set(['FROM', 'JOIN', 'INTO', 'UPDATE', 'TABLE']);
-// Words that end a FROM list (so a following comma is not another table).
+// Words that end a FROM list at ITS OWN paren depth (so a following comma is
+// not another table). ON/USING are deliberately NOT here: they are part of a
+// join clause, and treating them as terminators let
+// `FROM a JOIN b ON 1, gateway_config` smuggle a comma-joined host table.
 const CLAUSE_END = new Set([
   'WHERE', 'GROUP', 'ORDER', 'LIMIT', 'HAVING', 'WINDOW', 'RETURNING',
-  'UNION', 'INTERSECT', 'EXCEPT', 'ON', 'USING', 'SET', 'VALUES', 'SELECT',
+  'UNION', 'INTERSECT', 'EXCEPT', 'VALUES',
 ]);
 
 // A single pass over the statement that understands '…' (with '' escapes),
@@ -128,31 +131,65 @@ function tokenize(sql) {
 // (`FROM"gateway_config"`), both of which a keyword-adjacency regex missed.
 function tablesFromTokens(toks) {
   const names = [];
-  let inFromList = false;
+  // Common table expressions are names the statement defines for itself, not
+  // host tables: `WITH c AS (SELECT … FROM plugin_x_t) SELECT * FROM c` must
+  // work. Collect the aliases first so the table check can skip them.
+  const ctes = new Set();
+  {
+    let depth = 0;
+    let expectingCte = false;
+    for (let i = 0; i < toks.length; i++) {
+      const tk = toks[i];
+      if (tk.t === 'p' && tk.v === '(') { depth++; continue; }
+      if (tk.t === 'p' && tk.v === ')') { depth--; continue; }
+      if (depth !== 0) continue;
+      const w = tk.t === 'word' ? tk.v.toUpperCase() : null;
+      if (w === 'WITH') { expectingCte = true; continue; }
+      if (!expectingCte) continue;
+      // `<name> AS (` — and after the closing paren a comma introduces another.
+      if ((tk.t === 'word' || tk.t === 'id')
+          && toks[i + 1]?.t === 'word' && toks[i + 1].v.toUpperCase() === 'AS') {
+        ctes.add(String(tk.v).toLowerCase());
+        continue;
+      }
+      // The CTE list ends at the statement's real leading verb.
+      if (w && ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'REPLACE'].includes(w)) expectingCte = false;
+    }
+  }
+
+  let depth = 0;
+  let fromDepth = -1;   // paren depth the current FROM list lives at
   for (let i = 0; i < toks.length; i++) {
     const tk = toks[i];
-    const word = tk.t === 'word' ? tk.v.toUpperCase() : null;
+    if (tk.t === 'p' && tk.v === '(') { depth++; continue; }
+    if (tk.t === 'p' && tk.v === ')') { depth--; if (depth < fromDepth) fromDepth = -1; continue; }
 
-    if (word && CLAUSE_END.has(word)) { inFromList = false; }
+    const word = tk.t === 'word' ? tk.v.toUpperCase() : null;
+    if (word && CLAUSE_END.has(word) && depth === fromDepth) fromDepth = -1;
 
     if (word && TABLE_LEAD.has(word)) {
+      // `ON CONFLICT (…) DO UPDATE SET x = 1` is an upsert clause, not a table
+      // reference — without this, `SET` parsed as a table and no plugin could
+      // upsert into its own table.
+      const prev = [...toks.slice(0, i)].reverse().find((t) => t.t === 'word');
+      if (word === 'UPDATE' && prev && prev.v.toUpperCase() === 'DO') continue;
       const next = toks[i + 1];
       if (next && (next.t === 'id' || next.t === 'word')) {
-        names.push(String(next.v).toLowerCase());
-        // Schema-qualified (`main.contacts`) is refused: the qualifier makes
-        // the effective target ambiguous to this check.
+        const name = String(next.v).toLowerCase();
+        if (!ctes.has(name)) names.push(name);
         const after = toks[i + 2];
         if (after && after.t === 'p' && after.v === '.') throw new Error('plugin sql: schema-qualified table names are not allowed');
         i++;
-        inFromList = (word === 'FROM' || word === 'JOIN');
+        if (word === 'FROM' || word === 'JOIN') fromDepth = depth;
       }
       continue;
     }
-    // `FROM a, b` — a comma while still inside the FROM list starts another table.
-    if (inFromList && tk.t === 'p' && tk.v === ',') {
+    // `FROM a, b` — a comma at the FROM list's own depth starts another table.
+    if (fromDepth === depth && tk.t === 'p' && tk.v === ',') {
       const next = toks[i + 1];
       if (next && (next.t === 'id' || next.t === 'word')) {
-        names.push(String(next.v).toLowerCase());
+        const name = String(next.v).toLowerCase();
+        if (!ctes.has(name)) names.push(name);
         i++;
       }
     }

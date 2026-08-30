@@ -40,5 +40,19 @@ const PORT = process.env.NYYON_API_PORT || '8799';
 const child = spawn('npx',
   ['wrangler', 'dev', '--port', PORT, '--ip', '127.0.0.1', '--local', '--test-scheduled'],
   { cwd: api, stdio: 'inherit' });
-child.on('exit', (code) => process.exit(code ?? 0));
-for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, () => child.kill('SIGTERM'));
+
+// The plugin applier runs beside the worker. A Worker cannot write its own
+// source, so without this sidecar a code-bearing plugin imports, reaches
+// `bound`, and stays there — the Plugins module looks broken for a reason
+// nothing on screen explains. It is idle (one poll every 20s) until there is
+// work, and it no-ops when no applier key exists yet.
+const applier = spawn(process.execPath, [join(repo, 'services', 'plugins', 'apply.mjs')], {
+  cwd: repo,
+  stdio: 'inherit',
+  env: { ...process.env, NYYON_API_PORT: PORT, NYYON_RESTART_CMD: process.env.NYYON_RESTART_CMD ?? '' },
+});
+applier.on('error', (e) => console.error('[server] plugin applier failed to start:', e?.message || e));
+
+const stop = () => { try { child.kill('SIGTERM'); } catch { /* gone */ } try { applier.kill('SIGTERM'); } catch { /* gone */ } };
+child.on('exit', (code) => { stop(); process.exit(code ?? 0); });
+for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, stop);

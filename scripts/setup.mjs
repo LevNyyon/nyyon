@@ -103,6 +103,18 @@ GATE_SECRET=${randomBytes(32).toString('hex')}
 // this at a gateway of their own) would otherwise be declared "already set"
 // while the service side was never written — leaving a daemon that refuses to
 // boot and a Connect button that never goes green.
+// The plugin applier's key. Same per-install discipline as GATE_SECRET: the
+// applier sidecar reads it from .dev.vars and the worker's gate compares
+// against it, so without this a code-bearing plugin sits at `bound` forever
+// while every applier call 401s — the whole subsystem dead on a real install.
+{
+  const text = existsSync(devVars) ? readFileSync(devVars, 'utf8') : '';
+  if (!/^NYYON_APPLIER_KEY=.+/m.test(text)) {
+    writeFileSync(devVars, `${text.replace(/\s*$/, '')}\n\n# Shared with the plugin applier (services/plugins/apply.mjs).\nNYYON_APPLIER_KEY=${randomBytes(24).toString('hex')}\n`);
+    say('plugin applier key generated');
+  }
+}
+
 const waEnv = join(waService, '.dev.vars');
 const devVarsText = existsSync(devVars) ? readFileSync(devVars, 'utf8') : '';
 const priorKey = /^WA_API_KEY=(.+)$/m.exec(devVarsText)?.[1]?.trim();

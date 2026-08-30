@@ -130,6 +130,7 @@ function checkCode(code, { kind, toolName, pluginName, declaredGateways }) {
 function checkDdl(ddl, pluginName) {
   const ns = tableNamespace(pluginName);
   const errors = [];
+  const creates = [];
   const raw = String(ddl || '');
   // Split on semicolons that are not inside a string literal.
   const stmts = raw.split(/;(?=(?:[^']*'[^']*')*[^']*$)/).map((s) => s.trim()).filter(Boolean);
@@ -147,9 +148,12 @@ function checkDdl(ddl, pluginName) {
     }
     if (!TABLE_RE.test(n) && !INDEX_RE.test(n)) {
       errors.push(`ddl: refused — only "CREATE TABLE IF NOT EXISTS ${ns}… ( … )" and "CREATE INDEX IF NOT EXISTS idx_${ns}… ON ${ns}… ( … )": ${n.slice(0, 90)}`);
+      continue;
     }
+    const made = n.match(new RegExp(`^CREATE TABLE IF NOT EXISTS (${ns}[a-z0-9_]*)`, 'i'));
+    if (made) creates.push(made[1].toLowerCase());
   }
-  return { errors, stmts };
+  return { errors, stmts, creates };
 }
 
 export async function validateManifest(env, m) {
@@ -190,7 +194,26 @@ export async function validateManifest(env, m) {
     if (!arr(g?.modes).length) errors.push(`gateway ${g?.slug}: must declare its modes`);
     errors.push(...checkCode(g?.code, { kind: 'gateway', toolName: g?.slug, pluginName: m.name }));
   }
-  for (const tb of arr(m.requires?.tables)) errors.push(...checkDdl(tb?.ddl, m.name).errors);
+  // requires.tables[].name is THE ACCESS GRANT: the runtime allows exactly these
+  // names. Validating only the DDL left the name unchecked, so
+  //   { name: 'gateway_config', ddl: 'CREATE TABLE IF NOT EXISTS plugin_x_t (…)' }
+  // passed every check and handed the plugin the host credential table. The
+  // name must live in the namespace AND be a table this plugin's own DDL creates.
+  {
+    const ns = tableNamespace(m.name);
+    const created = new Set();
+    for (const tb of arr(m.requires?.tables)) {
+      const r = checkDdl(tb?.ddl, m.name);
+      errors.push(...r.errors);
+      for (const c of r.creates) created.add(c);
+    }
+    for (const tb of arr(m.requires?.tables)) {
+      const nm = String(tb?.name || '').toLowerCase();
+      if (!nm) { errors.push('requires.tables: every entry needs a name'); continue; }
+      if (!nm.startsWith(ns)) errors.push(`requires.tables: "${nm}" is outside this plugin's namespace (${ns}*)`);
+      else if (!created.has(nm)) errors.push(`requires.tables: "${nm}" is not created by this plugin's own DDL`);
+    }
+  }
 
   // Gateway requirements: no reserved slugs, no binding to another plugin's
   // bundled gateway, and a requirement that asserts no modes binds to anything.
@@ -313,9 +336,20 @@ export async function importPlugin(env, manifest, { actor = 'operator' } = {}) {
   const b = await bindGateways(env, manifest);
   if (!b.ok) return reject('bind', b.errors);
 
+  // The PREVIOUS manifest, read before anything overwrites it — reading it
+  // after save() compared the new manifest with itself, so workflow retirement
+  // below was dead code.
+  let prevManifest = null;
+  if (existing) {
+    const prevRow = await env.DB.prepare('SELECT manifest_json FROM plugins WHERE name = ?').bind(name).first().catch(() => null);
+    try { prevManifest = JSON.parse(prevRow?.manifest_json || 'null'); } catch { prevManifest = null; }
+  }
+
   // Record the attempt BEFORE mutating anything, so a throw mid-way leaves a
   // row explaining the partial state instead of orphan tables with no record.
-  await save('imported', { binding: b.binding, report: { step: 'activating' } });
+  // A LIVE plugin's row is not overwritten until activation succeeds, so a
+  // failed upgrade cannot destroy the manifest of a working installation.
+  if (!live) await save('imported', { binding: b.binding, report: { step: 'activating' } });
 
   const warnings = [];
   try {
@@ -336,9 +370,8 @@ export async function importPlugin(env, manifest, { actor = 'operator' } = {}) {
         JSON.stringify({ kind: 'manual' }), JSON.stringify(arr(w.steps)), now(), now(), `plugin:${name}`).run();
     }
     // Workflow slugs this plugin used to provide and no longer does are retired.
-    if (existing) {
-      const prev = await env.DB.prepare('SELECT manifest_json FROM plugins WHERE name = ?').bind(name).first().catch(() => null);
-      const prevSlugs = new Set(arr(JSON.parse(prev?.manifest_json || '{}')?.provides?.workflows).map((w) => w.slug));
+    if (prevManifest) {
+      const prevSlugs = new Set(arr(prevManifest?.provides?.workflows).map((w) => w.slug));
       const nextSlugs = new Set(arr(manifest.provides?.workflows).map((w) => w.slug));
       for (const slug of prevSlugs) {
         if (!nextSlugs.has(slug)) {
@@ -434,7 +467,12 @@ export function generateIndex(rows) {
     // The EXACT tables this plugin declared. Access is decided by membership in
     // this set, never by a name prefix: `plugin_a_` is a prefix of
     // `plugin_a_b_`, so prefix matching let plugin "a" read plugin "a-b"'s data.
-    tables[m.name] = arr(m.requires?.tables).map((t) => String(t?.name || '').toLowerCase()).filter(Boolean);
+    // Re-filter to the namespace even though validateManifest already did:
+    // this map IS the runtime grant, and a row could predate that check.
+    const ns = tableNamespace(m.name);
+    tables[m.name] = arr(m.requires?.tables)
+      .map((t) => String(t?.name || '').toLowerCase())
+      .filter((t) => t && t.startsWith(ns));
 
     for (const t of arr(m.provides?.tools)) {
       if (!TOOL_RE.test(t?.name || '') || seenTool.has(t.name)) continue;
@@ -442,7 +480,7 @@ export function generateIndex(rows) {
       const v = `p${i++}`;
       imports.push(`import * as ${v} from './${m.name}/tool-${t.name}.mjs';`);
       toolRefs.push(
-        `  [${v}.def.name]: { def: ${v}.def, run: (env, input, ctx) => `
+        `  ${JSON.stringify(t.name)}: { def: ${v}.def, run: (env, input, ctx) => `
         + `${v}.run(pluginApi(env, ${JSON.stringify(m.name)}, BINDINGS[${JSON.stringify(m.name)}], TABLES[${JSON.stringify(m.name)}]), input, ctx) },`,
       );
     }
