@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { SignIn } from './components/SignIn';
 import { Onboarding } from './components/Onboarding';
 import { OnboardingKey } from './components/OnboardingKey';
@@ -10,6 +10,7 @@ import { Sidebar } from './components/Sidebar';
 import { ChatDrawer } from './components/ChatDrawer';
 import { Plugins }         from './pages/Plugins';
 import { PluginSurface, type PluginSurfaceDef } from './components/PluginSurface';
+import { PLUGIN_PAGES } from './plugins';
 import { Knowledge }       from './pages/Knowledge';
 import { ExpandBuild }     from './pages/ExpandBuild';
 import { Activity }        from './pages/Activity';
@@ -296,6 +297,11 @@ export default function App() {
         {/* A plugin's own page. The nav key carries which one, so a surface
             needs no route registration — installing the plugin is enough. */}
         {String(nav).startsWith('plugin:') && (() => {
+          // A page surface is the plugin's REAL page, materialized into this
+          // bundle; the declarative renderer is the fallback for tab surfaces.
+          const key = String(nav).slice('plugin:'.length);
+          const Page = PLUGIN_PAGES[key];
+          if (Page) return <Suspense fallback={<div className="p-6 text-[12px] text-mute">loading…</div>}><Page /></Suspense>;
           const def = pluginSurfaces.find((s) => `plugin:${s.slug}` === nav);
           return def ? <PluginSurface def={def} /> : null;
         })()}

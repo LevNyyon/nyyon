@@ -19,6 +19,9 @@ import { execSync } from 'node:child_process';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const PLUGIN_ROOT = join(REPO, 'workers', 'api', 'src', 'plugins');
+// Page surfaces materialize into the SPA the same way tools materialize into
+// the worker. Same contract: ONLY these two roots, writes and deletes alike.
+const WEB_PLUGIN_ROOT = join(REPO, 'web', 'src', 'plugins');
 const API_PORT = process.env.NYYON_API_PORT || '8799';
 const BASE = `http://127.0.0.1:${API_PORT}`;
 const DEV_VARS = join(REPO, 'workers', 'api', '.dev.vars');
@@ -36,7 +39,8 @@ function applierKey() {
 
 // The one path guard, used by every filesystem operation in this file.
 function insidePluginRoot(abs) {
-  return abs.startsWith(PLUGIN_ROOT + sep) || abs === join(PLUGIN_ROOT, 'index.js');
+  return abs.startsWith(PLUGIN_ROOT + sep) || abs === join(PLUGIN_ROOT, 'index.js')
+    || abs.startsWith(WEB_PLUGIN_ROOT + sep) || abs === join(WEB_PLUGIN_ROOT, 'index.ts');
 }
 
 function safeWrite(repoRelPath, content) {
@@ -51,12 +55,45 @@ function safeWrite(repoRelPath, content) {
 // otherwise have handed rmSync the whole install.
 function safeRemoveDir(name) {
   if (!NAME_RE.test(name || '')) throw new Error(`refusing to delete: invalid plugin name ${JSON.stringify(name)}`);
-  const abs = resolve(PLUGIN_ROOT, name);
-  if (!abs.startsWith(PLUGIN_ROOT + sep)) throw new Error(`refusing to delete outside the plugin root: ${name}`);
-  if (!existsSync(abs)) return false;
-  rmSync(abs, { recursive: true });
-  console.log(`[plugin-apply] removed ${name}/`);
-  return true;
+  let removed = false;
+  for (const root of [PLUGIN_ROOT, WEB_PLUGIN_ROOT]) {
+    const abs = resolve(root, name);
+    if (!abs.startsWith(root + sep)) throw new Error(`refusing to delete outside the plugin root: ${name}`);
+    if (!existsSync(abs)) continue;
+    rmSync(abs, { recursive: true });
+    removed = true;
+  }
+  if (removed) console.log(`[plugin-apply] removed ${name}/`);
+  return removed;
+}
+
+// A plugin page is a stranger's TSX entering YOUR build, so the build runs
+// HERE, before the app restarts into it. On failure the offending plugin's
+// web files are rolled back and the failure is reported on that plugin —
+// its author's mistake, never your outage.
+function buildWeb() {
+  execSync('npx tsc -b --pretty false && npx vite build', {
+    cwd: join(REPO, 'web'), stdio: 'pipe', timeout: 300_000,
+  });
+}
+function tryBuildOrRollback(pluginName, webIndexContent) {
+  try { buildWeb(); return { ok: true }; }
+  catch (e) {
+    const out = String(e?.stdout || '') + String(e?.stderr || '');
+    console.error(`[plugin-apply] SPA build failed for ${pluginName} — rolling its page back`);
+    try {
+      const abs = resolve(WEB_PLUGIN_ROOT, pluginName);
+      if (abs.startsWith(WEB_PLUGIN_ROOT + sep) && existsSync(abs)) rmSync(abs, { recursive: true });
+      // Regenerate the index WITHOUT the rolled-back plugin so the map has no
+      // dangling import, then prove the app still builds.
+      const lines = webIndexContent.split('\n').filter((l) => !l.includes(`./${pluginName}/`));
+      safeWrite('web/src/plugins/index.ts', lines.join('\n'));
+      buildWeb();
+    } catch (e2) {
+      console.error('[plugin-apply] rollback build also failed:', String(e2?.message || e2).slice(0, 400));
+    }
+    return { ok: false, error: `SPA build failed: ${out.slice(-1200)}` };
+  }
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -127,11 +164,11 @@ for (;;) {
         if (current !== f.content) { safeWrite(f.path, f.content); changed = true; }
       }
     }
-    {
-      const abs = resolve(REPO, work.index_file.path);
+    for (const idx of [work.index_file, work.web_index_file].filter(Boolean)) {
+      const abs = resolve(REPO, idx.path);
       let current = null;
       try { current = readFileSync(abs, 'utf8'); } catch { /* missing */ }
-      if (current !== work.index_file.content) { safeWrite(work.index_file.path, work.index_file.content); changed = true; }
+      if (current !== idx.content) { safeWrite(idx.path, idx.content); changed = true; }
     }
 
     // Removals: delete the directory, then ACK so the removal drops off the
@@ -150,13 +187,27 @@ for (;;) {
     // failure to DELIVER the report is ours (retried above, never inverted).
     for (const p of pending) {
       let wrote = true;
+      let hasWebFiles = false;
       try {
-        for (const f of p.files) safeWrite(f.path, f.content);
+        for (const f of p.files) {
+          safeWrite(f.path, f.content);
+          if (f.path.startsWith('web/')) hasWebFiles = true;
+        }
         changed = true;
       } catch (e) {
         wrote = false;
         console.error(`[plugin-apply] ${p.name} failed:`, e?.message || e);
         await report('/api/plugins/applied', { name: p.name, ok: false, error: String(e?.message || e) }, key);
+      }
+      // A page must PROVE it builds before this plugin is reported applied.
+      // The index is written first so the build compiles the real final map.
+      if (wrote && hasWebFiles && work.web_index_file) {
+        safeWrite(work.web_index_file.path, work.web_index_file.content);
+        const b = tryBuildOrRollback(p.name, work.web_index_file.content);
+        if (!b.ok) {
+          wrote = false;
+          await report('/api/plugins/applied', { name: p.name, ok: false, error: b.error }, key);
+        }
       }
       if (wrote) await report('/api/plugins/applied', { name: p.name, ok: true }, key);
     }
@@ -165,11 +216,12 @@ for (;;) {
     // worker just reported. Re-fetch so it includes the rows we just applied.
     if (changed) {
       const fresh = await call('/api/plugins/pending', null, key).catch(() => null);
-      const idx = fresh?.index_file || work.index_file;
-      const abs = resolve(REPO, idx.path);
-      let current = null;
-      try { current = readFileSync(abs, 'utf8'); } catch { /* missing */ }
-      if (current !== idx.content) safeWrite(idx.path, idx.content);
+      for (const idx of [fresh?.index_file || work.index_file, fresh?.web_index_file || work.web_index_file].filter(Boolean)) {
+        const abs = resolve(REPO, idx.path);
+        let current = null;
+        try { current = readFileSync(abs, 'utf8'); } catch { /* missing */ }
+        if (current !== idx.content) safeWrite(idx.path, idx.content);
+      }
 
       console.log('[plugin-apply] restarting the app to load new code');
       restart();

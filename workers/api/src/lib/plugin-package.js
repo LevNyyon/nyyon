@@ -114,6 +114,9 @@ export function assembleManifest(files) {
   for (const k of (Array.isArray(m?.provides?.knowledge) ? m.provides.knowledge : [])) {
     if (k?.body_file) { k.body = read(k.body_file, `knowledge ${k.slug}`); delete k.body_file; }
   }
+  for (const sf of (Array.isArray(m?.provides?.surfaces) ? m.provides.surfaces : [])) {
+    if (sf?.page_file) { sf.page_code = read(sf.page_file, `surface ${sf.slug}`); delete sf.page_file; }
+  }
   return m;
 }
 
@@ -239,6 +242,14 @@ export function packageFiles(manifest) {
       files[ref] = k.body;
       k.body_file = ref;
       delete k.body;
+    }
+  }
+  for (const sf of arr(m?.provides?.surfaces)) {
+    if (typeof sf?.page_code === 'string') {
+      const ref = `surface/${sf.slug}.tsx`;
+      files[ref] = sf.page_code;
+      sf.page_file = ref;
+      delete sf.page_code;
     }
   }
   // The checksum describes the ASSEMBLED document, which this file no longer
