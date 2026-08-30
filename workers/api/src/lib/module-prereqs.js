@@ -64,13 +64,13 @@ import { llmConfigured } from './onboarding.js';
 // the doc now and compare it with what the seed shipped.
 //
 // The alternative — matching the placeholder's WORDING — is what this
-// deliberately does not do. lib/hottakes-setup.js still carries that older
-// heuristic (a list of marker phrases in a knowledge note), and it is exactly
-// the failure mode to avoid: the markers are prose fragments copied out of the
-// seed, so rewording one line of the seed silently makes every check lie, in
-// whichever direction, with nothing failing loudly enough to notice. A
-// fingerprint cannot drift, because it is generated FROM the shipped body by
-// the same script that ships it.
+// deliberately does not do. The old hottakes setup lib carried that heuristic
+// (a list of marker phrases in a knowledge note; it lives in the editorial
+// plugin now), and it is exactly the failure mode to avoid: the markers are
+// prose fragments copied out of the seed, so rewording one line of the seed
+// silently makes every check lie, in whichever direction, with nothing failing
+// loudly enough to notice. A fingerprint cannot drift, because it is generated
+// FROM the shipped body by the same script that ships it.
 //
 // Four outcomes, in the order they are decided:
 //
@@ -126,16 +126,17 @@ async function readDocOwnership(env, slug, stamps) {
 
 // ── the voice documents ─────────────────────────────────────────────────────
 // The six the setup interview writes (lib/onboarding.js VOICE_SLUGS), plus the
-// one alternative slug that predates it: the seed ships the module-scoped
-// `hottakes-pov-library` and the interview writes the global `pov-library`, and
-// either one counts as "the operator said what they argue" — the same rule
-// lib/hottakes-setup.js applies.
+// alternative slugs that predate it: the editorial pack ships the pack-scoped
+// `plugin-editorial-hottakes-pov-library` and the interview writes the global
+// `pov-library`, and either one counts as "the operator said what they argue".
+// The signal-priorities doc lives in the editorial plugin's namespace since
+// migration 0074 — the interview writes it there and the pack reads it there.
 const VOICE_DOCS = {
   'brand-voice':          { label: 'Brand voice',        alt: null },
   'personal-voice':       { label: 'Personal voice',     alt: null },
   'writing-style-rules':  { label: 'Writing style rules', alt: null },
-  'heartbeat-priorities': { label: 'What counts as a signal', alt: null },
-  'pov-library':          { label: 'Point-of-view library', alt: 'hottakes-pov-library' },
+  'plugin-editorial-heartbeat-priorities': { label: 'What counts as a signal', alt: null },
+  'pov-library':          { label: 'Point-of-view library', alt: 'plugin-editorial-hottakes-pov-library' },
   'icp':                  { label: 'Who this is for (ICP)', alt: 'brand-icp' },
 };
 
@@ -165,73 +166,9 @@ async function readVoice(env) {
 // missing thing UNLOCKS rather than what it is. `degraded` is the other half of
 // the honesty: what still works if they skip it.
 const MODULES = {
-  // Hot Takes turns a signal into a position. Both halves of that are the
-  // operator's own material: `heartbeat-priorities` decides what is even worth
-  // surfacing (lib/hottakes-setup.js reads it, lib/hot-takes.js gates on it),
-  // and `pov-library` is the set of positions a take is argued FROM. On the
-  // shipped placeholders the feed watches somebody else's industry and the
-  // takes have no position in them.
-  //
-  // Sources are a BENEFIT, not a requirement: the module ships with default
-  // feeds and has its own first-run panel (lib/hottakes-setup.js) that proposes
-  // validated ones. That panel is a better surface for it than this gate.
-  'hot-takes': {
-    label: 'Hot Takes',
-    requires: [
-      voice(['pov-library', 'heartbeat-priorities'],
-        'Hot Takes argues from your positions and only surfaces what you said matters, so it needs your own point-of-view library and signal priorities.',
-        'Without them the feed watches the industry that shipped with the app and every take is written from no position at all.'),
-    ],
-    optional: [
-      {
-        kind: 'setup',
-        slug: 'hot-takes-sources',
-        // Answered by the module's own first run, either way: `done` and
-        // `skipped` both stop this being reported, because both are the
-        // operator having decided. See migration 0069.
-        module: 'hot-takes',
-        label: 'Your own sources',
-        why: 'Hot Takes can propose real feeds from your field and check that each one actually parses before offering it.',
-        degraded: 'Until then it watches the handful of publications that shipped with the app.',
-        fix: 'module',
-      },
-    ],
-  },
-
-  // The article writer reads brand-voice on every draft and THROWS without it
-  // (lib/aeo-writer.js readVoiceProfile). It is the one voice document a module
-  // cannot merely degrade around.
-  blog: {
-    label: 'Blog',
-    requires: [
-      voice(['brand-voice'],
-        'Every article is written from your brand voice document, so the writer needs yours rather than the placeholder.',
-        'Without it the writer refuses to draft at all.'),
-    ],
-    optional: [
-      voice(['personal-voice'],
-        'Articles can opt into your personal voice instead of the company one.',
-        'Without it those articles fall back to the brand voice.'),
-    ],
-  },
-
-  // Drafting reads all three voice docs (lib/social-posts.js), one per channel:
-  // brand voice for the company channels, personal voice for the personal one,
-  // style rules on top of both. Posting is a separate thing entirely — the
-  // `social` gateway (Make.com webhooks) — and drafting works fine without it,
-  // which is why it is a second, separately-named requirement.
-  social: {
-    label: 'Social',
-    requires: [
-      voice(['brand-voice', 'personal-voice', 'writing-style-rules'],
-        'Social posts are drafted in your voice — the company one, your personal one, and the rules you write by.',
-        'Without them every draft reads like the generic sample that shipped with the app.'),
-      gateway('social',
-        'Social publishes through your posting webhooks, so it needs them connected to actually post.',
-        'Without them you can still draft, review and edit every post — nothing can leave the app.'),
-    ],
-    optional: [],
-  },
+  // Hot Takes, Blog and Social ship as the editorial plugin now — the pack's
+  // own first-run flow (the setup gateway receipts) carries their asks; the
+  // host prereq table only describes host surfaces.
 
   // Nothing to declare: these run on the operator's own data or on nothing at
   // all, and gating them would be theatre.

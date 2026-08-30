@@ -15,9 +15,6 @@ import { Knowledge }       from './pages/Knowledge';
 import { ExpandBuild }     from './pages/ExpandBuild';
 import { Activity }        from './pages/Activity';
 import { Settings }        from './pages/Settings';
-import { Blog } from './pages/Blog';
-import { Social } from './pages/Social';
-import { HotTakes } from './pages/HotTakes';
 import { Nyo } from './pages/Nyo';
 import { MessageSquare, Menu } from './components/Icons';
 import { applyTheme, loadTheme, watchSystemTheme } from './lib/theme';
@@ -29,7 +26,7 @@ import { ChatProvider, useChatState } from './lib/chat';
 // so a stale persisted nav can be rejected at runtime — an operator whose last
 // session ended on a since-removed surface would otherwise land on a blank page.
 const NAVS = [
-  'nyo', 'blog', 'social', 'hot-takes',
+  'nyo',
   'knowledge', 'plugins', 'activity', 'expand-build', 'settings',
 ] as const;
 export type Nav = typeof NAVS[number] | `plugin:${string}`;
@@ -38,7 +35,7 @@ const NAV_KEY       = 'nyyon.nav.v1';
 const CHAT_OPEN_KEY = 'nyyon.chat.open.v1';
 
 // Section title for the mobile top bar (desktop shows the sidebar rail instead).
-const NAV_TITLES: Partial<Record<Nav, string>> = { nyo: 'Nyo', 'hot-takes': 'Hot Takes', 'expand-build': 'Expand build' };
+const NAV_TITLES: Partial<Record<Nav, string>> = { nyo: 'Nyo', 'expand-build': 'Expand build' };
 // The planner ships as a plugin; its page key exists only once materialized.
 const PLANNER_NAV = 'plugin:daily-planner:planner';
 const DEFAULT_NAV: Nav = PLUGIN_PAGES['daily-planner:planner'] ? PLANNER_NAV : 'nyo';
@@ -287,9 +284,6 @@ export default function App() {
             product deliberately offered them. */}
         {setupDeferred && <SetupResumeBanner onResumed={() => void checkBoot()} />}
         {nav === 'nyo'    && <Nyo />}
-        {nav === 'blog'      && <Blog />}
-        {nav === 'social'    && <Social />}
-        {nav === 'hot-takes' && <HotTakes />}
         {nav === 'knowledge' && <Knowledge />}
         {nav === 'plugins'   && <Plugins />}
         {/* A plugin's own page. The nav key carries which one, so a surface

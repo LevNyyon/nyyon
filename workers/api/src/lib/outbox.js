@@ -161,34 +161,36 @@ export async function retryOutboxRow(env, id) {
     throw new Error('outbox retry: linkedin sender not exposed');
   }
   if (row.channel === 'blog') {
-    // Two `kind` values flow through the blog channel:
-    //   - kind='post' → publish from local D1 to prod via lib/publish.js.
-    //   - kind='aeo'  → AEO-cron drafted a post that failed; re-queue the
-    //     underlying aeo_questions row and re-run the writer.
+    // The blog engine ships as the editorial plugin now, so both blog kinds
+    // re-fire through its retry_blog_publish tool by name. The outbound_log
+    // bookkeeping (repair + retry marker) STAYS here — outbound_log is a host
+    // table the pack never writes. Two `kind` values flow through:
+    //   - kind='post' → re-publish from D1 to prod (tool, via `slug`);
+    //   - kind='aeo'  → AEO-cron drafted a post that failed; the tool re-queues
+    //     the plugin's question row and re-runs the writer (`question_slug`).
+    const { runTool } = await import('../tools/index.js');
     if (row.kind === 'post' || !row.kind) {
       const slug = row.to_id || row.source_ref;
+      const res = await runTool(env, 'retry_blog_publish', {
+        slug,
+        deploy: payload.deploy !== false,
+      });
       // If the post is ALREADY LIVE, the failed row is stale bookkeeping, not
-      // an undelivered send — repair the record instead of re-publishing.
-      // (Root cause of the 2026-07-11 outbox flood: publish.js's outbox rows
-      // carry no parent_id, so the wake-up's once-per-original dedup — which
-      // joins on parent_id — never matched for blog, and the same failed
-      // originals re-published every tick, forever.)
-      const { readBlogPost } = await import('./db.js');
-      const post = await readBlogPost(env, slug).catch(() => null);
-      if (post?.published) {
+      // an undelivered send — the tool reports {skipped:'already live'} and we
+      // repair the record instead of re-publishing. (Root cause of the
+      // 2026-07-11 outbox flood: publish's outbox rows carry no parent_id, so
+      // the wake-up's once-per-original dedup — which joins on parent_id —
+      // never matched for blog, and the same failed originals re-published
+      // every tick, forever.)
+      if (res?.skipped === 'already live') {
         await env.DB.prepare(
           `UPDATE outbound_log SET status='sent', error='superseded: post verified live at retry time', updated_at=? WHERE id=?`,
         ).bind(Date.now(), row.id).run();
         return { ok: true, skipped: 'already live', slug, repaired: row.id };
       }
-      const pub = await import('./publish.js');
-      const res = await pub.publishBlogPostToProd(env, slug, {
-        source: 'retry',
-        deploy: payload.deploy !== false,
-      });
-      // Stamp the once-only marker the dedup query joins on (publish.js's own
-      // outbox row can't carry parent_id) so a still-failing post is retried
-      // at most once by the wake-up, like every other channel.
+      // Stamp the once-only marker the dedup query joins on (the publish
+      // path's own outbox row can't carry parent_id) so a still-failing post
+      // is retried at most once by the wake-up, like every other channel.
       await env.DB.prepare(
         `INSERT INTO outbound_log (id, channel, kind, to_id, to_name, body, status, parent_id, source, source_ref, attempt, created_at, updated_at)
          VALUES (?, 'blog', 'retry-marker', ?, ?, NULL, ?, ?, 'retry', ?, ?, ?, ?)`,
@@ -199,11 +201,7 @@ export async function retryOutboxRow(env, id) {
     if (row.kind === 'aeo') {
       const questionSlug = payload.question_slug || row.source_ref;
       if (!questionSlug) throw new Error('outbox retry: blog row missing question_slug');
-      await env.DB.prepare(
-        `UPDATE aeo_questions SET status='pending', last_error=NULL, updated_at=? WHERE slug=?`,
-      ).bind(Date.now(), questionSlug).run();
-      const aeo = await import('./aeo-writer.js');
-      return aeo.runAeoCron(env, { actor: 'outbox-retry' });
+      return runTool(env, 'retry_blog_publish', { question_slug: questionSlug });
     }
     throw new Error(`outbox retry: unsupported blog kind ${row.kind}`);
   }

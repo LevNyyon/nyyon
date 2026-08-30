@@ -411,16 +411,15 @@ export async function deleteContent(env, slug) {
   await logEvent(env, { kind: 'content_deleted', payload: { slug } });
 }
 
-// ─── blog posts ──────────────────────────────────────────────
-export async function listBlogPosts(env, { limit = 200, publishedOnly = true } = {}) {
-  const sql = publishedOnly
-    ? 'SELECT slug, title, excerpt, tags, published_at, published, updated_at, updated_by FROM blog_posts WHERE published = 1 ORDER BY published_at DESC LIMIT ?'
-    : 'SELECT slug, title, excerpt, tags, published_at, published, updated_at, updated_by FROM blog_posts ORDER BY published_at DESC LIMIT ?';
-  const r = await env.DB.prepare(sql).bind(limit).all();
-  return r.results || [];
-}
+// ─── blog posts (plugin-owned table; host render impls read it) ──────────────
+// The Blog/AEO module ships as the editorial plugin, which owns
+// plugin_editorial_blog_posts. The host keeps ONE read helper because the
+// render gateway impls (lib/article-figures.js renderCover, and the
+// candidate-image renderer) fall back to the post row when a caller passes
+// only a slug. Host code may read/write plugin_editorial_* tables; all the
+// write helpers moved into the pack (plugins/editorial/lib/blog-db.mjs).
 export async function readBlogPost(env, slug) {
-  return env.DB.prepare('SELECT * FROM blog_posts WHERE slug = ?').bind(slug).first();
+  return env.DB.prepare('SELECT * FROM plugin_editorial_blog_posts WHERE slug = ?').bind(slug).first();
 }
 // Universal typography guard: the operator has a hard, standing rule of NO
 // en-dashes or em-dashes anywhere in any post. Strip them on EVERY write so it
@@ -431,134 +430,6 @@ export function stripDashes(s) {
   return String(s)
     .replace(/\s*—\s*/g, ', ')  // em-dash -> comma + space
     .replace(/\s*–\s*/g, '-');  // en-dash -> hyphen
-}
-
-export async function writeBlogPost(env, { slug, title, excerpt = null, body = null, tags = null, published_at = null, published = true, updated_by = 'operator' }) {
-  const t = now();
-  title = stripDashes(title); excerpt = stripDashes(excerpt); body = stripDashes(body);
-  const existing = await readBlogPost(env, slug);
-  const tagsJson = tags === null ? null : (typeof tags === 'string' ? tags : JSON.stringify(tags));
-  if (existing) {
-    await env.DB.prepare(
-      `UPDATE blog_posts SET title=?, excerpt=?, body=?, tags=?, published_at=?, published=?, updated_at=?, updated_by=? WHERE slug=?`,
-    ).bind(title, excerpt, body, tagsJson, published_at, published ? 1 : 0, t, updated_by, slug).run();
-  } else {
-    await env.DB.prepare(
-      `INSERT INTO blog_posts (slug, title, excerpt, body, tags, published_at, published, updated_at, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(slug, title, excerpt, body, tagsJson, published_at, published ? 1 : 0, t, updated_by).run();
-  }
-  await logEvent(env, { kind: 'blog_post_updated', actor: updated_by, payload: { slug, title } });
-
-  // Mirror the publish into the calendar so the timeline always sees it. Re-runs
-  // upsert thanks to the UNIQUE(source, source_ref) index on calendar_events.
-  // The blog-to-calendar-mirror workflow is the named system workflow for this
-  // hop — log a workflow_runs row each fire so the Workflows page shows it.
-  if (published && published_at) {
-    const startedAt = now();
-    try {
-      await upsertCalendarEvent(env, {
-        kind:        'blog_publish',
-        title,
-        description: excerpt,
-        starts_at:   published_at,
-        all_day:     true,
-        status:      published_at <= now() ? 'done' : 'confirmed',
-        source:      'blog',
-        source_ref:  slug,
-        link_url:    `/blog/${slug}`,
-        created_by:  updated_by,
-        updated_by,
-      });
-      await logWorkflowRun(env, {
-        workflow_slug: 'blog-to-calendar-mirror',
-        status: 'succeeded',
-        trigger_kind: 'event',
-        trigger_payload: { blog_slug: slug, title },
-        output: { calendar_event_source: 'blog', calendar_event_source_ref: slug },
-        started_at: startedAt,
-      });
-    } catch (e) {
-      await logWorkflowRun(env, {
-        workflow_slug: 'blog-to-calendar-mirror',
-        status: 'failed',
-        trigger_kind: 'event',
-        trigger_payload: { blog_slug: slug, title },
-        error: String(e?.message || e),
-        started_at: startedAt,
-      });
-      // re-throw — calendar mirror failure shouldn't be silent
-      throw e;
-    }
-  }
-  return readBlogPost(env, slug);
-}
-// Safe partial edit: changes ONLY the fields passed; everything else is
-// preserved (no accidental wipe of excerpt/tags/published_at). Reuses
-// writeBlogPost so the calendar mirror + event log still fire. Throws if the
-// post doesn't exist (use writeBlogPost to create).
-export async function patchBlogPost(env, slug, patch = {}) {
-  const existing = await readBlogPost(env, slug);
-  if (!existing) throw new Error(`blog post not found: ${slug}`);
-  return writeBlogPost(env, {
-    slug,
-    title:        patch.title        !== undefined ? patch.title        : existing.title,
-    excerpt:      patch.excerpt      !== undefined ? patch.excerpt      : existing.excerpt,
-    body:         patch.body         !== undefined ? patch.body         : existing.body,
-    tags:         patch.tags         !== undefined ? patch.tags         : existing.tags, // string ok
-    published_at: patch.published_at !== undefined ? patch.published_at : existing.published_at,
-    published:    patch.published    !== undefined ? patch.published    : !!existing.published,
-    updated_by:   patch.updated_by || 'nyo',
-  });
-}
-export async function deleteBlogPost(env, slug) {
-  await env.DB.prepare('DELETE FROM blog_posts WHERE slug = ?').bind(slug).run();
-  // Tidy up the mirrored calendar event too — it's pointing at a dead row.
-  await env.DB.prepare(`DELETE FROM calendar_events WHERE source = 'blog' AND source_ref = ?`).bind(slug).run();
-  await logEvent(env, { kind: 'blog_post_deleted', payload: { slug } });
-}
-
-// Blog posts joined with web_events aggregates.
-// Public-site URL shape is `/blog/:slug`, so we match page_path = '/blog/' || bp.slug.
-export async function listBlogAnalytics(env, { publishedOnly = false } = {}) {
-  const sql = `
-    SELECT
-      bp.slug, bp.title, bp.excerpt, bp.tags, bp.body,
-      bp.published_at, bp.published, bp.updated_at, bp.updated_by,
-      bp.featured_image_url, bp.featured_image_generated_at, bp.featured_image_model, bp.featured_image_prompt,
-      COALESCE(v.views, 0)            AS views,
-      COALESCE(v.unique_visitors, 0)  AS unique_visitors,
-      v.last_view                     AS last_view,
-      COALESCE(s.avg_scroll, 0)       AS avg_scroll,
-      COALESCE(c.cta_clicks, 0)       AS cta_clicks
-    FROM blog_posts bp
-    LEFT JOIN (
-      SELECT page_path,
-             COUNT(*)                       AS views,
-             COUNT(DISTINCT cookie_id)      AS unique_visitors,
-             MAX(created_at)                AS last_view
-      FROM web_events
-      WHERE event_type = 'visit' AND page_path LIKE '/blog/%'
-      GROUP BY page_path
-    ) v ON v.page_path = '/blog/' || bp.slug
-    LEFT JOIN (
-      SELECT page_path,
-             AVG(CAST(json_extract(event_data, '$.depth') AS REAL)) AS avg_scroll
-      FROM web_events
-      WHERE event_type = 'scroll_depth' AND page_path LIKE '/blog/%'
-      GROUP BY page_path
-    ) s ON s.page_path = '/blog/' || bp.slug
-    LEFT JOIN (
-      SELECT page_path, COUNT(*) AS cta_clicks
-      FROM web_events
-      WHERE event_type = 'cta_click' AND page_path LIKE '/blog/%'
-      GROUP BY page_path
-    ) c ON c.page_path = '/blog/' || bp.slug
-    ${publishedOnly ? 'WHERE bp.published = 1' : ''}
-    ORDER BY views DESC, bp.published_at DESC
-  `;
-  const r = await env.DB.prepare(sql).all();
-  return r.results || [];
 }
 
 // ─── workflows (definition + run history) ───────────────────────────
@@ -786,134 +657,6 @@ export async function recentNyoMessages(env, { limit = 50 } = {}) {
   return (r.results || []).map((m) => ({ ...m, payload: safeJSON(m.payload_json) }));
 }
 
-// ─── AEO questions (writer backlog) ───────────────────────────
-export async function listAeoQuestions(env, { status = null, limit = 200 } = {}) {
-  const sql = status
-    ? 'SELECT * FROM aeo_questions WHERE status = ? ORDER BY priority ASC, updated_at DESC LIMIT ?'
-    : 'SELECT * FROM aeo_questions                            ORDER BY priority ASC, updated_at DESC LIMIT ?';
-  const stmt = status ? env.DB.prepare(sql).bind(status, limit) : env.DB.prepare(sql).bind(limit);
-  const r = await stmt.all();
-  return r.results || [];
-}
-export async function readAeoQuestion(env, slug) {
-  return env.DB.prepare('SELECT * FROM aeo_questions WHERE slug = ?').bind(slug).first();
-}
-export async function writeAeoQuestion(env, { slug, question, target_keyword = null, priority = 5, status = 'pending', scheduled_for = null, notes = null }) {
-  if (!slug || !question) throw new Error('slug + question required');
-  const t = now();
-  const existing = await readAeoQuestion(env, slug);
-  if (existing) {
-    await env.DB.prepare(
-      `UPDATE aeo_questions SET question=?, target_keyword=?, priority=?, status=?, scheduled_for=?, notes=?, updated_at=? WHERE slug=?`,
-    ).bind(question, target_keyword, priority, status, scheduled_for, notes, t, slug).run();
-  } else {
-    await env.DB.prepare(
-      `INSERT INTO aeo_questions (slug, question, target_keyword, priority, status, scheduled_for, notes, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(slug, question, target_keyword, priority, status, scheduled_for, notes, t, t).run();
-  }
-  await logEvent(env, { kind: 'aeo_question_upserted', payload: { slug, status } });
-  return readAeoQuestion(env, slug);
-}
-// Create a fresh AEO question from just its text. Slugifies the question and
-// guarantees a unique slug (so a new topic never overwrites an existing one).
-// Lands as a `pending` question with no interview yet → it shows in the queue
-// and Interview & Write / aeo_start_interview can pick it up immediately.
-export async function addAeoQuestion(env, { question, target_keyword = null, notes = null, priority = 3 } = {}) {
-  const q = String(question || '').trim();
-  if (!q) throw new Error('question required');
-  const base = (q.toLowerCase().replace(/['"“”]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80)) || 'question';
-  let slug = base;
-  for (let n = 2; await readAeoQuestion(env, slug); n++) { slug = `${base}-${n}`; if (n > 99) { slug = `${base}-${now()}`; break; } }
-  return writeAeoQuestion(env, { slug, question: q, target_keyword, notes, priority, status: 'pending' });
-}
-
-// Hard-delete an AEO question by slug. Returns true if a row existed.
-// blog_posts rows are left intact — even if the source question gets pruned,
-// the published article stays live. Logged so the activity feed shows what
-// the operator culled.
-export async function deleteAeoQuestion(env, slug) {
-  const existing = await readAeoQuestion(env, slug);
-  if (!existing) return false;
-  await env.DB.prepare('DELETE FROM aeo_questions WHERE slug = ?').bind(slug).run();
-  await logEvent(env, { kind: 'aeo_question_deleted', payload: { slug, status: existing.status, drafted_blog_slug: existing.drafted_blog_slug } });
-  return true;
-}
-// Picks the next eligible question for the cron writer.
-// Eligible = status=pending AND (scheduled_for is null OR scheduled_for <= now).
-// Ordered by priority asc, then created_at asc — lowest priority number wins.
-export async function nextPendingAeoQuestion(env) {
-  const t = now();
-  // Skip questions with an interview already in flight (interview_status =
-  // 'pending' means questions were asked, awaiting the operator's answers).
-  // Pick only fresh questions (no interview yet → start one) or ones whose
-  // answers are in (interview_status = 'ready' → write). This enforces the
-  // "no article without an interview" rule at the queue level.
-  return env.DB.prepare(
-    `SELECT * FROM aeo_questions
-     WHERE status = 'pending'
-       AND (scheduled_for IS NULL OR scheduled_for <= ?)
-       AND (interview_status IS NULL OR interview_status = 'ready')
-     ORDER BY priority ASC, created_at ASC LIMIT 1`,
-  ).bind(t).first();
-}
-
-// Like nextPendingAeoQuestion, but ONLY a question that is READY to publish
-// unattended: its interview answers are already captured (interview_status
-// 'ready' — from the Sunday Brain or a finished interview) AND its scheduled
-// date has arrived. The autonomous scheduler uses this so it NEVER starts an
-// interview on its own (that stays Nyo's conversational job) — it only ships
-// posts whose expertise is in hand and whose day has come.
-export async function nextScheduledReadyAeoQuestion(env) {
-  const t = now();
-  return env.DB.prepare(
-    `SELECT * FROM aeo_questions
-     WHERE status = 'pending'
-       AND interview_status = 'ready'
-       AND (scheduled_for IS NULL OR scheduled_for <= ?)
-     ORDER BY priority ASC, created_at ASC LIMIT 1`,
-  ).bind(t).first();
-}
-export async function markAeoQuestionPublished(env, slug, blog_slug) {
-  const t = now();
-  await env.DB.prepare(
-    `UPDATE aeo_questions SET status='published', drafted_blog_slug=?, last_error=NULL, updated_at=? WHERE slug=?`,
-  ).bind(blog_slug, t, slug).run();
-  await logEvent(env, { kind: 'aeo_question_published', payload: { question_slug: slug, blog_slug } });
-}
-// The writer now saves a DRAFT the operator approves in the Blog module — the
-// question is done from the writer's side (won't be re-picked), but the post is
-// not live yet, so its status is 'drafted', not 'published'.
-export async function markAeoQuestionDrafted(env, slug, blog_slug) {
-  const t = now();
-  await env.DB.prepare(
-    `UPDATE aeo_questions SET status='drafted', drafted_blog_slug=?, last_error=NULL, updated_at=? WHERE slug=?`,
-  ).bind(blog_slug, t, slug).run();
-  await logEvent(env, { kind: 'aeo_question_drafted', payload: { question_slug: slug, blog_slug } });
-}
-export async function markAeoQuestionFailed(env, slug, error_msg) {
-  const t = now();
-  await env.DB.prepare(
-    `UPDATE aeo_questions SET status='failed', last_error=?, attempts=attempts+1, updated_at=? WHERE slug=?`,
-  ).bind(String(error_msg).slice(0, 1000), t, slug).run();
-  await logEvent(env, { kind: 'aeo_question_failed', payload: { slug, error: String(error_msg).slice(0, 200) } });
-}
-
-// ─── AEO feedback (operator reactions to idea quality) ─────────
-export async function recordAeoFeedback(env, { question_slug = null, idea_title = null, reaction, note = null }) {
-  if (!reaction) throw new Error('reaction required');
-  const id = uid();
-  await env.DB.prepare(
-    `INSERT INTO aeo_feedback (id, question_slug, idea_title, reaction, note, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
-  ).bind(id, question_slug, idea_title, reaction, note, now()).run();
-  await logEvent(env, { kind: 'aeo_feedback', actor: 'operator', payload: { question_slug, idea_title, reaction } });
-  return { id, question_slug, idea_title, reaction, note };
-}
-export async function recentAeoFeedback(env, { limit = 60 } = {}) {
-  const r = await env.DB.prepare(`SELECT * FROM aeo_feedback ORDER BY created_at DESC LIMIT ?`).bind(limit).all();
-  return r.results || [];
-}
-
 // ─── feature flags ─────────────────────────────────────────────
 export async function listFlags(env, scope = null) {
   const sql = scope
@@ -998,11 +741,6 @@ export async function updateFinanceEntry(env, id, patch = {}) {
 export async function deleteFinanceEntry(env, id) {
   await env.DB.prepare('DELETE FROM finance_entries WHERE id=?').bind(id).run();
   await logEvent(env, { kind: 'finance_entry_deleted', actor: 'operator', payload: { id } });
-}
-
-// Voice isn't part of writeAeoQuestion's column set; set it directly.
-export async function setAeoVoice(env, slug, voice) {
-  await env.DB.prepare(`UPDATE aeo_questions SET voice=? WHERE slug=?`).bind(voice, slug).run();
 }
 
 // READ-ONLY SQL surface for the query_crm tool. ponytail: substring guard,

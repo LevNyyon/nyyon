@@ -11,9 +11,6 @@
 import { flagsAsObject } from '../lib/db.js';
 import { tools as coreTools } from './core.js';
 import { tools as waTools } from './wa.js';
-import { tools as blogTools } from './blog.js';
-import { tools as socialTools } from './social.js';
-import { tools as hotTakesTools } from './hottakes.js';
 import { tools as linkedinTools } from './li.js';
 import { tools as pluginMgmtTools } from './plugins.js';
 import { pluginTools } from '../plugins/index.js';
@@ -28,9 +25,6 @@ const TOOL_REGISTRY = {
   ...pluginTools,
   ...coreTools,
   ...waTools,
-  ...blogTools,
-  ...socialTools,
-  ...hotTakesTools,
   ...linkedinTools,
   ...pluginMgmtTools,
 };

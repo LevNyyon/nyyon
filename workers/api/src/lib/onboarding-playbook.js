@@ -193,7 +193,7 @@ The interview is not only about voice. Three other documents steer whole
 modules, and every one of them is answerable from questions already asked. Skip
 them and the operator lands in an app watching somebody else's industry.
 
-- **heartbeat-priorities** — what counts as a signal worth surfacing. Built from
+- **plugin-editorial-heartbeat-priorities** — what counts as a signal worth surfacing. Built from
   question 9 (the subjects they own) and question 5 (what their market gets
   wrong): the topics to watch, the ones to ignore, and what makes an item worth
   their attention. Without this the awareness feed scores generic AI news for a

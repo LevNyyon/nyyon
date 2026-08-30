@@ -19,7 +19,7 @@ import {
 import {
   listConversations, readConversation, renameConversation, deleteConversation,
 } from '../lib/conversations.js';
-import { fetchArticleText } from '../lib/heartbeat.js';
+import { fetchArticleText } from '../lib/article-text.js';
 import { fetchText as webGatewayFetchText } from '../lib/web-gateway.js';
 import { listDueMeetings, claimDueMeetings, composeReminderDigest } from '../lib/reminders.js';
 import { checkWaHealth, probeWaGateway } from '../lib/whatsapp.js';

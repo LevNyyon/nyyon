@@ -37,7 +37,10 @@ const GATEWAY_META = {
   linkedin: { kind: 'tunnel',     knowledge: [] },
   image:    { kind: 'saas',       knowledge: [] },
   assets:   { kind: 'binding',    knowledge: [] },
-  whatsapp: { kind: 'tunnel',     knowledge: ['prompt-wa-reply'] },
+  // prompt-wa-reply moved into the editorial plugin (it steers the pack's
+  // digest extraction, not any host WA tool), so the host WA entry cites no
+  // knowledge doc any more.
+  whatsapp: { kind: 'tunnel',     knowledge: [] },
   tts:      { kind: 'tunnel',     knowledge: ['nyo-voice'] },
   telegram: { kind: 'saas',       knowledge: ['nyo-telegram'] },
   web:      { kind: 'public-api', knowledge: [] },
@@ -55,22 +58,12 @@ const GATEWAY_META = {
 // `has_last_run` = has an observable last-run timestamp (attached below).
 const WORKFLOWS = [
   // ── automated (cron) ──
-  { name: 'Hourly awareness sweep', kind: 'automated', trigger: 'cron · :00 / :15 / :30',
-    steps: 'OSINT scrape (targets untouched >3h, max 5/tick) at :00 → heartbeat scoring at :15 → regenerate the digest at :30 — one leg per invocation (each gets its own subrequest budget), digest still reads this hour\'s fresh signals',
-    touches: 'osint_targets, osint_mentions, osint_signals, digest_items, digest_channels',
-    knowledge: ['prompt-wa-reply', 'industry-pulse', 'heartbeat-priorities'], run_slug: 'hourly-awareness-sweep' },
+  // The awareness sweep, AEO publisher and Hot Takes scheduler moved into the
+  // editorial plugin — the cron slots still fire, but they run the pack's
+  // wrapper tools/workflows by name, and the pack describes them.
   { name: 'Meeting reminders', kind: 'automated', trigger: 'cron · 0 * * * *',
     steps: 'scan calendar_events, WhatsApp the operator a reminder N minutes before a meeting (no-op until a reminder chat is set)',
     touches: 'calendar_events, wa (via outbox)', knowledge: [], run_slug: 'meeting-reminders' },
-  { name: 'Daily AEO publish', kind: 'automated', trigger: 'cron · 0 6 * * *',
-    steps: 'publish any AEO article whose interview is captured + scheduled — live locally at once; mirrored to a public site only when one is configured in env (readyOnly — never auto-interviews or nags, never double-posts)',
-    touches: 'aeo_questions, blog_posts',
-    knowledge: ['brand-voice', 'personal-voice', 'article-playbook', 'brand'], run_slug: 'aeo-daily-writer' },
-
-  { name: 'Hot Takes scheduler', kind: 'automated', trigger: 'cron · :00 hourly',
-    steps: 'scan due scheduled releases → publish the website leg (blog pipeline — REAL, same trust as the Blog Approve button) + fire due LinkedIn legs (social gateway → outbox; DRY-RUN unless the hottakes.live feature flag is true — dry runs log hottake_dryrun events only)',
-    touches: 'hot_take_packages, social_posts, blog_posts, outbound_log, calendar_events',
-    knowledge: ['hottakes-timing'], run_slug: 'hottake-scheduler' },
 
   // ── continuous (client, while the app is open) ──
   { name: 'Nyo pending poller', kind: 'continuous', trigger: 'client · every 30s',
@@ -78,36 +71,20 @@ const WORKFLOWS = [
     touches: 'nyo_messages', knowledge: [] },
   { name: 'Nyo wake-up', kind: 'continuous', trigger: 'client · on mount + tab focus',
     steps: 'pull WhatsApp from the gateway → survey pending / failed / missed publishes → queue a morning briefing (idempotent; skips if nothing changed)',
-    touches: 'wa_messages, nyo_messages, aeo_questions', knowledge: [], run_slug: 'nyo-wake-up' },
+    touches: 'wa_messages, nyo_messages, plugin_editorial_aeo_questions', knowledge: [], run_slug: 'nyo-wake-up' },
 
   // ── event-driven ──
   { name: 'WhatsApp inbound', kind: 'event', trigger: 'event · per inbound message (webhook)',
     steps: 'persist the message, identify the sender (embedded author → CRM contacts → live group roster), stitch to a person',
     touches: 'wa_messages, contacts, identities', knowledge: [] },
-  { name: 'Blog → Calendar mirror', kind: 'event', trigger: 'event · on blog publish',
-    steps: 'on every post saved published=1, upsert a matching calendar_event (kind=blog_publish, done if past / confirmed if future)',
-    touches: 'calendar_events', knowledge: [], run_slug: 'blog-to-calendar-mirror' },
   { name: 'Outbox (unified send)', kind: 'event', trigger: 'event · per outbound send',
     steps: 'every send wrapper queues an outbox row → calls the provider → flips it sent (with message id) or failed (with error + a fail event) — the permanent audit trail',
     touches: 'outbound_log', knowledge: [] },
 
   // ── on-demand (operator / Nyo) ──
-  { name: 'Digest generate (headless)', kind: 'automated', trigger: 'cron · :30 hourly',
-    steps: 'for each enabled channel: LLM-extract WhatsApp asks + judge OSINT mentions + surface calendar events → dedupe → digest_items. No page reads these any more — they are the raw material the Hot Takes topic feed scores',
-    touches: 'digest_items, digest_channels', knowledge: ['prompt-wa-reply'], run_slug: 'hourly-awareness-sweep' },
-  { name: 'Hot Takes first ingest', kind: 'on-demand', trigger: 'on-demand · the module first-run panel',
-    steps: 'pull every enabled feed → score what came back → cluster it into hot topics (synthesis optional: a first pull can legitimately have too few scored signals to cluster). No scrape, no enrichment, no digest — the shortest path from "sources saved" to "the Topics tab has cards"',
-    touches: 'osint_sources, osint_signals, osint_topics',
-    knowledge: ['hottakes-source-scout', 'heartbeat-priorities'], run_slug: 'hottakes-first-ingest' },
-  { name: 'AEO interview & write', kind: 'on-demand', trigger: 'on-demand · Interview & Write button',
-    steps: 'ask the 4 interview questions → draft the article in the brand voice → publish live + mirror to calendar',
-    touches: 'aeo_questions, blog_posts, calendar_events', knowledge: ['brand-voice', 'article-playbook'] },
-  { name: 'Sunday editorial brain', kind: 'on-demand', trigger: 'on-demand · Sunday (Nyo offers) / Brain start',
-    steps: 'ask the weekly questions → derive the week\'s article slate → schedule each across the week + create calendar events',
-    touches: 'brain_sessions, aeo_questions, calendar_events', knowledge: ['brand-voice'] },
-  { name: 'Blog publish → prod', kind: 'on-demand', trigger: 'on-demand · Publish button / Nyo',
-    steps: 'publish the article locally at once (mirror + search-engine ping fire only when a public site is configured), then mirror it to the calendar',
-    touches: 'blog_posts, calendar_events', knowledge: [] },
+  // The digest generator, Hot Takes first ingest, AEO interview & write, the
+  // Sunday editorial brain and Blog publish→prod all moved into the editorial
+  // plugin; its manifest ships those workflows and their descriptions.
 ];
 
 // ── Modules — the machine-readable product-area registry (mirrors the SPA
@@ -122,9 +99,6 @@ const WORKFLOWS = [
 // every send, the calendar store behind reminders and publish mirrors).
 const MODULES = [
   { key: 'nyo',       title: 'Nyo',       area: 'module', description: 'AI command chat — the tool pool\'s operator interface, wake-up briefings, voice mode' },
-  { key: 'blog',      title: 'Blog',      area: 'module', description: 'article drafts → review → publish (edge-rendered); the answer-engine writer + its daily cron run headless behind it' },
-  { key: 'social',    title: 'Social',    area: 'module', description: 'per-channel social drafts → operator approve → Make webhooks' },
-  { key: 'hot-takes', title: 'Hot Takes', area: 'module', description: 'editorial command center — topic → take → brief → article → review → social → schedule, one publication package; Publications tab carries the whole blog (any draft schedules into a release)' },
   { key: 'plugins',   title: 'Plugins',   area: 'system', description: 'trade capabilities between nyyon systems — import/export signed manifests; code travels verbatim, gateways bind mechanically' },
   { key: 'knowledge', title: 'Knowledge', area: 'system', description: 'the editable rules layer — doc tree Nyo and the code read at runtime' },
   { key: 'activity',  title: 'Activity',  area: 'system', description: 'the event bus log — every mutation, live' },
@@ -140,16 +114,11 @@ const MODULES = [
 // each comment below names the collision the position resolves. Adding a tool
 // whose name matches nothing here renders it ungrouped, not missing.
 const TOOL_GROUPS = [
-  { group: 'WhatsApp',            re: /whatsapp|wa_chat|wa_group|wa_session|backfill_wa_messages|backfill_lid_map|read_group_participants|set_chat_listening/, knowledge: ['prompt-wa-reply'] },
+  // The Digest / Hot Takes & Signals / Editorial (Blog + AEO) / Social groups
+  // went with the editorial plugin — its tools land in "Other" now, honestly
+  // labeled as pool tools a pack provides.
+  { group: 'WhatsApp',            re: /whatsapp|wa_chat|wa_group|wa_session|backfill_wa_messages|backfill_lid_map|read_group_participants|set_chat_listening/, knowledge: [] },
   { group: 'LinkedIn',            re: /linkedin/,                                          knowledge: [] },
-  { group: 'Digest',              re: /digest/,                                            knowledge: [] },
-  // Before Editorial: link_hottake_article / scan_hottake_article would land in
-  // the blog group on `_article$`.
-  // `feed_url` is here on purpose: validate_feed_url is the module's proof that
-  // a proposed source is real, so it belongs beside the sources it guards.
-  { group: 'Hot Takes & Signals', re: /hottake|topic_feed|adopt_blog_draft|article_meta|heartbeat|feed_url|_signal$|_signals$|pulse|hot_topics|osint|mention/, knowledge: ['industry-pulse', 'heartbeat-priorities', 'hottakes-source-scout'] },
-  { group: 'Editorial (Blog / AEO)', re: /blog_post|aeo_|voice_profile|_article$|faq_schema|_figures$|_cover$|featured_image|visual_brief|_images$|interview_|taste_profile|suggestion_policy|suggestion_angles/, knowledge: ['brand-voice', 'personal-voice', 'article-playbook', 'brand'] },
-  { group: 'Social',              re: /social_post|social_integrations|social_card|_card$/, knowledge: ['brand-voice', 'personal-voice'] },
   { group: 'Calendar & Reminders', re: /calendar|meeting|reminder/,                        knowledge: ['meeting-reminders'] },
   { group: 'Conversations',       re: /conversation/,                                      knowledge: [] },
   { group: 'Workflows',           re: /workflow/,                                          knowledge: [] },

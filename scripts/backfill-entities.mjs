@@ -47,7 +47,7 @@ function d1(sql) {
 }
 
 const rows = d1(
-  `SELECT id, title, summary FROM osint_signals WHERE title LIKE '%&#%' OR summary LIKE '%&#%'`,
+  `SELECT id, title, summary FROM plugin_editorial_osint_signals WHERE title LIKE '%&#%' OR summary LIKE '%&#%'`,
 );
 
 const q = (v) => (v == null ? 'NULL' : `'${String(v).replace(/'/g, "''")}'`);
@@ -56,7 +56,7 @@ for (const r of rows) {
   const title = repair(r.title);
   const summary = repair(r.summary);
   if (title === r.title && summary === r.summary) continue;
-  updates.push(`UPDATE osint_signals SET title = ${q(title)}, summary = ${q(summary)} WHERE id = ${q(r.id)};`);
+  updates.push(`UPDATE plugin_editorial_osint_signals SET title = ${q(title)}, summary = ${q(summary)} WHERE id = ${q(r.id)};`);
   if (!write) console.error(`  ${JSON.stringify(r.title)}\n→ ${JSON.stringify(title)}\n`);
 }
 

@@ -6,8 +6,6 @@ import { cors } from 'hono/cors';
 import {
   recentEvents,
   listKnowledge, readKnowledge, writeKnowledge, deleteKnowledge, readKnowledgePath,
-  listBlogPosts, readBlogPost, writeBlogPost, deleteBlogPost, listBlogAnalytics,
-  listAeoQuestions, readAeoQuestion, writeAeoQuestion, addAeoQuestion, deleteAeoQuestion, nextPendingAeoQuestion,
   queueNyoMessage, listPendingNyoMessages, markNyoMessageDelivered, recentNyoMessages,
   logEvent,
   listCalendarEvents, readCalendarEvent, upsertCalendarEvent, deleteCalendarEvent,
@@ -29,17 +27,6 @@ import {
   syncFromGateway,
 } from './lib/whatsapp.js';
 import { handleChat } from './chat/index.js';
-import {
-  listPackages as htListPackages, readPackage as htReadPackage, createPackage as htCreatePackage,
-  patchPackage as htPatchPackage, dismissPackage as htDismissPackage, listPosts as htListPosts,
-  computeNextAction as htNextAction, topicsOfTheDay as htTopicsOfTheDay, pinTopic as htPinTopic,
-  dismissTopicCard as htDismissTopicCard,
-  releaseChannels as htReleaseChannels,
-  pipelineView as htPipelineView, articleView as htArticleView, saveArticleEdit as htSaveArticleEdit,
-  patchPost as htPatchPost, scheduleView as htScheduleView, listApprovedSources as htListApprovedSources,
-  searchHotTakes as htSearch, loadAllHotTakesNotes as htLoadNotes, runDueReleases as htRunDueReleases,
-  hotTakesLive as htLive,
-} from './lib/hot-takes.js';
 // GTM (Prospecting + Outreach) ships as a plugin now; the theorg probe stays
 // host because the theorg gateway is host infrastructure (lib/enrich-gateways.js).
 import { probeTheorg } from './lib/enrich-gateways.js';
@@ -47,27 +34,7 @@ import { runTool } from './tools/index.js';
 import { callGateway } from './gateways/index.js';
 import { runWorkflow } from './workflows/runner.js';
 import { getLlmHealth } from './lib/llm.js';
-import { listSocialCards } from './lib/social-cards.js';
-import { regenerateOneFigure } from './lib/article-figures.js';
-// Raw li_at / JSESSIONID capture is not a tool and has no gateway mode — the
-// 11-tool LinkedIn family deliberately does not cover it, so this one lib
-// symbol stays. Every other LinkedIn route goes through the pool.
-// OSINT is HEADLESS now: the scraper page is cut, but the scrape itself is the
-// first leg of the hourly awareness sweep that feeds the Hot Takes topic feed,
-// so the cron entry point stays. Every other osint.js symbol is reached from
-// tools/hottakes.js, not from here.
-import { runOsintCron } from './lib/osint.js';
-// Same shape for the digest: the Digest PAGE is cut, but generateDigest is the
-// :30 sweep leg whose digest_items the Hot Takes topic feed reads.
-import { generateDigest } from './lib/digest.js';
 import { listConversations, readConversation, renameConversation, deleteConversation } from './lib/conversations.js';
-// The batch publisher stays on the lib: it is a loop with ONE trailing rebuild,
-// not a tool (the single-slug route goes through publish_blog_post).
-import { publishBlogPostsToProd } from './lib/publish.js';
-// Two Social surfaces have no v2 tool in the 12-tool family — skip (a status
-// flip the spec expected on a save_hottake_post that was never built) and the
-// whole-slug group delete. They keep their lib calls.
-import { skipSocialPost, deleteSocialGroup } from './lib/social-posts.js';
 import { gate, handleGateLogin, handleGateLogout, issueGateSession, hasGateSession } from './gate.js';
 // First-run setup. The install store is the security boundary (how far has this
 // copy been claimed?); lib/onboarding.js is the conversation engine and the
@@ -432,7 +399,7 @@ app.get('/api/system/health', async (c) => {
   //    is degraded. Skipped channels (disabled) don't count.
   try {
     const rows = await env.DB.prepare(
-      "SELECT source, enabled, last_status FROM digest_channels WHERE enabled = 1",
+      "SELECT source, enabled, last_status FROM plugin_editorial_digest_channels WHERE enabled = 1",
     ).all();
     const bad = (rows.results || []).filter((r) => r.last_status === 'error');
     if (bad.length) {
@@ -447,14 +414,14 @@ app.get('/api/system/health', async (c) => {
     } else {
       checks.push({ name: `Digest channels (${rows.results.length} on)`, status: 'green', severity: 'degraded', note: null });
     }
-  } catch { /* digest_channels table may not exist yet — skip */ }
+  } catch { /* plugin_editorial_digest_channels table may not exist yet — skip */ }
 
   // 7. OSINT sources (DuckDuckGo, Reddit, HN, GitHub, …) — surface per-source
   //    failures, and when the recorded error looks like rate-limiting, say so
   //    and what to do about it (rather than a bare "error").
   try {
     const rows = await env.DB.prepare(
-      "SELECT source, last_status, last_error FROM osint_listeners WHERE enabled = 1",
+      "SELECT source, last_status, last_error FROM plugin_editorial_osint_listeners WHERE enabled = 1",
     ).all();
     const results = rows.results || [];
     const bad = results.filter((r) => r.last_status === 'error');
@@ -476,7 +443,7 @@ app.get('/api/system/health', async (c) => {
     } else if (results.length) {
       checks.push({ name: `OSINT sources (${results.length} on)`, status: 'green', severity: 'degraded', note: null });
     }
-  } catch { /* osint_listeners table may not exist yet — skip */ }
+  } catch { /* plugin_editorial_osint_listeners table may not exist yet — skip */ }
 
   // 8. GTM gateways — the module's own external dependencies. WhatsApp +
   //    LinkedIn ride the shared gateway checks above (same servers — the GTM
@@ -635,201 +602,10 @@ app.delete('/api/knowledge/:slug', async (c) => {
   return c.json({ ok: true });
 });
 
-// ─── blog posts ───────────────────────────────────────────────
-app.get('/api/blog', async (c) => {
-  const limit = parseInt(c.req.query('limit') || '200', 10);
-  const all   = c.req.query('all') === '1'; // include unpublished
-  return c.json({ posts: await listBlogPosts(c.env, { limit, publishedOnly: !all }) });
-});
-// MUST come before /api/blog/:slug or "analytics" matches as a slug.
-app.get('/api/blog/analytics', async (c) => {
-  const publishedOnly = c.req.query('published_only') === '1';
-  return c.json({ posts: await listBlogAnalytics(c.env, { publishedOnly }) });
-});
-app.get('/api/blog/:slug', async (c) => {
-  const p = await readBlogPost(c.env, c.req.param('slug'));
-  if (!p) return c.json({ error: 'not found' }, 404);
-  return c.json({ post: p });
-});
-app.put('/api/blog/:slug', async (c) => {
-  const body = await c.req.json();
-  if (!body?.title) return c.json({ error: 'title required' }, 400);
-  return c.json({ post: await writeBlogPost(c.env, { ...body, slug: c.req.param('slug'), updated_by: body.updated_by || 'operator' }) });
-});
-app.delete('/api/blog/:slug', async (c) => {
-  await deleteBlogPost(c.env, c.req.param('slug'));
-  return c.json({ ok: true });
-});
-
-// Featured-image generation (Cloudflare Workers AI → R2). Body optionally
-// accepts { prompt_override, model } to tweak. Returns the generated metadata
-// plus the public same-origin URL written back to the post row.
-// Publish a single blog post from local D1 to the production worker and
-// (by default) trigger the marketing-site rebuild. Every attempt — win,
-// no-op, or fail — lands in the Outbox under channel='blog' so the
-// operator and Nyo both see the audit trail.
-app.post('/api/blog/:slug/publish', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try {
-    // runTool takes no executionCtx, so the route keeps the background rebuild
-    // itself: the tool's own await covers publish + edge verify, and anything
-    // the lib deferred to ctx.waitUntil now rides this route's waitUntil.
-    return c.json(await runTool(c.env, 'publish_blog_post', {
-      slug:   c.req.param('slug'),
-      deploy: body.deploy !== false,
-      actor:  body.source || 'operator',
-    }));
-  } catch (e) {
-    return c.json({ error: String(e?.message || e) }, 400);
-  }
-});
-
-// Is this post actually SERVED on the public site yet? Publish only QUEUES a
-// rebuild (full static-site snapshot + Pages deploy + CDN, ~1-2 min), so the ops
-// UI polls this after approve to flip to "live". Checked server-side because the
-// browser can't read the cross-origin public site. live = 200 AND the page
-// carries this post's own /blog/<slug> canonical (a soft-404 fallback would not).
-app.get('/api/blog/:slug/live-status', async (c) => {
-  // Checked against the blog-edge worker's URL, NOT the public site: a
-  // Worker's subrequest to its own zone bypasses Workers routes and would
-  // hit the static origin — reporting every edge-served post as "not live".
-  // The edge URL exercises the same code + same D1 the public URL serves.
-  const slug = c.req.param('slug');
-  const { verifyLiveOnEdge } = await import('./lib/publish.js');
-  const edge = await verifyLiveOnEdge(c.env, slug, { attempts: 1 });
-  // Public URL from the configured site origin; with none configured there is
-  // no public URL to report.
-  const origin = String(c.env.PUBLIC_ORIGIN || '').replace(/\/+$/, '');
-  return c.json({ live: edge.live, status: edge.status, url: origin ? `${origin}/blog/${encodeURIComponent(slug)}/` : null, edge });
-});
-
-// Bulk publish — pass {slugs: [...]} to mirror many posts and run the
-// rebuild once at the end.
-app.post('/api/blog/publish-batch', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const slugs = Array.isArray(body.slugs) ? body.slugs : [];
-  if (!slugs.length) return c.json({ error: 'slugs[] required' }, 400);
-  return c.json(await publishBlogPostsToProd(c.env, slugs, { source: body.source || 'operator' }));
-});
-
-// Reshape an EXISTING post through the article pipeline — rewrites its body to
-// clean house-style HTML (brand voice + learned taste, banned phrases stripped)
-// and generates editorial figures + a featured image. Fixes bare saves that
-// landed as raw markdown with no visuals. In place (same slug).
-app.post('/api/blog/:slug/reshape', async (c) => {
-  const slug = c.req.param('slug');
-  const body = await c.req.json().catch(() => ({}));
-  // blog-shape has no read step (it also serves fresh writes), so the route
-  // reads the post itself. published/published_at are NOT passed on: the
-  // workflow's save_blog_post preserves the row's publication state by design.
-  const post = await readBlogPost(c.env, slug);
-  if (!post) return c.json({ error: 'post not found' }, 404);
-  try {
-    const r = await runWorkflow(c.env, 'blog-shape', {
-      slug,
-      title:          post.title,
-      body:           post.body,
-      voice:          body.voice || 'personal',
-      target_keyword: body.target_keyword || null,
-      actor:          'operator',
-    });
-    if (!r.ok) return c.json({ error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 500);
-    // Same {blog_slug, post} contract save_blog_post returned through the lib;
-    // `skipped` names any optional figure/cover step that failed.
-    return c.json({
-      ok: true, run_id: r.run_id, skipped: r.skipped,
-      blog_slug: r.output?.blog_slug || slug,
-      post: r.output?.post ?? null,
-      featured_image_url: r.output?.featured_image_url ?? null,
-    });
-  } catch (e) {
-    return c.json({ error: String(e?.message || e) }, 500);
-  }
-});
-
-// Expand an existing post: deepen the story, weave in the company's upside,
-// append an AEO-optimised FAQ + FAQPage schema, then re-embed figures + cover.
-app.post('/api/blog/:slug/expand', async (c) => {
-  const slug = c.req.param('slug');
-  const body = await c.req.json().catch(() => ({}));
-  try {
-    // voice:'personal' is passed explicitly — read_voice_profile now defaults to
-    // 'house', so dropping it would silently change this route's output voice.
-    const r = await runWorkflow(c.env, 'blog-expand', { slug, voice: body.voice || 'personal' });
-    if (!r.ok) return c.json({ error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 500);
-    return c.json({
-      ok: true, run_id: r.run_id, skipped: r.skipped,
-      blog_slug: r.output?.blog_slug || slug,
-      post: r.output?.post ?? null,
-      faq_count: r.output?.faq_count ?? null,
-    });
-  } catch (e) {
-    return c.json({ error: String(e?.message || e) }, 500);
-  }
-});
-
-app.post('/api/blog/:slug/generate-image', async (c) => {
-  const slug = c.req.param('slug');
-  const body = await c.req.json().catch(() => ({}));
-  try {
-    // prompt_override has no place in blog-featured-image: draft_visual_brief
-    // would overwrite it on the shared context. That path calls the three
-    // tools directly instead; everything else runs the workflow.
-    if (body.prompt_override) {
-      const rendered = await runTool(c.env, 'render_images', {
-        blog_slug: slug, prompt: body.prompt_override, model: body.model || null, n: body.n || null,
-      });
-      const judged = await runTool(c.env, 'judge_images', { blog_slug: slug, candidates: rendered.candidates });
-      const set = await runTool(c.env, 'set_featured_image', {
-        blog_slug: slug, winner_url: judged.winner_url, model: judged.model || body.model || null, prompt: body.prompt_override, actor: 'operator',
-      });
-      return c.json({ image: { url: set.featured_image_url || judged.winner_url, model: judged.model || null, prompt: body.prompt_override } });
-    }
-    const r = await runWorkflow(c.env, 'blog-featured-image', { slug, model: body.model || null, n: body.n || null });
-    if (!r.ok) return c.json({ error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 500);
-    return c.json({
-      image: {
-        url:    r.output?.featured_image_url || r.output?.winner_url || null,
-        model:  r.output?.model || null,
-        prompt: r.output?.prompt || null,
-      },
-      run_id: r.run_id,
-    });
-  } catch (e) {
-    return c.json({ error: String(e?.message || e) }, 500);
-  }
-});
-
-// ─── social cards (code-drawn brand graphics — the Social family's card tools) ───
-app.post('/api/social-cards/generate', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try {
-    // From a slug the `social-card` workflow reads the article first; a
-    // custom-title card has no article to read, so it enters at draft_card.
-    if (body.slug) {
-      const r = await runWorkflow(c.env, 'social-card', {
-        slug: body.slug, template: body.template || null, slots: body.slots || null,
-      });
-      if (!r.ok) return c.json({ error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 500);
-      return c.json({ card: r.output?.card ?? null, run_id: r.run_id });
-    }
-    const drafted  = await runTool(c.env, 'draft_card', {
-      title: body.title || null, excerpt: body.excerpt || null,
-      template: body.template || null, slots: body.slots || null,
-    });
-    const rendered = await runTool(c.env, 'render_card', { template: drafted.template, slots: drafted.slots });
-    const saved    = await runTool(c.env, 'save_social_card', { card: rendered.card, slots: drafted.slots, actor: body.actor || 'operator' });
-    return c.json({ card: saved.card });
-  } catch (e) {
-    return c.json({ error: String(e?.message || e) }, 500);
-  }
-});
-
-app.get('/api/social-cards', async (c) => {
-  const slug  = c.req.query('slug') || null;
-  const limit = parseInt(c.req.query('limit') || '50', 10);
-  return c.json({ cards: await listSocialCards(c.env, { slug, limit }) });
-});
+// ─── blog + social-cards routes removed — Blog/AEO ships in the editorial
+// plugin; its surfaces drive the plugin's own tools via
+// /api/plugins/editorial/invoke/*. The R2 asset re-serving below stays: the
+// image URLs are baked into published post bodies.
 
 // ─── static assets served from R2 ─────────────────────────────
 // The featured-image generator stores PNGs in the nyyon-assets bucket; we
@@ -987,303 +763,9 @@ app.post('/api/reminders/check', async (c) => {
   return c.json(await runWorkflow(c.env, 'meeting-reminders', {}, { trigger_kind: 'manual' }));
 });
 
-// ─── Sunday Brain (weekly editorial planning) ────────────────
-app.get('/api/brain/current', async (c) => {
-  const { getThisWeekSession } = await import('./lib/brain.js');
-  const s = await getThisWeekSession(c.env);
-  return c.json({ session: s || null });
-});
-app.get('/api/brain/sessions', async (c) => {
-  const { recentBrainSessions } = await import('./lib/brain.js');
-  return c.json({ sessions: await recentBrainSessions(c.env, { limit: 12 }) });
-});
-app.post('/api/brain/start', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const { startBrainSession } = await import('./lib/brain.js');
-  try { return c.json(await startBrainSession(c.env, { force: !!body.force })); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
-});
-app.post('/api/brain/submit', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  if (!body?.answers) return c.json({ error: 'answers required' }, 400);
-  const { submitBrainAnswers } = await import('./lib/brain.js');
-  try { return c.json(await submitBrainAnswers(c.env, { sessionId: body.session_id || null, answers: body.answers })); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
-});
-
-// ─── AEO feedback + editorial taste ──────────────────────────
-app.get('/api/aeo/feedback', async (c) => {
-  const { recentAeoFeedback } = await import('./lib/db.js');
-  return c.json({ feedback: await recentAeoFeedback(c.env, { limit: 80 }) });
-});
-app.post('/api/aeo/feedback', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  if (!body?.reaction) return c.json({ error: 'reaction required' }, 400);
-  // save_aeo_feedback → draft_taste_profile → write_knowledge. The taste-doc
-  // refresh that used to be a silent enrichment is now a visible workflow run.
-  const r = await runWorkflow(c.env, 'aeo-react', {
-    reaction:      body.reaction,
-    note:          body.note || null,
-    question_slug: body.slug || null,
-    idea_title:    body.idea_title || null,
-  });
-  if (!r.ok) return c.json({ error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 400);
-  return c.json({ ok: true, feedback: r.output?.feedback ?? null, taste_updated: !r.output?.skipped, run_id: r.run_id });
-});
-app.post('/api/aeo/taste/refresh', async (c) => {
-  try {
-    const doc = await runTool(c.env, 'draft_taste_profile', {});
-    if (doc.skipped) return c.json({ ok: true, taste: null, skipped: doc.skipped });
-    await runTool(c.env, 'write_knowledge', doc);
-    return c.json({ ok: true, taste: doc });
-  } catch (e) { return c.json({ ok: false, error: String(e?.message || e) }, 500); }
-});
-
-// ─── AEO (question backlog + writer) ─────────────────────────
-app.get('/api/aeo/questions', async (c) => {
-  const status = c.req.query('status') || null;
-  const limit  = parseInt(c.req.query('limit') || '200', 10);
-  return c.json({ questions: await listAeoQuestions(c.env, { status, limit }) });
-});
-app.get('/api/aeo/queue', async (c) => {
-  const [pending, next] = await Promise.all([
-    listAeoQuestions(c.env, { status: 'pending', limit: 1000 }),
-    nextPendingAeoQuestion(c.env),
-  ]);
-  return c.json({ pending_count: pending.length, next });
-});
-app.get('/api/aeo/questions/:slug', async (c) => {
-  const q = await readAeoQuestion(c.env, c.req.param('slug'));
-  if (!q) return c.json({ error: 'not found' }, 404);
-  return c.json({ question: q });
-});
-app.post('/api/aeo/questions', async (c) => {
-  const body = await c.req.json();
-  try { return c.json({ question: await writeAeoQuestion(c.env, body) }, 201); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-// Add a brand-new topic from just its text (auto-slugged, unique). Nyo reaches
-// the same surface through save_aeo_question's create branch.
-app.post('/api/aeo/add', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try { return c.json({ question: await addAeoQuestion(c.env, body) }, 201); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.put('/api/aeo/questions/:slug', async (c) => {
-  const body = await c.req.json();
-  try { return c.json({ question: await writeAeoQuestion(c.env, { ...body, slug: c.req.param('slug') }) }); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.delete('/api/aeo/questions/:slug', async (c) => {
-  try {
-    const removed = await deleteAeoQuestion(c.env, c.req.param('slug'));
-    if (!removed) return c.json({ ok: false, error: 'not found' }, 404);
-    return c.json({ ok: true });
-  } catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-// The aeo-write run reshaped into the {ok, question_slug, blog_slug, title}
-// contract the AEO page reads (AeoDraftResult) — the runner's envelope is not
-// that shape, and returning it raw would leave the page with no title/slug.
-function aeoWriteResponse(r) {
-  if (r.ok) {
-    return {
-      ok: true,
-      question_slug: r.output?.question_slug ?? null,
-      blog_slug:     r.output?.blog_slug ?? null,
-      title:         r.output?.title ?? null,
-      run_id:        r.run_id,
-      skipped:       r.skipped,
-    };
-  }
-  return {
-    ok: false,
-    error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`,
-    question_slug: r.output?.question_slug ?? null,
-    run_id: r.run_id || null,
-  };
-}
-app.post('/api/aeo/draft-now', async (c) => {
-  // Manual trigger — same workflow the cron runs. BEHAVIOUR SPLIT vs the old
-  // runAeoCron: claim_aeo_question is fail-closed and REFUSES a question whose
-  // interview has no answers instead of quietly starting one. The old
-  // two-in-one behaviour is restored here by catching that one refusal and
-  // running the interview workflow for the same question.
-  const r = await runWorkflow(c.env, 'aeo-write', {});
-  if (!r.ok && r.tool === 'claim_aeo_question' && /no interview answers yet/.test(r.error || '')) {
-    const slug = (r.error.match(/AEO question (\S+) has no interview answers/) || [])[1]
-      || (await nextPendingAeoQuestion(c.env))?.slug || null;
-    if (slug) {
-      const iv = await runWorkflow(c.env, 'aeo-interview-start', { question_slug: slug });
-      return c.json({
-        ok: iv.ok, question_slug: slug, interview_started: iv.ok,
-        error: iv.ok ? undefined : (iv.error || `interview workflow failed at step ${iv.failed_step}`),
-        run_id: iv.run_id || null,
-      }, iv.ok ? 200 : 400);
-    }
-  }
-  return c.json(aeoWriteResponse(r));
-});
-app.post('/api/aeo/publish-scheduled', async (c) => {
-  // Autonomous scheduler hook (scheduler.sh / LaunchAgent). Writes ONE ready +
-  // scheduled-due article (interview already captured — e.g. from the Sunday
-  // Brain). readyOnly is now the DEFAULT, not a flag: claim_aeo_question with
-  // no slug claims the next due question whose interview is ready and never
-  // starts an interview, so this stays safe to run unattended.
-  return c.json(aeoWriteResponse(await runWorkflow(c.env, 'aeo-write', {})));
-});
-app.post('/api/aeo/write/:slug', async (c) => {
-  // Write a SPECIFIC question now (used to release a queued, ready idea).
-  // claim_aeo_question accepts status pending OR failed (a retry) but never
-  // 'drafting', so a concurrent run still cannot double-write.
-  return c.json(aeoWriteResponse(await runWorkflow(c.env, 'aeo-write', { question_slug: c.req.param('slug') })));
-});
-
-// ─── AEO suggestions (OSINT signals -> developed angles -> approval) ────
-app.get('/api/aeo/suggestions', async (c) => {
-  const { listAeoSuggestions } = await import('./lib/aeo-suggestions.js');
-  return c.json({ suggestions: await listAeoSuggestions(c.env, { status: c.req.query('status') || null }) });
-});
-app.post('/api/aeo/suggestions/generate', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const r = await runWorkflow(c.env, 'aeo-suggestion-generator', { limit: body?.limit ?? null });
-  // The AEO page reads {ok, created, reason?} — save_aeo_suggestions' own
-  // shape, which lands on the run's shared context.
-  if (!r.ok) return c.json({ ok: false, created: 0, error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 400);
-  return c.json({ ok: true, created: r.output?.created ?? 0, reason: r.output?.reason, run_id: r.run_id });
-});
-// No v2 tool exists for approving or rejecting a suggestion (the spec lists no
-// approve_/reject_/list_aeo_suggestion in any family), so these two stay on
-// lib/aeo-suggestions.js. The v2 equivalent of approve would be
-// save_aeo_question → save_interview_questions → save_interview_answers →
-// runWorkflow('aeo-write', {question_slug}); flagged, not built.
-app.post('/api/aeo/suggestions/:id/approve', async (c) => {
-  const { approveAeoSuggestion } = await import('./lib/aeo-suggestions.js');
-  try { return c.json(await approveAeoSuggestion(c.env, c.req.param('id'), { actor: 'operator', ctx: c.executionCtx })); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.post('/api/aeo/suggestions/:id/reject', async (c) => {
-  const { rejectAeoSuggestion } = await import('./lib/aeo-suggestions.js');
-  try { return c.json(await rejectAeoSuggestion(c.env, c.req.param('id'), { actor: 'operator' })); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-
-// ─── article figures (generate illustrations for blog posts) ───
-app.post('/api/blog/:slug/generate-figures', async (c) => {
-  // Generate article illustrations for a single post (new or existing).
-  // `replace` is gone: embed_figures always strips the previous run's figures,
-  // so every run is a clean regenerate.
-  const slug = c.req.param('slug');
-  const r = await runWorkflow(c.env, 'article-figures', { slug });
-  if (!r.ok) return c.json({ ok: false, error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 400);
-  return c.json({
-    ok: true, run_id: r.run_id, blog_slug: r.output?.blog_slug || slug,
-    figures: r.output?.figures ?? null,
-    featured_image_url: r.output?.featured_image_url ?? null,
-  });
-});
-app.post('/api/blog/:slug/regenerate-figure', async (c) => {
-  // Redesign ONE in-article chart (the editor's per-chart Change button).
-  // Body: { src: "<the figure img src>", instructions?: "<operator steering>" }.
-  const body = await c.req.json().catch(() => ({}));
-  try {
-    return c.json(await regenerateOneFigure(c.env, {
-      slug: c.req.param('slug'),
-      src: body?.src,
-      instructions: body?.instructions || null,
-      actor: 'operator',
-    }));
-  } catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.post('/api/blog/:slug/regenerate-cover', async (c) => {
-  // Re-render ONLY the featured cover (refresh branding/wordmark). No body
-  // change. Overwrites the cover in place. Pass {polish:true} to re-draft the
-  // cover's accent highlight + standfirst via the LLM (keeps the original
-  // look); omit for a free deterministic render. Loop this per-slug from a
-  // script for a full backfill (each call is one draft + render + upload).
-  //
-  // blog-cover ALWAYS drafts the slots (the old polish:true path). polish:false
-  // is the free deterministic render, which is render_cover's own fallback
-  // (first tag + title + excerpt, no LLM) — so that branch calls the two tools
-  // directly rather than the workflow.
-  const slug = c.req.param('slug');
-  const body = await c.req.json().catch(() => ({}));
-  if (!body?.polish) {
-    const rendered = await runTool(c.env, 'render_cover', { blog_slug: slug });
-    const set = await runTool(c.env, 'set_featured_image', { blog_slug: slug, cover_url: rendered.cover_url, actor: 'operator-cover' });
-    return c.json({ ok: true, blog_slug: slug, cover_url: rendered.cover_url, featured_image_url: set.featured_image_url ?? null });
-  }
-  const r = await runWorkflow(c.env, 'blog-cover', { slug });
-  if (!r.ok) return c.json({ ok: false, error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 400);
-  return c.json({
-    ok: true, run_id: r.run_id, blog_slug: r.output?.blog_slug || slug,
-    cover_url: r.output?.cover_url ?? null,
-    featured_image_url: r.output?.featured_image_url ?? null,
-  });
-});
-app.post('/api/blog/covers/prune-orphans', async (c) => {
-  // Delete cover PNGs in R2 that no post references. Repeated/killed cover
-  // backfills leave many `${slug}-cover-<ts>.png` orphans; only the one in each
-  // post's featured_image_url is in use. Body figures (`-fig-N.png`) and the
-  // referenced covers are always kept. Pass {dryRun:true} to preview.
-  const body = await c.req.json().catch(() => ({}));
-  const dryRun = !!body?.dryRun;
-  // Read featured_image_url straight from D1 — the list projection omits it.
-  const rows = await c.env.DB.prepare('SELECT featured_image_url FROM blog_posts').all();
-  const keep = new Set();
-  for (const r of (rows.results || [])) {
-    const m = (r.featured_image_url || '').match(/blog-figures\/[^/?#"]+\.png/);
-    if (m) keep.add(m[0]);
-  }
-  let scanned = 0, figuresKept = 0, coversKeptReferenced = 0, coversDeleted = 0;
-  const sample = [];
-  let cursor;
-  do {
-    const listed = await c.env.ASSETS.list({ prefix: 'blog-figures/', cursor, limit: 1000 });
-    for (const o of listed.objects) {
-      scanned++;
-      if (!/-cover(-\d+)?\.png$/.test(o.key)) { figuresKept++; continue; }  // a figure, keep
-      if (keep.has(o.key)) { coversKeptReferenced++; continue; }            // in use, keep
-      if (!dryRun) await c.env.ASSETS.delete(o.key);
-      coversDeleted++;
-      if (sample.length < 5) sample.push(o.key);
-    }
-    cursor = listed.truncated ? listed.cursor : undefined;
-  } while (cursor);
-  return c.json({ ok: true, dryRun, scanned, keep_set: keep.size, figures_kept: figuresKept, covers_kept_referenced: coversKeptReferenced, covers_deleted: coversDeleted, sample });
-});
-app.post('/api/blog/batch/generate-figures', async (c) => {
-  // Backfill article figures for ALL posts. Fire-and-forget, returns immediately.
-  // Check /api/blog/batch/generate-figures/status for progress.
-  const posts = await listBlogPosts(c.env, { limit: 500, publishedOnly: true });
-  const body = await c.req.json().catch(() => ({}));
-  const parallel = Math.min(body?.parallel || 3, 10);  // 3 concurrent by default
-  let processed = 0, succeeded = 0, failed = 0;
-  // The batching/parallelism stays HERE: a batch is not a workflow. Each post
-  // is one article-figures run, so every item gets its own workflow_runs row.
-  (async () => {
-    for (let i = 0; i < posts.length; i += parallel) {
-      const batch = posts.slice(i, i + parallel);
-      await Promise.all(
-        batch.map(async (p) => {
-          try {
-            const r = await runWorkflow(c.env, 'article-figures', { slug: p.slug });
-            if (r.ok) succeeded += 1; else failed += 1;
-          } catch (e) {
-            failed += 1;
-          } finally {
-            processed += 1;
-          }
-        }),
-      );
-    }
-  })();
-  return c.json({
-    queued: true,
-    total: posts.length,
-    parallel,
-    message: 'figures generation started in background',
-  });
-});
+// ─── Sunday Brain + AEO + article-figures routes removed — the whole
+// editorial engine (brain, feedback/taste, question queue, suggestions,
+// figures/covers) ships in the editorial plugin.
 
 // ─── gtm (Prospecting + Outreach) ─────────────────────────────────────────────
 // GTM routes removed — the module ships as the gtm plugin; its surfaces drive
@@ -1293,347 +775,10 @@ app.post('/api/blog/batch/generate-figures', async (c) => {
 // Daily Planner routes removed — the module ships as a plugin; its surface
 // drives the plugin's own tools via /api/plugins/daily-planner/invoke/*.
 
-// ─── Hot Takes (editorial command center — topic → take → brief → article → distribute) ──
-app.get('/api/hot-takes/packages', async (c) => {
-  const statusQ = c.req.query('status');
-  const statuses = statusQ ? statusQ.split(',').map((s) => s.trim()).filter(Boolean) : null;
-  const packages = await htListPackages(c.env, { statuses, limit: Number(c.req.query('limit')) || 200 });
-  return c.json({ packages });
-});
-// `history=1` widens the lookback to everything we retain (the UI's Load more
-// grows `limit` with this set); `q` searches all of it, not just what's loaded;
-// `offset` is honoured for API callers. All optional — omitting them returns
-// today's feed exactly as before.
-app.get('/api/hot-takes/topics-of-the-day', async (c) => {
-  const history = c.req.query('history');
-  return c.json(await htTopicsOfTheDay(c.env, {
-    limit: Number(c.req.query('limit')) || 12,
-    offset: Number(c.req.query('offset')) || 0,
-    q: c.req.query('q') || '',
-    history: history === '1' || history === 'true',
-  }));
-});
-app.post('/api/hot-takes/packages', async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  const pkg = await htCreatePackage(c.env, { ...b, origin: b.origin || 'manual', pinned: b.pinned ?? 1, actor: 'operator' });
-  return c.json({ package: pkg });
-});
-app.post('/api/hot-takes/topics/pin', async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  return c.json({ package: await htPinTopic(c.env, b, 'operator') });
-});
-// Manually remove a Topic-of-the-Day card from the feed (persisted; stays gone).
-app.post('/api/hot-takes/topics/dismiss', async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  return c.json({ package: await htDismissTopicCard(c.env, b, 'operator') });
-});
-app.post('/api/hot-takes/add-link', async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  // fetch_web_page → extract_article_meta → pin_hottake_topic. The Add-link box
-  // reads {package}, which is pin_hottake_topic's result on the shared context.
-  const r = await runWorkflow(c.env, 'hottake-add-link', { url: b.url, actor: 'operator' });
-  if (!r.ok) return c.json({ error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 400);
-  return c.json({ package: r.output?.package ?? null, run_id: r.run_id });
-});
-app.get('/api/hot-takes/packages/:id', async (c) => {
-  const pkg = await htReadPackage(c.env, c.req.param('id'));
-  if (!pkg) return c.json({ error: 'not found' }, 404);
-  const posts = await htListPosts(c.env, pkg.id);
-  return c.json({ package: pkg, posts, next_action: htNextAction(pkg, posts, htReleaseChannels(c.env)) });
-});
-app.patch('/api/hot-takes/packages/:id', async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  return c.json({ package: await htPatchPackage(c.env, c.req.param('id'), b, 'operator') });
-});
-app.post('/api/hot-takes/packages/:id/dismiss', async (c) => {
-  return c.json({ package: await htDismissPackage(c.env, c.req.param('id'), 'operator') });
-});
-// The editorial spine — each step is a shared-pool tool (reasoning via the llm
-// gateway); routes just trigger them with the operator actor.
-app.post('/api/hot-takes/packages/:id/draft-take', async (c) => {
-  const res = await runTool(c.env, 'draft_hottake_take', { id: c.req.param('id'), actor: 'operator' });
-  return c.json(res, res?.error ? 400 : 200);
-});
-app.post('/api/hot-takes/packages/:id/build-brief', async (c) => {
-  const res = await runTool(c.env, 'build_hottake_brief', { id: c.req.param('id'), actor: 'operator' });
-  return c.json(res, res?.error ? 400 : 200);
-});
-app.post('/api/hot-takes/packages/:id/write-article', async (c) => {
-  // JUDGMENT CALL (docs/route-migrations.md flags it): there is NO v2 tool for
-  // "write the article only" — the spec dissolved it into hottake-produce,
-  // which STARTS at draft_hottake_take and would overwrite an already-approved
-  // take. This is one of three spine buttons the operator presses in order, so
-  // pointing it at that workflow would silently redo the two steps before it.
-  // Kept on the lib, like the other 15 Hot Takes routes.
-  const b = await c.req.json().catch(() => ({}));
-  const { writeArticleFromBrief } = await import('./lib/hot-takes.js');
-  try {
-    const res = await writeArticleFromBrief(c.env, c.req.param('id'), { voice: b.voice, actor: 'operator' });
-    return c.json(res, res?.error ? 400 : 200);
-  } catch (e) {
-    return c.json({ error: String(e?.message || e) }, 500);
-  }
-});
-app.post('/api/hot-takes/packages/:id/review-scan', async (c) => {
-  const res = await runTool(c.env, 'scan_hottake_article', { id: c.req.param('id'), actor: 'operator' });
-  return c.json(res, res?.error ? 400 : 200);
-});
-// draft_hottake_post / save_hottake_post were cut as twins of the Social
-// family's pair, and no `hottake-social-legs` workflow was seeded, so the legs
-// are drafted here with the granular tools. read_blog_post (NOT
-// link_hottake_article) gathers the article fields: link_hottake_article moves
-// the package status back to 'review' and would regress a package already at
-// ready/scheduled. save_social_post MUST carry package_id or the legs are
-// orphaned from their package — and it REPLACES that package+channel's
-// existing unposted leg, which is what makes re-running the Redraft button.
-const HOTTAKE_LEG_CHANNELS = ['linkedin-company', 'linkedin-personal'];
-async function draftHotTakeLegs(env, { package_id, slug, channels }) {
-  const { post } = await runTool(env, 'read_blog_post', { slug });
-  if (!post) return { error: `no article to draft from (slug ${slug})` };
-  const posts = [];
-  for (const channel of channels) {
-    const d = await runTool(env, 'draft_social_post', { channel, post, slug: post.slug, package_id });
-    if (d.skipped || !d.content) continue;
-    const s = await runTool(env, 'save_social_post', {
-      channel, content: d.content, slug: post.slug, title: post.title,
-      image_url: post.featured_image_url || null, package_id, actor: 'operator',
-    });
-    if (s.post) posts.push(s.post);
-  }
-  return { posts };
-}
-app.post('/api/hot-takes/packages/:id/draft-social', async (c) => {
-  // Optional body {channel} narrows to a single-leg redraft.
-  const id = c.req.param('id');
-  const b = await c.req.json().catch(() => ({}));
-  const pkg = await runTool(c.env, 'read_hottake_package', { id });
-  if (!pkg.found) return c.json({ error: 'not found' }, 400);
-  if (!pkg.package?.blog_slug) return c.json({ error: 'package has no article yet' }, 400);
-  const res = await draftHotTakeLegs(c.env, {
-    package_id: id, slug: pkg.package.blog_slug,
-    channels: b?.channel ? [b.channel] : HOTTAKE_LEG_CHANNELS,
-  });
-  return c.json(res, res?.error ? 400 : 200);
-});
-app.post('/api/hot-takes/packages/:id/schedule', async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  const res = await runTool(c.env, 'schedule_hottake_release', { id: c.req.param('id'), ...b, actor: 'operator' });
-  return c.json(res, res?.error ? 400 : 200);
-});
-app.post('/api/hot-takes/packages/:id/cancel-schedule', async (c) => {
-  const res = await runTool(c.env, 'cancel_hottake_schedule', { id: c.req.param('id'), actor: 'operator' });
-  return c.json(res, res?.error ? 400 : 200);
-});
-// Plain blog drafts (no package yet) — schedule or social-draft by slug; the
-// tool adopts the draft into the release pipeline (ensurePackageForSlug).
-app.post('/api/hot-takes/blog/:slug/schedule', async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  const res = await runTool(c.env, 'schedule_hottake_release', { slug: c.req.param('slug'), ...b, actor: 'operator' });
-  return c.json(res, res?.error ? 400 : 200);
-});
-app.post('/api/hot-takes/blog/:slug/draft-social', async (c) => {
-  // adopt_blog_draft replaces the old tool's implicit slug → package adoption
-  // (it is idempotent), then the same per-channel drafting pair runs.
-  const slug = c.req.param('slug');
-  const { package: pkg } = await runTool(c.env, 'adopt_blog_draft', { slug, actor: 'operator' });
-  if (!pkg?.id) return c.json({ error: 'could not adopt this draft into a package' }, 400);
-  const res = await draftHotTakeLegs(c.env, { package_id: pkg.id, slug, channels: HOTTAKE_LEG_CHANNELS });
-  return c.json(res?.error ? res : { ...res, package_id: pkg.id }, res?.error ? 400 : 200);
-});
-app.post('/api/hot-takes/packages/:id/publish-website', async (c) => {
-  // publish_blog_post neither mirrors the calendar event nor calls
-  // maybeComplete the way lib publishWebsite did, so the save_hottake_package
-  // write below is MANDATORY (it is what still moves the package). The
-  // auto-complete is lost on this manual path; the cron path is unaffected
-  // (POST /api/hot-takes/run-due still goes through lib runDueReleases).
-  const id = c.req.param('id');
-  try {
-    const pkg = await runTool(c.env, 'read_hottake_package', { id });
-    if (!pkg.found) return c.json({ error: 'not found' }, 400);
-    if (!pkg.package?.blog_slug) return c.json({ error: 'package has no article yet' }, 400);
-    const r = await runTool(c.env, 'publish_blog_post', { slug: pkg.package.blog_slug });
-    await runTool(c.env, 'save_hottake_package', {
-      id, status: 'published', website_status: 'published', website_url: r.url, actor: 'operator',
-    });
-    return c.json({ ok: r.ok !== false, url: r.url || null, live: r.live ?? null });
-  } catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.post('/api/hot-takes/posts/:postId/send', async (c) => {
-  // approve_social_post opens the outbox claim push_social_post requires, so
-  // claim-then-send stays atomic. Both halves keep the hottakes.live dry-run
-  // gate lib postLeg had, and push adds the outbox claim postLeg never took.
-  const r = await runWorkflow(c.env, 'social-release-post', { id: c.req.param('postId') });
-  if (!r.ok) return c.json({ error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 400);
-  return c.json({
-    ok: r.output?.ok !== false, dry_run: !!r.output?.dry_run, would: r.output?.would,
-    outbox_id: r.output?.outbox_id ?? null, run_id: r.run_id,
-  });
-});
-app.patch('/api/hot-takes/posts/:postId', async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  return c.json({ post: await htPatchPost(c.env, c.req.param('postId'), b, 'operator') });
-});
-// Views over the same package store — the tabs.
-app.get('/api/hot-takes/pipeline', async (c) => c.json(await htPipelineView(c.env)));
-app.get('/api/hot-takes/article/:id', async (c) => {
-  const v = await htArticleView(c.env, c.req.param('id'));
-  return v ? c.json(v) : c.json({ error: 'not found' }, 404);
-});
-app.patch('/api/hot-takes/article/:id', async (c) => {
-  const b = await c.req.json().catch(() => ({}));
-  return c.json(await htSaveArticleEdit(c.env, c.req.param('id'), b, 'operator'));
-});
-app.get('/api/hot-takes/schedule', async (c) => c.json(await htScheduleView(c.env, { days: Number(c.req.query('days')) || 30 })));
-app.get('/api/hot-takes/sources', async (c) => c.json(await htListApprovedSources(c.env)));
-app.get('/api/hot-takes/search', async (c) => c.json(await htSearch(c.env, { q: c.req.query('q') || '' })));
-app.get('/api/hot-takes/notes', async (c) => c.json(await htLoadNotes(c.env)));
-app.get('/api/hot-takes/state', async (c) => c.json({ live: await htLive(c.env) }));
+// ─── Hot Takes + Social routes removed — both ship in the editorial plugin;
+// their page surfaces drive the plugin's own tools via
+// /api/plugins/editorial/invoke/*.
 
-// ─── Hot Takes · module first run ─────────────────────────────
-// The awareness feed is only useful if it watches the RIGHT things, and a fresh
-// install watches whatever shipped in DEFAULT_SOURCES. These five routes are
-// the one-time surface that fixes that from inside the module: read what
-// onboarding learned, propose validated feeds, save the picks, and remember
-// that it ran. Every one of them goes through the shared tool pool — the page
-// is a module, so it never reaches a lib or a service directly.
-//
-// The proposal route is the expensive one (one model call plus up to ~26 real
-// feed fetches), which is why it is a POST the operator triggers and never
-// something the page does on mount.
-app.get('/api/hot-takes/setup', async (c) => {
-  try { return c.json(await runTool(c.env, 'read_hottakes_setup', {})); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
-});
-app.post('/api/hot-takes/setup/propose', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try { return c.json(await runTool(c.env, 'propose_heartbeat_sources', { hint: body?.hint || '', actor: 'operator' })); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
-});
-// A pasted feed gets the same proof as a proposed one — the operator should
-// never be able to add a URL this module has not successfully parsed.
-app.post('/api/hot-takes/setup/validate', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  if (!body?.url) return c.json({ error: 'url required' }, 400);
-  try { return c.json(await runTool(c.env, 'validate_feed_url', { url: String(body.url) })); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
-});
-app.post('/api/hot-takes/setup/apply', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try {
-    return c.json(await runTool(c.env, 'save_hottakes_setup', {
-      sources: body?.sources || [], targets: body?.targets || [],
-      watch: body?.watch || null, ran_ingest: Boolean(body?.ran_ingest), actor: 'operator',
-    }));
-  } catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.post('/api/hot-takes/setup/skip', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try { return c.json(await runTool(c.env, 'skip_hottakes_setup', { reopen: Boolean(body?.reopen), actor: 'operator' })); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
-});
-// The first sweep, so the Topics tab opens with real cards instead of an empty
-// state. Seeds the catalog first: a fresh install has never listed workflows,
-// so the row this runs would not exist yet.
-app.post('/api/hot-takes/setup/first-ingest', async (c) => {
-  const { seedSystemWorkflows } = await import('./workflows/runner.js');
-  await seedSystemWorkflows(c.env).catch(() => {});
-  try {
-    const run = await runWorkflow(c.env, 'hottakes-first-ingest', {}, { trigger_kind: 'manual' });
-    // The FEED, not just the synthesized hot topics: the Topics tab renders
-    // scored signals alongside clustered topics, so a first sweep that pulled
-    // plenty but has too few high scorers to cluster still fills the tab.
-    // Reporting only hot topics here would say "nothing came back" about a
-    // screen that is visibly full.
-    const topics = await runTool(c.env, 'list_topic_feed', { limit: 6 }).catch(() => ({ topics: [] }));
-    return c.json({
-      ok: Boolean(run?.ok),
-      error: run?.ok ? null : (run?.error || null),
-      // Straight off the shared workflow context — the counts the operator sees
-      // are the ones the steps actually reported, not a re-derived guess.
-      inserted: run?.output?.inserted ?? 0,
-      scored:   run?.output?.scored ?? 0,
-      per_source: run?.output?.per_source || [],
-      skipped: run?.skipped || [],
-      topics: topics?.topics || [],
-    }, run?.ok ? 200 : 500);
-  } catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
-});
-// Poster identities for the social-post previews — read from the editable
-// `hottakes-social-identities` note, never hardcoded.
-app.get('/api/hot-takes/social-identities', async (c) => {
-  const { loadSocialIdentities } = await import('./lib/hot-takes.js');
-  try { return c.json({ identities: await loadSocialIdentities(c.env) }); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
-});
-app.post('/api/hot-takes/run-due', async (c) => c.json(await htRunDueReleases(c.env, { ctx: c.executionCtx })));
-
-// ─── Social (auto-drafted social posts from published blog articles) ────
-app.get('/api/social/posts', async (c) => c.json(await runTool(c.env, 'list_social_posts', {
-  status: c.req.query('status') || null, slug: c.req.query('slug') || null,
-})));
-app.get('/api/social/settings', async (c) => c.json(await runTool(c.env, 'list_social_integrations', {})));
-app.get('/api/social/posts/:id', async (c) => {
-  const r = await runTool(c.env, 'read_social_post', { id: c.req.param('id') });
-  if (!r.post) return c.json({ error: 'not found' }, 404);
-  return c.json({ post: r.post });
-});
-// Edit a draft's copy before approving.
-app.put('/api/social/posts/:id', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try { return c.json(await runTool(c.env, 'edit_social_post', { id: c.req.param('id'), content: body.content })); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-// Approve → push through the gateway under the outbox claim. Logs to Outbox +
-// activity. The workflow IS approve-then-push, so the claim stays atomic.
-app.post('/api/social/posts/:id/approve', async (c) => {
-  try {
-    const r = await runWorkflow(c.env, 'social-release-post', { id: c.req.param('id') });
-    if (!r.ok) return c.json({ ok: false, error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 400);
-    return c.json({ ...r.output, ok: r.output?.ok !== false, run_id: r.run_id }, r.output?.ok === false ? 400 : 200);
-  } catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-// No v2 tool: the spec expected skip to be covered by a save_hottake_post
-// {status:'skipped'} that no family defines. Kept on the lib.
-app.post('/api/social/posts/:id/skip', async (c) => {
-  try { return c.json({ post: await skipSocialPost(c.env, c.req.param('id')) }); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.delete('/api/social/posts/:id', async (c) => {
-  try { return c.json(await runTool(c.env, 'delete_social_post', { id: c.req.param('id') })); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-// No v2 tool for a whole-slug group delete either — kept on the lib.
-app.delete('/api/social/group/:slug', async (c) => {
-  try { return c.json(await deleteSocialGroup(c.env, c.req.param('slug'))); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-// Manual (re)generation for a slug — ?force=1 replaces unposted drafts.
-app.post('/api/social/generate/:slug', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  // Same declarative workflow the publish fan-out runs — one definition, one
-  // trail. The CLIENT contract stays the tool's result ({ok, drafted, skipped,
-  // reason}) + run_id: a runner-level failure (disabled workflow / step threw)
-  // maps to 400 like the pre-workflow route did, not a silent 200.
-  try {
-    const slug = c.req.param('slug');
-    const { seedSystemWorkflows } = await import('./workflows/runner.js');
-    await seedSystemWorkflows(c.env);
-    const r = await runWorkflow(c.env, 'social-drafts-for-article', { slug, force: !!body.force });
-    if (!r.ok) return c.json({ error: r.error || `workflow failed at step ${r.failed_step} (${r.tool})`, run_id: r.run_id || null }, 400);
-    // MUST be counted per step, not read off the last one: the chain is now 7
-    // steps ending in save_social_post, whose result is {post,id} (or
-    // {skipped,reason}). Spreading that returned a single post row where the
-    // client expects {ok, drafted, skipped, reason}.
-    const steps   = r.results || [];
-    const drafted = steps.filter((s) => s.tool === 'save_social_post' && s.result?.post).length;
-    const skipped = steps.filter((s) => s.result?.skipped).length;
-    return c.json({
-      ok: true, slug, drafted, skipped,
-      reason: drafted ? undefined : steps.map((s) => s.result?.reason).filter(Boolean)[0],
-      run_id: r.run_id,
-    });
-  } catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
 // ─── LinkedIn (via Unipile — hosted sessions, hosted auth) ─
 app.get('/api/li/probe', async (c) => c.json(await runTool(c.env, 'probe_linkedin', {})));
 // Connecting an account is Unipile's hosted auth page: this returns the URL
@@ -1801,73 +946,8 @@ async function safeLi(c, fn) {
   catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
 }
 
-// ─── Heartbeat (OSINT v2 — awareness layer) ──────────────────
-app.post('/api/heartbeat/run', async (c) => {
-  const { runHeartbeat } = await import('./lib/heartbeat.js');
-  try { return c.json(await runHeartbeat(c.env, { actor: 'manual' })); }
-  catch (e) { return c.json({ ok: false, error: String(e?.message || e) }, 500); }
-});
-// Score gates — the thresholds that decide what survives each stage. They are
-// stored in the `heartbeat-priorities` knowledge note, not in code, so these
-// routes read/write that note rather than any constant.
-app.get('/api/heartbeat/gates', async (c) => {
-  const { heartbeatGates } = await import('./lib/heartbeat.js');
-  try { return c.json({ gates: await heartbeatGates(c.env) }); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
-});
-app.put('/api/heartbeat/gates', async (c) => {
-  const { patchHeartbeatGates } = await import('./lib/heartbeat.js');
-  try { return c.json({ gates: await patchHeartbeatGates(c.env, await c.req.json()) }); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.get('/api/heartbeat/signals', async (c) => {
-  const { topSignals } = await import('./lib/heartbeat.js');
-  const minContent = parseInt(c.req.query('min') || '55', 10);
-  const days = parseInt(c.req.query('days') || '7', 10);
-  return c.json({ signals: await topSignals(c.env, { days, minContent, limit: 30 }) });
-});
-app.get('/api/heartbeat/pulse', async (c) => {
-  const { readPulse } = await import('./lib/heartbeat.js');
-  return c.json({ pulse: await readPulse(c.env) });
-});
-// OSINT hot topics — synthesized, digest-ready angles from the scored signals.
-app.post('/api/osint/topics', async (c) => {
-  const { synthesizeHotTopics } = await import('./lib/heartbeat.js');
-  const body = await c.req.json().catch(() => ({}));
-  try { return c.json(await synthesizeHotTopics(c.env, body || {})); }
-  catch (e) { return c.json({ ok: false, error: String(e?.message || e) }, 500); }
-});
-app.get('/api/osint/topics', async (c) => {
-  const { topHotTopics } = await import('./lib/heartbeat.js');
-  const limit = Number(c.req.query('limit')) || 6;
-  return c.json({ topics: await topHotTopics(c.env, { limit }) });
-});
-app.post('/api/heartbeat/enrich', async (c) => {
-  const { enrichSignals } = await import('./lib/heartbeat.js');
-  const body = await c.req.json().catch(() => ({}));
-  try { return c.json(await enrichSignals(c.env, { limit: body.limit || 8, minRelevance: body.minRelevance ?? 50 })); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
-});
-app.get('/api/heartbeat/sources', async (c) => {
-  const { listHeartbeatSources } = await import('./lib/heartbeat.js');
-  return c.json({ sources: await listHeartbeatSources(c.env) });
-});
-app.post('/api/heartbeat/sources', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const { writeHeartbeatSource } = await import('./lib/heartbeat.js');
-  try { return c.json({ source: await writeHeartbeatSource(c.env, body) }); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.patch('/api/heartbeat/sources/:id', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  const { writeHeartbeatSource } = await import('./lib/heartbeat.js');
-  try { return c.json({ source: await writeHeartbeatSource(c.env, { ...body, id: c.req.param('id') }) }); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.delete('/api/heartbeat/sources/:id', async (c) => {
-  const { deleteHeartbeatSource } = await import('./lib/heartbeat.js');
-  return c.json(await deleteHeartbeatSource(c.env, c.req.param('id')));
-});
+// ─── Heartbeat/OSINT routes removed — the awareness layer ships in the
+// editorial plugin.
 
 // ─── home_sections (per-section visibility + ordering) ───────
 app.get('/api/sections', async (c) => {
@@ -2170,23 +1250,28 @@ async function handleScheduled(event, env, ctx) {
   // (seen live twice: heartbeat died on "Too many subrequests" after the OSINT
   // scrapes). Staggered cron slots give each leg its own budget: :00 OSINT,
   // :15 heartbeat scoring, :30 digest regenerate — the digest still reads this
-  // hour's fresh mentions/signals. Every leg logs a workflow_runs row under
-  // the same hourly-awareness-sweep slug with output.leg naming it.
+  // hour's fresh mentions/signals. The engines live in the editorial plugin
+  // now, so each leg runs the pack's cron wrapper tool BY NAME through the
+  // shared pool; every leg still logs a workflow_runs row under the same
+  // hourly-awareness-sweep slug with output.leg naming it.
   const logLeg = (leg, startedAt, output, error) => logWorkflowRun(env, {
     workflow_slug: 'hourly-awareness-sweep', status: error ? 'failed' : 'succeeded',
     trigger_kind: 'cron', output: { leg, ...(output || {}) }, started_at: startedAt,
     error: error ? `${leg}: ${error}` : null,
   }).catch(console.error);
+  // An install without the editorial pack has none of these wrapper tools —
+  // that is a quiet skip, never an hourly failed-run drumbeat.
+  const packMissing = (e) => /^unknown tool /.test(String(e?.message || e));
 
   if (cron.startsWith('15 ')) {
     ctx.waitUntil((async () => {
       const t0 = Date.now();
       try {
-        const { runHeartbeat } = await import('./lib/heartbeat.js');
-        const r = await runHeartbeat(env, { actor: 'heartbeat-cron' });
+        const r = await runTool(env, 'run_heartbeat', {});
         console.log('[heartbeat-cron]', cron, JSON.stringify({ inserted: r.inserted, scored: r.scored }));
         await logLeg('heartbeat', t0, { inserted: r.inserted, scored: r.scored }, null);
       } catch (e) {
+        if (packMissing(e)) { console.log('[heartbeat-cron] editorial plugin not installed — leg skipped'); return; }
         console.error('[heartbeat-cron] unhandled', e?.message || e);
         await logLeg('heartbeat', t0, null, String(e?.message || e));
       }
@@ -2198,10 +1283,11 @@ async function handleScheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
       const t0 = Date.now();
       try {
-        const r = await generateDigest(env, {});
+        const r = await runTool(env, 'run_digest', {});
         console.log('[digest-cron]', cron, JSON.stringify({ added: r?.added ?? r?.count ?? null }));
         await logLeg('digest', t0, { added: r?.added ?? r?.count ?? null }, null);
       } catch (e) {
+        if (packMissing(e)) { console.log('[digest-cron] editorial plugin not installed — leg skipped'); return; }
         console.error('[digest-cron] unhandled', e?.message || e);
         await logLeg('digest', t0, null, String(e?.message || e));
       }
@@ -2230,13 +1316,12 @@ async function handleScheduled(event, env, ctx) {
     return;
   }
 
-  // :00 — OSINT leg. 3h stale window (not the 22h default): each hourly tick
-  // re-scrapes any target untouched for 3h; maxTargets 5 bounds one
-  // invocation's scrape fan-out (overflow defers, oldest first).
+  // :00 — OSINT leg. The pack's run_osint_scan wrapper carries the same 3h
+  // stale window + maxTargets 5 defaults the direct lib call used to pass.
   ctx.waitUntil((async () => {
     const t0 = Date.now();
     try {
-      const r = await runOsintCron(env, { actor: 'osint-cron', staleAfterMs: 3 * 60 * 60 * 1000, maxTargets: 5 });
+      const r = await runTool(env, 'run_osint_scan', {});
       // ran/skipped are arrays on a normal run but a STRING ('no listeners
       // enabled') on the early-return — never persist a string's length as a count.
       const out = {
@@ -2247,6 +1332,7 @@ async function handleScheduled(event, env, ctx) {
       console.log('[osint-cron]', cron, JSON.stringify(out));
       await logLeg('osint', t0, out, null);
     } catch (e) {
+      if (packMissing(e)) { console.log('[osint-cron] editorial plugin not installed — leg skipped'); return; }
       console.error('[osint-cron] unhandled', e?.message || e);
       await logLeg('osint', t0, null, String(e?.message || e));
     }
@@ -2255,11 +1341,12 @@ async function handleScheduled(event, env, ctx) {
   // Hot Takes due-scan — publish scheduled websites + fire scheduled LinkedIn
   // legs that are due. Website publishes are REAL (same trust as the Blog
   // Approve button); LinkedIn legs stay dry-run (log-only) unless the operator
-  // set the hottakes.live feature flag. Own waitUntil + own workflow_runs row.
+  // set the hottakes.live feature flag. The engine is the pack's
+  // run_due_releases wrapper now; own waitUntil + own workflow_runs row.
   ctx.waitUntil((async () => {
     const t0 = Date.now();
     try {
-      const r = await htRunDueReleases(env, { ctx });
+      const r = await runTool(env, 'run_due_releases', {});
       const n = (r.website_published?.length || 0) + (r.posts_sent?.length || 0);
       if (n || r.errors?.length) console.log('[hottake-cron]', cron, JSON.stringify(r));
       await logWorkflowRun(env, {
@@ -2268,6 +1355,7 @@ async function handleScheduled(event, env, ctx) {
         error: r.errors?.length ? JSON.stringify(r.errors).slice(0, 500) : null,
       }).catch(console.error);
     } catch (e) {
+      if (packMissing(e)) { console.log('[hottake-cron] editorial plugin not installed — leg skipped'); return; }
       console.error('[hottake-cron] unhandled', e?.message || e);
       await logWorkflowRun(env, {
         workflow_slug: 'hottake-scheduler', status: 'failed',
@@ -2329,10 +1417,12 @@ async function handleScheduled(event, env, ctx) {
   // tune the interest filter (no-op unless enough new dismissals accumulated).
   ctx.waitUntil((async () => {
     try {
-      const { learnFromDismissals } = await import('./lib/digest-relevance.js');
-      const r = await learnFromDismissals(env, {});
+      const r = await runTool(env, 'learn_dismissals', {});
       if (r?.learned) console.log('[digest-learn]', cron, JSON.stringify({ avoid: r.avoid?.length }));
-    } catch (e) { console.error('[digest-learn] unhandled', e?.message || e); }
+    } catch (e) {
+      if (packMissing(e)) return; // editorial plugin not installed — quiet skip
+      console.error('[digest-learn] unhandled', e?.message || e);
+    }
   })());
 
   // Outreach replies → pipeline — pull anyone who answered LI/WA outreach onto

@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../lib/api';
 import { loadSidebarSlugs, type SurfaceSlug } from '../lib/theme';
 import type { Nav } from '../App';
-import { BookOpen, Cube, Activity as ActivityIcon, Gear, Terminal, MessageSquare, Newspaper, LinkedIn, Flame, X } from './Icons';
+import { BookOpen, Cube, Activity as ActivityIcon, Gear, Terminal, MessageSquare, X } from './Icons';
 
 type Item = {
   key: Nav;
@@ -11,9 +11,8 @@ type Item = {
 };
 
 const SURFACE_ITEMS: Record<SurfaceSlug, Item> = {
-  'hot-takes': { key: 'hot-takes', label: 'Hot Takes', Icon: Flame },
-  blog:     { key: 'blog',     label: 'Blog',     Icon: Newspaper },
-  social:   { key: 'social',   label: 'Social',   Icon: LinkedIn },
+  // Hot Takes / Blog / Social ship as the editorial plugin now — their pages
+  // arrive through pluginSurfaces below, not this static table.
   nyo:      { key: 'nyo',      label: 'Nyo',      Icon: MessageSquare },
 };
 

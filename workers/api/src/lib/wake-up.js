@@ -24,6 +24,18 @@ import { retryOutboxRow } from './outbox.js';
 
 const POLICY_SLUG = 'wake-up-policy';
 
+// ─── week math (inlined from the departed lib/brain.js) ─────────────────────
+// Returns ms-epoch of the most recent Sunday at 00:00 local time. Workers run
+// in UTC; we don't have the operator's tz, so we use UTC Sunday — close enough
+// for a weekly cadence, and consistent with the plugin's own brain engine.
+function weekOfSunday(ts = Date.now()) {
+  const d = new Date(ts);
+  const day = d.getUTCDay();             // 0 = Sunday
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() - day);    // back up to Sunday
+  return d.getTime();
+}
+
 // Seeded defaults — mirrored into the knowledge doc so the operator can tune
 // them without a deploy.
 const POLICY_DEFAULTS = Object.freeze({
@@ -108,12 +120,15 @@ export async function runWakeUp(env, opts = {}) {
   //    editorial brain yet, queue the proactive "ready?" message. This is
   //    what makes Nyo ask the operator when they open the app on Sunday.
   //    Idempotent: gated on a brain session existing for the week.
+  //    The brain engine itself lives in the editorial plugin now
+  //    (plugin_editorial_brain_sessions is its table — host reads it, per the
+  //    host-reads grant); weekOfSunday is inlined below since lib/brain.js
+  //    went with the pack.
   try {
     const isSunday = new Date(now).getUTCDay() === 0;
     if (isSunday) {
-      const { weekOfSunday } = await import('./brain.js');
       const week = weekOfSunday(now);
-      const session = await safeFirst(`SELECT id, status FROM brain_sessions WHERE week_of = ? LIMIT 1`, week);
+      const session = await safeFirst(`SELECT id, status FROM plugin_editorial_brain_sessions WHERE week_of = ? LIMIT 1`, week);
       const offered = await safeFirst(
         `SELECT created_at FROM events WHERE kind = ? AND created_at >= ? LIMIT 1`, EVENT_KINDS.BRAIN_OFFER_SENT, week,
       );
@@ -152,9 +167,9 @@ export async function runWakeUp(env, opts = {}) {
   } catch (e) { console.error('brain-offer wake-up step skipped:', e?.message || e); }
 
   // 1. Stats: pending AEO questions, last successful publish, recent failures.
-  const pendingAeo  = await safeFirst(`SELECT COUNT(*) AS n FROM aeo_questions WHERE status = 'pending'`);
-  const failedAeo   = await safeFirst(`SELECT COUNT(*) AS n FROM aeo_questions WHERE status = 'failed'`);
-  const lastPublish = await safeFirst(`SELECT slug, title, published_at FROM blog_posts WHERE published = 1 ORDER BY published_at DESC LIMIT 1`);
+  const pendingAeo  = await safeFirst(`SELECT COUNT(*) AS n FROM plugin_editorial_aeo_questions WHERE status = 'pending'`);
+  const failedAeo   = await safeFirst(`SELECT COUNT(*) AS n FROM plugin_editorial_aeo_questions WHERE status = 'failed'`);
+  const lastPublish = await safeFirst(`SELECT slug, title, published_at FROM plugin_editorial_blog_posts WHERE published = 1 ORDER BY published_at DESC LIMIT 1`);
 
   // 2. Recent outbox failures (any channel) in the policy window.
   const recentFails = await safeAll(
@@ -197,7 +212,10 @@ export async function runWakeUp(env, opts = {}) {
 
   // 5a. Catchup missed AEO publish — at most once/day, only when overdue.
   if (autofire && overdue && !aeoDailyDone && (pendingAeo?.n || 0) > 0) {
-    const aeo = await import('./aeo-writer.js');
+    // The writer lives in the editorial plugin now; run it by tool name
+    // (run_aeo_cron) through the shared pool — same return shape as the old
+    // lib/aeo-writer.js runAeoCron call.
+    const { runTool } = await import('../tools/index.js');
     // Stamp the attempt up front so concurrent / rapid-refocus wake-ups in the
     // same day can't each fire — one autofire per UTC day, success or not.
     // This stamp IS the once-per-day cap: the next tick reads it back as
@@ -213,11 +231,11 @@ export async function runWakeUp(env, opts = {}) {
       actions.push({ kind: 'aeo_publish', ok: false, label: 'Autofire skipped', detail: 'daily-cap stamp failed to persist' });
     }
     if (capStamped) try {
-      // readyOnly: only PUBLISH articles whose interview answers are already
+      // ready_only: only PUBLISH articles whose interview answers are already
       // in. Never auto-start an interview or queue a "I need your take" nag
       // from a background wake-up — the operator pulls those from the AEO UI
       // / explicit "draft now". Stops Nyo shoving interview prompts in chat.
-      fired = await aeo.runAeoCron(env, { actor: 'wake-up-catchup', readyOnly: true });
+      fired = await runTool(env, 'run_aeo_cron', { actor: 'wake-up-catchup', ready_only: true });
       if (fired?.ok) {
         actions.push({ kind: 'aeo_publish', ok: true, label: `Published "${fired.title}"`, detail: `${hoursSincePublish}h overdue → caught up`, ref: fired.blog_slug });
       } else {

@@ -17,6 +17,5 @@ export { runWorkflow, validateWorkflowSteps, seedSystemWorkflows } from './runne
 // the layer directory has one machine-readable entry point (what the validator
 // walks, and what a new family adds itself to).
 export { workflows as coreWorkflows } from './seeds/core.js';
-export { workflows as blogWorkflows } from './seeds/blog.js';
-export { workflows as socialWorkflows } from './seeds/social.js';
-export { workflows as hotTakesWorkflows } from './seeds/hottakes.js';
+// The blog/social/hottakes catalogs moved into the editorial plugin — its
+// manifest ships the same workflow slugs and installs them on import.

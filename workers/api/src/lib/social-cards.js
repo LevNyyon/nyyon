@@ -1,7 +1,12 @@
-// Social-card generator — code-drawn, brand-locked SVG cards rendered to PNG
+// Social-card RENDERER — code-drawn, brand-locked SVG cards rendered to PNG
 // in-worker via resvg (WASM). No AI image model in the loop: the layout is a
-// fixed template, an LLM only fills the text slots (headline, labels, items),
-// so every card is pixel-exact brand and costs one cheap text call (~$0.001).
+// fixed template; the text slots arrive from the caller.
+//
+// This file is the host half of the `render` gateway's `card` mode. The
+// editorial plugin owns everything that THINKS about cards (the slot drafter,
+// the social_cards record, the routes/tools); WASM + the bundled fonts cannot
+// travel in a plugin's single-file tools, so the pixel work stays here:
+// content in, stored URL out.
 //
 // Visual system (approved June 2026, replaces AI-image attempts for social):
 // strict paper/ink monochrome — paper #FAFAF9, ink #0A0A0A, warm
@@ -12,9 +17,6 @@
 //   statement 1080x1080 one sharp claim, oversized type
 //   checklist 1200x627  3-5 checked items — criteria/tests/steps
 //   flow      1200x627  entry → step boxes → exit, for process articles
-//
-// Callers: HTTP route /api/social-cards/generate, Nyo tool
-// generate_social_card. All funnel through generateSocialCard().
 
 import { initWasm, Resvg } from '@resvg/resvg-wasm';
 import resvgWasm from '../../node_modules/@resvg/resvg-wasm/index_bg.wasm';
@@ -26,8 +28,6 @@ import monoMedium from '../assets/fonts/JetBrainsMono-Medium.ttf';
 import monoBold from '../assets/fonts/JetBrainsMono-Bold.ttf';
 
 import { storeImageBytes } from './image-gateway.js';
-import { readBlogPost, logEvent, logWorkflowRun } from './db.js';
-import { callOpenAIText } from './openai.js';
 import { now } from './util.js';
 
 // ─── brand tokens (mirror the public site's CSS variables) ──────────────
@@ -132,6 +132,8 @@ function headlineBlock(w, slots, yHead = 550, ySub = 588) {
 
 // ─── templates ─────────────────────────────────────────────────────────────
 // Each: { width, height, slots: <description for the LLM drafter>, build(slots) }
+// The slot DESCRIPTIONS the plugin's drafter prompts with are its own copy —
+// the canvas geometry here is the single source of pixel truth.
 
 const TEMPLATES = {
   split: {
@@ -285,58 +287,6 @@ const TEMPLATES = {
   },
 };
 
-export const SOCIAL_CARD_TEMPLATES = Object.keys(TEMPLATES);
-
-// ─── slot drafter ──────────────────────────────────────────────────────────
-// One cheap text call: reads the article, picks a template (unless forced),
-// writes the slot text. Hard limits re-enforced in code after parsing.
-// Card copy follows the operator's editable brand voice (the brand-voice doc),
-// matching every other drafting path; the inline voice line is the fallback.
-async function withBrandVoice(env, base) {
-  try {
-    const row = await env.DB.prepare("SELECT body FROM knowledge_docs WHERE slug = 'brand-voice'").first();
-    if (row?.body) return `${base}\n\nBrand voice (operator-editable):\n${String(row.body)}`;
-  } catch { /* fallback */ }
-  return base;
-}
-const DRAFTER_SYSTEM = `You write the text for the company's social cards. Who the company is and how it sounds comes from the operator-editable brand voice appended below; absent one, default to: declarative, concrete, zero hype, no exclamation marks. Cards are strict paper/ink editorial — the text must carry the idea on its own.
-
-You get an article (title, excerpt, tags) and the menu of card templates with their slots and character limits. Pick the ONE template that fits the article's shape:
-- split: the article contrasts two things or states
-- statement: the article has one sharp quotable claim
-- checklist: the article lists tests, criteria, or steps for a decision
-- flow: the article describes a process or pipeline
-
-Respect every character limit EXACTLY — overlong text gets shrunk and looks weak. Kickers are short caps section labels: "FIELD NOTE", "PLAYBOOK", or the article's topic. Footers usually cite the article: "From: <short title>".
-
-Output ONLY a JSON object:
-{ "template": "<split|statement|checklist|flow>", "slots": { ...slot fields for that template... } }`;
-
-export async function draftCardSlots(env, { title, excerpt, tags, template }) {
-  const menu = Object.entries(TEMPLATES)
-    .filter(([k]) => !template || k === template)
-    .map(([k, t]) => `${k}: ${t.slots}`)
-    .join('\n');
-  const prompt = [
-    `Title: ${title}`,
-    excerpt ? `Excerpt: ${excerpt}` : null,
-    Array.isArray(tags) && tags.length ? `Tags: ${tags.slice(0, 4).join(', ')}` : null,
-    '',
-    template ? `Use template "${template}".` : 'Pick the best template.',
-    'Templates and slots:',
-    menu,
-  ].filter(Boolean).join('\n');
-
-  const raw = await callOpenAIText(env, {
-    system: await withBrandVoice(env, DRAFTER_SYSTEM),
-    prompt,
-    response_format: { type: 'json_object' },
-  });
-  const parsed = JSON.parse(raw);
-  const tpl = TEMPLATES[parsed.template] ? parsed.template : (template || 'statement');
-  return { template: tpl, slots: parsed.slots || {} };
-}
-
 // ─── png renderer ──────────────────────────────────────────────────────────
 let wasmReady = null;
 
@@ -360,11 +310,7 @@ async function renderPng(svg, width) {
   return resvg.render().asPng();
 }
 
-// ─── the three steps, separately callable ─────────────────────────────────
-// The tool layer runs them as three workflow steps (draft_card → render_card →
-// save_social_card); generateSocialCard below is the same three in one call for
-// the callers that still want a single shot. One implementation, two shapes.
-
+// ─── the render mode ───────────────────────────────────────────────────────
 // Render one card PNG into R2. No DB write, no LLM: slots in, stored image out.
 // Idempotent per (blog_slug, template) — the same R2 key is overwritten, which
 // is what makes "regenerate" replace a card instead of littering the bucket.
@@ -382,104 +328,4 @@ export async function renderSocialCard(env, { blog_slug = null, template, slots 
     generated_at: String(stamp),
   });
   return { url, key, template: tplKey, width: tpl.width, height: tpl.height, size_bytes: png.length };
-}
-
-// Record a rendered card in social_cards. Split from the render so a re-render
-// of the same key can be recorded (or not) independently of the pixels.
-export async function saveSocialCardRecord(env, { card, blog_slug = null, slots = null, actor = 'system' } = {}) {
-  if (!card?.url || !card?.template) throw new Error('social-cards: card {url, template} required');
-  const t = now();
-  await env.DB.prepare(
-    `INSERT INTO social_cards (slug, template, url, r2_key, slots_json, width, height, actor, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(
-    blog_slug || null, card.template, card.url, card.key || null, JSON.stringify(slots || {}),
-    card.width || null, card.height || null, actor, t,
-  ).run();
-
-  await logEvent(env, {
-    kind:  'social_card_generated',
-    actor,
-    payload: { slug: blog_slug || null, template: card.template, url: card.url, size_bytes: card.size_bytes || null },
-  });
-  return { ...card, slug: blog_slug || null, slots: slots || {}, created_at: t };
-}
-
-/**
- * Generate a social card and persist it.
- *
- *   env, {
- *     slug,        // blog post slug — title/excerpt/tags come from the post
- *     title,       // OR a custom title (+ optional excerpt) with no slug
- *     excerpt,
- *     template,    // optional: force split|statement|checklist|flow
- *     slots,       // optional: full slot override — skips the LLM drafter
- *     actor,       // nyo | operator | system
- *   }
- *
- * Idempotent per (slug, template): same R2 key is overwritten on regenerate.
- */
-export async function generateSocialCard(env, opts = {}) {
-  const startedAt = now();
-  let post = null;
-  if (opts.slug) {
-    post = await readBlogPost(env, opts.slug);
-    if (!post) throw new Error(`social-cards: blog post not found: ${opts.slug}`);
-  } else if (!opts.title) {
-    throw new Error('social-cards: slug or title required');
-  }
-  const title = post?.title || opts.title;
-  const excerpt = post?.excerpt || opts.excerpt || '';
-  let tags = post?.tags;
-  if (typeof tags === 'string') { try { tags = JSON.parse(tags); } catch { tags = []; } }
-
-  try {
-    let template = opts.template || null;
-    let slots = opts.slots || null;
-    if (!slots) {
-      const draft = await draftCardSlots(env, { title, excerpt, tags, template });
-      template = draft.template;
-      slots = draft.slots;
-    }
-    const rendered = await renderSocialCard(env, { blog_slug: opts.slug || null, template, slots });
-    template = rendered.template;
-    await saveSocialCardRecord(env, {
-      card: rendered, blog_slug: opts.slug || null, slots, actor: opts.actor || 'system',
-    });
-    const { url, key, width, height, size_bytes } = rendered;
-
-    await logWorkflowRun(env, {
-      workflow_slug:   'social-card',
-      status:          'succeeded',
-      trigger_kind:    'manual',
-      trigger_payload: { slug: opts.slug || null, title, template },
-      output:          { url, template, slots },
-      started_at:      startedAt,
-    });
-
-    return { url, key, template, slots, width, height, size_bytes };
-  } catch (e) {
-    const msg = e?.message || String(e);
-    await logEvent(env, {
-      kind:  'social_card_failed',
-      actor: opts.actor || 'system',
-      payload: { slug: opts.slug || null, error: msg.slice(0, 300) },
-    });
-    await logWorkflowRun(env, {
-      workflow_slug:   'social-card',
-      status:          'failed',
-      trigger_kind:    'manual',
-      trigger_payload: { slug: opts.slug || null, title },
-      error:           msg,
-      started_at:      startedAt,
-    });
-    throw e;
-  }
-}
-
-export async function listSocialCards(env, { slug = null, limit = 50 } = {}) {
-  const rows = slug
-    ? await env.DB.prepare('SELECT * FROM social_cards WHERE slug = ? ORDER BY created_at DESC LIMIT ?').bind(slug, limit).all()
-    : await env.DB.prepare('SELECT * FROM social_cards ORDER BY created_at DESC LIMIT ?').bind(limit).all();
-  return rows.results || [];
 }

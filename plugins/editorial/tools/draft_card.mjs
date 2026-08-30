@@ -27,7 +27,7 @@ function resolveArticle(input) {
 
 export const def = {
   name: 'draft_card',
-  description: 'Pick the share-card template that fits the article and write its slot text (one cheap LLM step). Templates: split, statement, checklist, flow — split for a contrast, statement for one sharp claim, checklist for criteria, flow for a process. Pass template to force one, or slots to dictate the exact wording and skip the drafting entirely.',
+  description: 'Pick the share-card template that fits the article and write its slot text (one cheap LLM step). Templates: split, statement, checklist, flow — split for a contrast, statement for one sharp claim, checklist for criteria, flow for a sequence of steps. Pass template to force one, or slots to dictate the exact wording and skip the drafting entirely.',
   input_schema: {
     type: 'object',
     properties: {

@@ -98,7 +98,7 @@ The in-app chat assistant and the surfaces it drives. Its model tiers live in
 
 Long-form articles: drafting, figures, featured images, publishing. The writer
 reads \`brand-voice\` and \`article-playbook\`; figure selection reads
-\`figure-chart-selection\`.` },
+\`plugin-editorial-figure-chart-selection\`.` },
 
   { slug: 'module-aeo', title: 'Article engine', parent: 'module-blog', scope: 'module', module: 'aeo', body:
 `# Article engine
@@ -131,7 +131,7 @@ and the outreach KPI. No page of its own.` },
 `# Signal collection
 
 Sources, scraping and scoring. Produces the raw signals and synthesized topics
-the Hot Takes feed ranks. Quality gates live in \`heartbeat-priorities\`.` },
+the Hot Takes feed ranks. Quality gates live in \`plugin-editorial-heartbeat-priorities\`.` },
 
   { slug: 'module-hot-takes', title: 'Hot Takes', parent: ROOT, scope: 'module', module: 'hot-takes', body:
 `# Hot Takes
@@ -179,7 +179,7 @@ punctuation is banned.
 Keep this note short and absolute. It exists for the rules that are always true,
 whatever the piece is about.` },
 
-  { slug: 'visual-style', title: 'Visual style', parent: 'module-blog', scope: 'global', module: 'blog', body:
+  { slug: 'plugin-editorial-visual-style', title: 'Visual style', parent: 'module-blog', scope: 'global', module: 'blog', body:
 `# Visual style
 
 How generated images for articles should look. Replace with your own direction.
@@ -192,7 +192,7 @@ How generated images for articles should look. Replace with your own direction.
 
 Written as instructions to an image model: concrete nouns beat mood words.` },
 
-  { slug: 'editorial-taste', title: 'Editorial taste', parent: 'module-aeo', scope: 'global', module: 'aeo', body:
+  { slug: 'plugin-editorial-editorial-taste', title: 'Editorial taste', parent: 'module-aeo', scope: 'global', module: 'aeo', body:
 `# Editorial taste
 
 What you cut when you edit. This note is APPENDED TO OVER TIME — every time you
@@ -564,7 +564,7 @@ warning line.
 ` },
 
   // ── hot takes ────────────────────────────────────────────────────────────
-  { slug: 'hottakes-playbook', title: 'Hot Takes — playbook', parent: 'module-hot-takes', scope: 'module', module: 'hot-takes', body:
+  { slug: 'plugin-editorial-hottakes-playbook', title: 'Hot Takes — playbook', parent: 'module-hot-takes', scope: 'module', module: 'hot-takes', body:
 `# Hot Takes playbook
 
 How the take-drafter and the brief-builder behave. Edit to change their
@@ -580,7 +580,7 @@ reader should do differently. One clear argument, no hedging.
 Before a long article is written: the proposed argument, the intended audience,
 why the topic matters now, three to five supporting points, the evidence
 available, the likely objections, and the recommended conclusion. Pick the
-publication pattern that fits (see \`hottakes-article-patterns\`). The brief exists
+publication pattern that fits (see \`plugin-editorial-hottakes-article-patterns\`). The brief exists
 so nobody polishes an article built around the wrong argument.
 
 ## Social posts
@@ -596,7 +596,7 @@ with the points above, use the evidence concretely, address the objections, and
 close with the recommended action. This is a POINT OF VIEW, not a news summary.
 ` },
 
-  { slug: 'hottakes-pov-library', title: 'Hot Takes — Point-of-View Library', parent: 'module-hot-takes', scope: 'module', module: 'hot-takes', body:
+  { slug: 'plugin-editorial-hottakes-pov-library', title: 'Hot Takes — Point-of-View Library', parent: 'module-hot-takes', scope: 'module', module: 'hot-takes', body:
 `# Point-of-View Library
 
 The reusable positions every take is grounded in. This is the most valuable note
@@ -621,7 +621,7 @@ Sentences about the company that may be used verbatim. Anything not listed here
 must be argued from the positions above, not asserted.
 ` },
 
-  { slug: 'hottakes-article-patterns', title: 'Hot Takes — publication patterns', parent: 'module-hot-takes', scope: 'module', module: 'hot-takes', body:
+  { slug: 'plugin-editorial-hottakes-article-patterns', title: 'Hot Takes — publication patterns', parent: 'module-hot-takes', scope: 'module', module: 'hot-takes', body:
 `# Reusable publication patterns
 
 Structures the brief-builder may propose. Guidance, not a straitjacket: never
@@ -638,7 +638,7 @@ force every article into the same shape.
 Add your own patterns as you find shapes that work.
 ` },
 
-  { slug: 'hottakes-quality-rules', title: 'Hot Takes — quality rules', parent: 'module-hot-takes', scope: 'module', module: 'hot-takes', body:
+  { slug: 'plugin-editorial-hottakes-quality-rules', title: 'Hot Takes — quality rules', parent: 'module-hot-takes', scope: 'module', module: 'hot-takes', body:
 `# Article quality rules
 
 What the review scan flags. The goal is not to "hide AI" — it is an article that
@@ -660,7 +660,7 @@ Claim taxonomy used by the scan:
 - \`unsupported\` — needs confirmation or removal.
 ` },
 
-  { slug: 'hottakes-timing', title: 'Hot Takes — release timing', parent: 'module-hot-takes', scope: 'module', module: 'hot-takes', body:
+  { slug: 'plugin-editorial-hottakes-timing', title: 'Hot Takes — release timing', parent: 'module-hot-takes', scope: 'module', module: 'hot-takes', body:
 `# Release timing defaults
 
 The schedule suggested when the operator picks only a date. Offsets are minutes
@@ -671,7 +671,7 @@ after the website publish. Edit the JSON block; it is parsed live.
 \`\`\`
 ` },
 
-  { slug: 'hottakes-social-identities', title: 'Hot Takes — social identities', parent: 'module-hot-takes', scope: 'module', module: 'hot-takes', body:
+  { slug: 'plugin-editorial-hottakes-social-identities', title: 'Hot Takes — social identities', parent: 'module-hot-takes', scope: 'module', module: 'hot-takes', body:
 `# Social identities
 
 Who appears as the poster in each channel's preview. Edit the JSON block; it is
@@ -687,7 +687,7 @@ initials.
 ` },
 
   // ── figures ──────────────────────────────────────────────────────────────
-  { slug: 'figure-chart-selection', title: 'Figures · which chart to use when', parent: 'module-blog', scope: 'global', module: 'blog', body:
+  { slug: 'plugin-editorial-figure-chart-selection', title: 'Figures · which chart to use when', parent: 'module-blog', scope: 'global', module: 'blog', body:
 `DATA CHARTS — when an idea is backed by REAL NUMBERS, draw the numbers, not a metaphor. Pick by GOAL (the chart's main statement is the compass; once the goal is known, most chart types can simply be ignored):
 
 CHANGE OVER TIME
@@ -731,7 +731,7 @@ CHART RULES (the renderer enforces the hard ones):
 - GEO MAPS (choropleth, symbol, locator) are NOT renderable here: use chart_bar or chart_heatmap by region instead.` },
 
   // ── awareness engine ─────────────────────────────────────────────────────
-  { slug: 'heartbeat-priorities', title: 'Heartbeat priorities', parent: 'module-osint', scope: 'global', module: 'osint', body:
+  { slug: 'plugin-editorial-heartbeat-priorities', title: 'Heartbeat priorities', parent: 'module-osint', scope: 'global', module: 'osint', body:
 `# Heartbeat priorities
 
 The quality gates the awareness sweep applies. Raise a number to let less
@@ -755,7 +755,7 @@ live, so a change takes effect on the next sweep.
 \`\`\`
 ` },
 
-  { slug: 'digest-interests', title: 'Awareness · what we care about', parent: 'module-digest', scope: 'global', module: 'digest', body:
+  { slug: 'plugin-editorial-digest-interests', title: 'Awareness · what we care about', parent: 'module-digest', scope: 'global', module: 'digest', body:
 `# What we care about
 
 The relevance filter for incoming signals. Replace with your own subject matter.
@@ -1012,12 +1012,12 @@ const DEMO_PREDICATES = [
   ['plugin_gtm_outreach_cohort_members', `lead_id LIKE 'demo-%'`],
   ['plugin_gtm_outreach_cohorts', `id LIKE 'demo-%'`],
   ['plugin_gtm_leads',          `id LIKE 'demo-%'`],
-  ['social_posts',             `id LIKE 'demo-%'`],
-  ['hot_take_packages',        `id LIKE 'demo-%'`],
-  ['osint_topics',             `id LIKE 'demo-%'`],
-  ['osint_signals',            `id LIKE 'demo-%'`],
-  ['osint_sources',            `id LIKE 'demo-%'`],
-  ['blog_posts',               `slug LIKE 'demo-%'`],
+  ['plugin_editorial_social_posts',             `id LIKE 'demo-%'`],
+  ['plugin_editorial_hot_take_packages',        `id LIKE 'demo-%'`],
+  ['plugin_editorial_osint_topics',             `id LIKE 'demo-%'`],
+  ['plugin_editorial_osint_signals',            `id LIKE 'demo-%'`],
+  ['plugin_editorial_osint_sources',            `id LIKE 'demo-%'`],
+  ['plugin_editorial_blog_posts',               `slug LIKE 'demo-%'`],
   ['calendar_events',          `id LIKE 'demo-%'`],
   ['events',                   `id LIKE 'demo-%'`],
   // daily_plans is keyed by DATE, so it cannot carry a demo- prefix. The plan
@@ -1051,9 +1051,9 @@ function demoSql() {
   // Two signals stay unclaimed so the Hot Takes feed has cards; the third is
   // the one the demo package was made from (a claimed origin_ref is excluded
   // from the feed by design).
-  out.push('-- osint_sources');
+  out.push('-- plugin_editorial_osint_sources');
   out.push(
-    `INSERT INTO osint_sources (id, kind, name, url, theme, enabled, last_fetched_at, last_status, created_at)`,
+    `INSERT INTO plugin_editorial_osint_sources (id, kind, name, url, theme, enabled, last_fetched_at, last_status, created_at)`,
     `VALUES ('demo-source-1', 'rss', 'Demo Industry Feed', 'https://example.com/demo/feed.xml', 'industry', 0, ${NOW - 2 * HOUR}, 'ok', ${NOW - 30 * DAY});`,
     '',
   );
@@ -1084,10 +1084,10 @@ function demoSql() {
       relevance: 71, content: 69, age: 3 * DAY,
     },
   ];
-  out.push('-- osint_signals');
+  out.push('-- plugin_editorial_osint_signals');
   for (const s of signals) {
     out.push(
-      `INSERT INTO osint_signals (id, source_id, source_name, theme, title, url, summary, published_at, relevance, why, content_score, formats, suggested_angle, status, created_at)`,
+      `INSERT INTO plugin_editorial_osint_signals (id, source_id, source_name, theme, title, url, summary, published_at, relevance, why, content_score, formats, suggested_angle, status, created_at)`,
       `VALUES (${q(s.id)}, 'demo-source-1', 'Demo Industry Feed', 'industry', ${q(s.title)}, ${q(s.url)}, ${q(s.summary)}, ${NOW - s.age}, ${s.relevance}, 'Demo seed row — safe to delete.', ${s.content}, ${j(['article', 'social'])}, ${q(s.angle)}, 'scored', ${NOW - s.age});`,
       '',
     );
@@ -1122,10 +1122,10 @@ function demoSql() {
   // NOTE: each topic needs its OWN first source url. The feed dedupes cards by
   // source url (falling back to title), so topics sharing one url collapse into
   // a single card and the feed silently looks emptier than the data is.
-  out.push('-- osint_topics');
+  out.push('-- plugin_editorial_osint_topics');
   for (const t of topics) {
     out.push(
-      `INSERT INTO osint_topics (id, title, thesis, why_now, angle, format, heat, sources_json, status, created_at)`,
+      `INSERT INTO plugin_editorial_osint_topics (id, title, thesis, why_now, angle, format, heat, sources_json, status, created_at)`,
       `VALUES (${q(t.id)}, ${q(t.title)}, ${q(t.thesis)}, ${q(t.why_now)}, ${q(t.angle)}, 'article', ${t.heat}, ${j([{ title: 'Demo Industry Feed', url: t.src }])}, 'new', ${NOW - t.age});`,
       '',
     );
@@ -1134,9 +1134,9 @@ function demoSql() {
   // ── hot takes: one package claimed off demo-topic-3 ──────────────────────
   // Claimed on purpose: it proves the "selected" path AND leaves topics 1-2 and
   // all three signals in the feed, since a claimed origin_ref is filtered out.
-  out.push('-- hot_take_packages');
+  out.push('-- plugin_editorial_hot_take_packages');
   out.push(
-    `INSERT INTO hot_take_packages (id, status, title, summary, why_it_matters, source_name, source_url, published_at, origin, origin_ref, pinned,`,
+    `INSERT INTO plugin_editorial_hot_take_packages (id, status, title, summary, why_it_matters, source_name, source_url, published_at, origin, origin_ref, pinned,`,
     `  take, believe, misunderstood, who_cares, reader_action, website_status, actor, created_at, updated_at)`,
     `VALUES ('demo-package-1', 'take', ${q(topics[2].title)}, ${q(topics[2].thesis)}, ${q(topics[2].why_now)}, 'Demo Industry Feed', 'https://example.com/demo/tooling-merger', ${NOW - 2 * DAY}, 'osint_topic', 'demo-topic-3', 1,`,
     `  'Consolidation is a price rise wearing a product announcement.',`,
@@ -1177,19 +1177,19 @@ function demoSql() {
 <p>Who is this for, what do we claim, what backs it, and what would a smart reader say against it.</p>`,
     },
   ];
-  out.push('-- blog_posts');
+  out.push('-- plugin_editorial_blog_posts');
   for (const p of posts) {
     out.push(
-      `INSERT INTO blog_posts (slug, title, excerpt, body, tags, published_at, published, updated_at, updated_by)`,
+      `INSERT INTO plugin_editorial_blog_posts (slug, title, excerpt, body, tags, published_at, published, updated_at, updated_by)`,
       `VALUES (${q(p.slug)}, ${q(p.title)}, ${q(p.excerpt)}, ${q(p.body)}, ${j(p.tags)}, ${p.published ? p.at : 'NULL'}, ${p.published}, ${p.at}, 'demo');`,
       '',
     );
   }
 
   // ── social: two legs off the published demo article ──────────────────────
-  out.push('-- social_posts');
+  out.push('-- plugin_editorial_social_posts');
   out.push(
-    `INSERT INTO social_posts (id, blog_slug, package_id, channel, status, content, notes, actor, blog_title, created_at, updated_at)`,
+    `INSERT INTO plugin_editorial_social_posts (id, blog_slug, package_id, channel, status, content, notes, actor, blog_title, created_at, updated_at)`,
     `VALUES ('demo-social-1', ${q(posts[0].slug)}, NULL, 'linkedin-company', 'draft',`,
     `  'Most automation projects do not fail at the building step. They fail at the measurement step, which happens before anyone writes a line of it.
 
@@ -1198,7 +1198,7 @@ Two weeks of counting: how often the workflow runs, how long it takes, how often
 Full piece in the comments.',`,
     `  'Demo row. Delete with --clear-demo.', 'demo', ${q(posts[0].title)}, ${NOW - 5 * DAY}, ${NOW - 5 * DAY});`,
     '',
-    `INSERT INTO social_posts (id, blog_slug, package_id, channel, status, content, notes, actor, blog_title, created_at, updated_at)`,
+    `INSERT INTO plugin_editorial_social_posts (id, blog_slug, package_id, channel, status, content, notes, actor, blog_title, created_at, updated_at)`,
     `VALUES ('demo-social-2', ${q(posts[0].slug)}, NULL, 'linkedin-personal', 'draft',`,
     `  'I have never regretted spending two weeks counting something before automating it. I have regretted the opposite more than once.
 

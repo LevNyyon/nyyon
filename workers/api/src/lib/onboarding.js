@@ -189,7 +189,10 @@ const MAX_PROMPT_CHARS = 48_000;    // transcript budget (samples get long)
 // fresh install full of somebody else's topics.
 const VOICE_SLUGS = [
   'brand-voice', 'personal-voice', 'writing-style-rules',
-  'heartbeat-priorities',   // what counts as a signal worth surfacing
+  // What counts as a signal worth surfacing. The awareness engine ships in the
+  // editorial plugin and reads the doc under ITS namespace (migration 0074
+  // moved the slug), so the interview writes it where the reader looks.
+  'plugin-editorial-heartbeat-priorities',
   'pov-library',            // the positions Hot Takes argues from
   'icp',                    // who this is for (prospecting + outreach)
 ];
