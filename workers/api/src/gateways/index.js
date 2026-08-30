@@ -32,6 +32,8 @@ import {
 import { ttsConfigured, synthesize } from '../lib/tts-gateway.js';
 import { probeTelegram, sendTelegramText } from '../lib/telegram.js';
 import { fetchText as webFetchText, fetchBytes as webFetchBytes, head as webHead, postJson as webPostJson } from '../lib/web-gateway.js';
+import { promoteLeadToPipeline, listPipeline, updateDeal } from '../lib/pipeline.js';
+import { writeContact as crmWriteContact } from '../lib/db.js';
 import { pdlEnrich, twilioLookup, serpSearch } from '../lib/gtm.js';
 import { fetchTheorg, probeTheorg } from '../lib/gtm-context.js';
 import { hfComplete, probeHf } from '../lib/hf-gateway.js';
@@ -152,6 +154,22 @@ export const GATEWAYS = {
       },
     },
   },
+  // The install's CRM store (clients + contacts + pipeline). An INTERNAL host
+  // gateway: plugins may not touch these tables, so the boundary to them is a
+  // gateway like any external service — declared, mode-scoped, no reasoning.
+  crm: {
+    slug: 'crm',
+    service: 'the host CRM store (clients, contacts, pipeline deals)',
+    description: 'Promote a lead into the pipeline, upsert a contact, read/update deals. The plugin-safe boundary to the clients/contacts tables.',
+    modes: {
+      promote: (env, input) => promoteLeadToPipeline(env, input?.id, input?.actor || 'plugin'),
+      write_contact: (env, input) => crmWriteContact(env, input || {}),
+      pipeline: (env) => listPipeline(env),
+      update_deal: (env, input) => updateDeal(env, input?.id, input?.patch || {}, input?.actor || 'plugin'),
+    },
+    configFields: [],
+  },
+
   web: {
     slug: 'web',
     service: 'the public web (generic http(s) fetch)',

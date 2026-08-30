@@ -174,6 +174,25 @@ build. Describing the surface also keeps it DATA, so it activates the moment the
 plugin imports — no applier, no rebuild. A surface may only drive its own
 plugin's tools; it is not a remote control for the host pool.
 
+## Contract v2.1 additions (module-scale packs)
+
+- **`requires.host_reads`**: `[{table, purpose}]` — SELECT-only access to named
+  host tables (wa_messages, contacts, ...), enforced by the runtime tokenizer:
+  any statement containing a write verb is held to the plugin's own tables.
+  Never grantable: gateway_config, plugins, sync_state, knowledge_docs,
+  workflows, gate_*. Copy host rows with two statements (SELECT in JS, then
+  INSERT) — single-statement INSERT...SELECT from a host table is refused.
+- **`api.saveKnowledge(slug, {title, body})`**: a plugin may WRITE its own
+  `plugin-<name>-*` docs (that is where its editable rules live). Host docs
+  stay unreachable in both directions.
+- **`lib`**: `[{path: "name.mjs", code|code_file}]` — flat shared sibling
+  files, same lint as tool code, importable from tools/lib as `./name.mjs`
+  ONLY when declared. Materialized into the plugin dir beside the tools.
+- **Internal host gateways**: host stores plugins may not touch get gateway
+  boundaries like any external service — `crm` (promote / write_contact /
+  pipeline / update_deal) first; `render`, `outbox`, `calendar` with the
+  editorial pack.
+
 ## Tables
 
 `requires.tables[].ddl` must match, for the whole statement:

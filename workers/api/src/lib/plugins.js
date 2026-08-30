@@ -40,6 +40,7 @@ const SLUG_RE = /^[a-z][a-z0-9-]{1,60}$/;
 // The view kinds the host knows how to render. A surface is a DESCRIPTION,
 // so the renderer is the only thing that ever executes.
 const SURFACE_VIEWS = new Set(['list', 'form', 'markdown']);
+const HOST_READ_DENY = new Set(['gateway_config', 'plugins', 'sync_state', 'knowledge_docs', 'workflows']);
 
 // Anything that brings another module into a plugin's scope. v2 code imports
 // NOTHING — it is handed everything it may use — so the rule is simply "none",
@@ -78,9 +79,18 @@ const stripComments = (code) => String(code || '')
   .replace(/\/\*[\s\S]*?\*\//g, ' ')
   .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
 
-function checkCode(code, { kind, toolName, pluginName, declaredGateways }) {
+function checkCode(code, { kind, toolName, pluginName, declaredGateways, libNames, hostReadNames }) {
   const errors = [];
-  const src = stripComments(code);
+  let src = stripComments(code);
+
+  // The ONE import form plugin code may use: a declared flat sibling lib.
+  // Strip those before the imports-nothing check so everything else trips it.
+  const libs = libNames || new Set();
+  src = src.replace(/(^|\n)\s*import\s+(?:{[^}]*}|\*\s+as\s+[A-Za-z_$][\w$]*|[A-Za-z_$][\w$]*)\s+from\s+['"]\.\/([a-z][a-z0-9_-]{0,60}\.mjs)['"];?/g,
+    (whole, lead, ref) => {
+      if (!libs.has(ref)) errors.push(`${kind} ${toolName}: imports "./${ref}" which provides.lib does not declare`);
+      return lead;
+    });
 
   for (const [re, label] of IMPORTY) {
     // A bundled gateway is the service boundary and still imports nothing:
@@ -120,7 +130,7 @@ function checkCode(code, { kind, toolName, pluginName, declaredGateways }) {
   // names no table (the runtime tokenizer already knew; this lint has to agree).
   for (const m of src.matchAll(/\b(?:FROM|JOIN|INTO|(?<!\bdo\s)UPDATE|TABLE)\s+([a-z_][a-z0-9_]*)/gi)) {
     const t = m[1].toLowerCase();
-    if (!t.startsWith(ns) && !['select', 'values'].includes(t)) {
+    if (!t.startsWith(ns) && !(hostReadNames || new Set()).has(t) && !['select', 'values'].includes(t)) {
       errors.push(`${kind} ${toolName}: references table "${t}" outside ${ns}*`);
     }
   }
@@ -188,10 +198,22 @@ export async function validateManifest(env, m) {
     if (got !== m.sha256) errors.push('checksum mismatch — the manifest was altered in transit');
   }
 
+  // Shared lib files: real modules at pack scale cannot inline a thousand-line
+  // lib into every tool. A lib is plugin code like any other — same lint, same
+  // runtime authority (none beyond the api handed to it) — and tools may import
+  // ONLY these declared flat siblings.
+  const libNames = new Set();
+  const hostReadNames = new Set(arr(p.requires?.host_reads).map((hr) => String((typeof hr === 'string' ? hr : hr?.table) || '').toLowerCase()).filter(Boolean));
+  for (const lf of arr(p.lib)) {
+    if (!/^[a-z][a-z0-9_-]{0,60}\.mjs$/.test(lf?.path || '')) errors.push(`lib path must be a flat name.mjs — got ${JSON.stringify(lf?.path)}`);
+    else libNames.add(lf.path);
+    if (typeof lf?.code !== 'string' || !lf.code.trim()) errors.push(`lib ${lf?.path}: no code`);
+    else errors.push(...checkCode(lf.code, { kind: 'lib', toolName: lf.path, pluginName: m.name, declaredGateways, libNames, hostReadNames }));
+  }
   for (const t of tools) {
     if (!TOOL_RE.test(t?.name || '')) errors.push(`tool name invalid: ${t?.name}`);
     if (t?.def?.name !== t?.name) errors.push(`tool ${t?.name}: def.name mismatch`);
-    errors.push(...checkCode(t?.code, { kind: 'tool', toolName: t?.name, pluginName: m.name, declaredGateways }));
+    errors.push(...checkCode(t?.code, { kind: 'tool', toolName: t?.name, pluginName: m.name, declaredGateways, libNames, hostReadNames }));
   }
   for (const g of gateways) {
     if (!SLUG_RE.test(g?.slug || '')) errors.push(`gateway slug invalid: ${g?.slug}`);
@@ -217,6 +239,18 @@ export async function validateManifest(env, m) {
       if (!nm) { errors.push('requires.tables: every entry needs a name'); continue; }
       if (!nm.startsWith(ns)) errors.push(`requires.tables: "${nm}" is outside this plugin's namespace (${ns}*)`);
       else if (!created.has(nm)) errors.push(`requires.tables: "${nm}" is not created by this plugin's own DDL`);
+    }
+  }
+
+  // Host-table READ grants: SELECT-only access to named host tables, visible
+  // at import. The denylist is absolute — the stores that hold credentials,
+  // sessions, or the plugin system itself are never grantable, and knowledge
+  // goes through api.knowledge so the grant surface stays one list.
+  for (const hr of arr(p.requires?.host_reads)) {
+    const t = String((typeof hr === 'string' ? hr : hr?.table) || '').toLowerCase();
+    if (!/^[a-z][a-z0-9_]{1,60}$/.test(t)) errors.push(`requires.host_reads: bad table name ${JSON.stringify(t)}`);
+    else if (HOST_READ_DENY.has(t) || t.startsWith('gate_') || t.startsWith('plugin')) {
+      errors.push(`requires.host_reads: "${t}" is never grantable`);
     }
   }
 
@@ -504,6 +538,10 @@ export function filesFor(manifest, binding) {
   for (const g of bundledInUse(manifest, binding)) {
     files.push({ path: `${pluginDir(manifest.name)}/gateway-${g.slug}.mjs`, content: String(g.code || '') });
   }
+  for (const lf of arr(manifest.lib)) {
+    if (!/^[a-z][a-z0-9_-]{0,60}\.mjs$/.test(lf?.path || '')) continue;
+    files.push({ path: `${pluginDir(manifest.name)}/${lf.path}`, content: String(lf.code || '') });
+  }
   // Page surfaces are code too — they materialize into the SPA, verbatim,
   // exactly like tool code materializes into the worker.
   for (const sf of arr(manifest.provides?.surfaces)) {
@@ -540,6 +578,7 @@ export function generateIndex(rows) {
   const bindings = {};
   const tables = {};
   const knowledge = {};
+  const hostReads = {};
 
   for (const row of rows) {
     let m;
@@ -570,6 +609,9 @@ export function generateIndex(rows) {
     tables[m.name] = arr(m.requires?.tables)
       .map((t) => String(t?.name || '').toLowerCase())
       .filter((t) => t && t.startsWith(ns));
+    hostReads[m.name] = arr(m.requires?.host_reads)
+      .map((hr) => String((typeof hr === 'string' ? hr : hr?.table) || '').toLowerCase())
+      .filter(Boolean);
     knowledge[m.name] = arr(m.requires?.knowledge)
       .map((k) => String((typeof k === 'string' ? k : k?.slug) || '').toLowerCase())
       .filter(Boolean);
@@ -581,7 +623,7 @@ export function generateIndex(rows) {
       imports.push(`import * as ${v} from './${m.name}/tool-${t.name}.mjs';`);
       toolRefs.push(
         `  ${JSON.stringify(t.name)}: { def: ${v}.def, run: (env, input, ctx) => `
-        + `${v}.run(pluginApi(env, ${JSON.stringify(m.name)}, BINDINGS[${JSON.stringify(m.name)}], TABLES[${JSON.stringify(m.name)}], KNOWLEDGE[${JSON.stringify(m.name)}]), input, ctx) },`,
+        + `${v}.run(pluginApi(env, ${JSON.stringify(m.name)}, BINDINGS[${JSON.stringify(m.name)}], TABLES[${JSON.stringify(m.name)}], KNOWLEDGE[${JSON.stringify(m.name)}], HOST_READS[${JSON.stringify(m.name)}]), input, ctx) },`,
       );
     }
     for (const g of arr(m.provides?.gateways).filter((gg) => binding?.[gg.slug]?.via === 'bundled')) {
@@ -606,6 +648,7 @@ export function generateIndex(rows) {
     `const BINDINGS = ${JSON.stringify(bindings, null, 2)};`,
     `const TABLES = ${JSON.stringify(tables, null, 2)};`,
     `const KNOWLEDGE = ${JSON.stringify(knowledge, null, 2)};`,
+    `const HOST_READS = ${JSON.stringify(hostReads, null, 2)};`,
     '',
     'export const pluginTools = {',
     ...toolRefs,

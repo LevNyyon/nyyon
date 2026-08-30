@@ -24,6 +24,9 @@ const read = (ref, what) => {
 const m = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
 const arr = (v) => (Array.isArray(v) ? v : []);
 
+for (const lf of arr(m.lib)) {
+  if (lf.code_file) { lf.code = read(lf.code_file, `lib ${lf.path}`); delete lf.code_file; }
+}
 for (const t of arr(m.provides?.tools)) {
   if (t.code_file) { t.code = read(t.code_file, `tool ${t.name}`); delete t.code_file; }
 }

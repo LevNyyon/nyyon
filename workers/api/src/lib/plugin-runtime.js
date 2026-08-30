@@ -37,7 +37,7 @@
 // Honest about the limits: this confines DATA REACH, not CPU or memory, and a
 // plugin still runs in-process. Installing a plugin is trusting its author.
 
-import { logEvent } from './db.js';
+import { logEvent, writeKnowledge } from './db.js';
 
 // Gateways a plugin may never bind, whatever it declares. `github` is the cloud
 // materializer's repo-write path (a straight line from "install a plugin" to
@@ -200,8 +200,9 @@ function tablesFromTokens(toks) {
 // Throws unless the statement is one the plugin may run, against tables it
 // declared. `allowed` is the EXACT set of table names from requires.tables —
 // exact membership, never a prefix test.
-export function assertScopedSql(sql, pluginName, allowed) {
+export function assertScopedSql(sql, pluginName, allowed, hostReads) {
   const allow = allowed instanceof Set ? allowed : new Set(allowed || []);
+  const reads = hostReads instanceof Set ? hostReads : new Set(hostReads || []);
   const toks = tokenize(sql);
   if (!toks.length) throw new Error('plugin sql: empty statement');
 
@@ -223,12 +224,28 @@ export function assertScopedSql(sql, pluginName, allowed) {
     if (t.t === 'word' && /^sqlite_/i.test(t.v)) throw new Error('plugin sql: sqlite internals are not allowed');
   }
 
+  // Declared host READS widen the allowed set only for statements that cannot
+  // mutate: anything containing a write verb at any position is held to the
+  // plugin's own tables. (UPDATE after DO is the upsert clause, not a verb.)
+  let canWrite = false;
+  for (let i = 0; i < toks.length; i++) {
+    const t = toks[i];
+    if (t.t !== 'word') continue;
+    const w = t.v.toUpperCase();
+    if (['INSERT', 'REPLACE', 'DELETE', 'CREATE', 'DROP', 'ALTER'].includes(w)) { canWrite = true; break; }
+    if (w === 'UPDATE') {
+      const prev = toks.slice(0, i).reverse().find((x) => x.t === 'word');
+      if (!prev || prev.v.toUpperCase() !== 'DO') { canWrite = true; break; }
+    }
+  }
+
   const tables = tablesFromTokens(toks);
   if (!tables.length) throw new Error('plugin sql: no table named — a plugin may only touch the tables it declared');
   for (const t of tables) {
-    if (!allow.has(t)) {
-      throw new Error(`plugin sql: table "${t}" is not one this plugin declared (${allow.size ? [...allow].join(', ') : 'none'})`);
-    }
+    if (allow.has(t)) continue;
+    if (!canWrite && reads.has(t)) continue;
+    if (reads.has(t)) throw new Error(`plugin sql: table "${t}" is a declared host READ — it may appear only in pure SELECT statements`);
+    throw new Error(`plugin sql: table "${t}" is not one this plugin declared (${allow.size ? [...allow].join(', ') : 'none'})`);
   }
   return true;
 }
@@ -236,10 +253,10 @@ export function assertScopedSql(sql, pluginName, allowed) {
 // A D1 handle that can only see the plugin's own declared tables.
 // prepare() ALONE: batch/exec/dump would each need their own parsing, and a
 // plugin has no need for them.
-function scopedDb(env, pluginName, tables) {
+function scopedDb(env, pluginName, tables, hostReads) {
   return {
     prepare(sql) {
-      assertScopedSql(sql, pluginName, tables);
+      assertScopedSql(sql, pluginName, tables, hostReads);
       return env.DB.prepare(sql);
     },
   };
@@ -274,8 +291,9 @@ function scopedGateway(env, pluginName, binding) {
 
 // Build one plugin's capability object. Called by the GENERATED
 // plugins/index.js wrapper — plugin code never constructs its own.
-export function pluginApi(env, pluginName, binding, tables, knowledgeSlugs) {
+export function pluginApi(env, pluginName, binding, tables, knowledgeSlugs, hostReadTables) {
   const allowed = new Set((tables || []).map((t) => String(t).toLowerCase()));
+  const hostReads = new Set((hostReadTables || []).map((t) => String(t).toLowerCase()));
   // Host knowledge a plugin may READ. Its OWN docs (plugin-<name>-*) are
   // always readable; anything else must be declared in requires.knowledge so
   // the operator sees the read at import. Never a write path — plugin writes
@@ -285,7 +303,7 @@ export function pluginApi(env, pluginName, binding, tables, knowledgeSlugs) {
   const readable = new Set((knowledgeSlugs || []).map((k) => String(k).toLowerCase()));
   const ownDoc = new RegExp(`^plugin-${pluginName}(-|$)`);
   return {
-    db: scopedDb(env, pluginName, allowed),
+    db: scopedDb(env, pluginName, allowed, hostReads),
     gateway: scopedGateway(env, pluginName, binding || {}),
     knowledge: async (slug) => {
       const sl = String(slug || '').toLowerCase();
@@ -294,6 +312,18 @@ export function pluginApi(env, pluginName, binding, tables, knowledgeSlugs) {
       }
       const row = await env.DB.prepare('SELECT slug, title, body FROM knowledge_docs WHERE slug = ?').bind(sl).first();
       return row || null;
+    },
+    // A plugin may WRITE only its own plugin-<name>-* docs — that is where its
+    // editable rules live (guardrail #5) and where tools like save_drafting_rules
+    // persist operator edits. Host docs stay out of reach in both directions.
+    saveKnowledge: async (slug, { title, body } = {}) => {
+      const sl = String(slug || '').toLowerCase();
+      if (!ownDoc.test(sl)) throw new Error(`plugin ${pluginName}: may only write its own plugin-${pluginName}-* docs`);
+      await writeKnowledge(env, {
+        slug: sl, title: String(title || sl), body: String(body || ''),
+        scope: 'global', module: null, parent_slug: 'knowledge-root',
+      });
+      return { ok: true, slug: sl };
     },
     log: (kind, payload) => logEvent(env, {
       kind: `plugin_${String(pluginName).replace(/-/g, '_')}_${kind}`,
@@ -305,6 +335,7 @@ export function pluginApi(env, pluginName, binding, tables, knowledgeSlugs) {
       tables: [...allowed],
       gateways: Object.keys(binding || {}),
       knowledge: [...readable],
+      host_reads: [...hostReads],
     },
   };
 }

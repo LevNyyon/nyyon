@@ -114,6 +114,9 @@ export function assembleManifest(files) {
   for (const k of (Array.isArray(m?.provides?.knowledge) ? m.provides.knowledge : [])) {
     if (k?.body_file) { k.body = read(k.body_file, `knowledge ${k.slug}`); delete k.body_file; }
   }
+  for (const lf of (Array.isArray(m?.lib) ? m.lib : [])) {
+    if (lf?.code_file) { lf.code = read(lf.code_file, `lib ${lf.path}`); delete lf.code_file; }
+  }
   for (const sf of (Array.isArray(m?.provides?.surfaces) ? m.provides.surfaces : [])) {
     if (sf?.page_file) { sf.page_code = read(sf.page_file, `surface ${sf.slug}`); delete sf.page_file; }
     for (const f of (Array.isArray(sf?.files) ? sf.files : [])) {
@@ -245,6 +248,14 @@ export function packageFiles(manifest) {
       files[ref] = k.body;
       k.body_file = ref;
       delete k.body;
+    }
+  }
+  for (const lf of arr(m?.lib)) {
+    if (typeof lf?.code === 'string') {
+      const ref = `lib/${lf.path}`;
+      files[ref] = lf.code;
+      lf.code_file = ref;
+      delete lf.code;
     }
   }
   for (const sf of arr(m?.provides?.surfaces)) {
