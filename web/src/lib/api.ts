@@ -1189,6 +1189,17 @@ export const modulePrereqs = {
     j<{ slug: string; configured: boolean; missing?: string[]; error?: string }>('/api/gateways', {
       method: 'POST', body: JSON.stringify({ slug, config }),
     }),
+  // Every gateway with its live configured/missing state — the same resolver
+  // the gateways themselves read through, so Settings never invents its own.
+  gatewayStatus: () => j<{ gateways: GatewayStatus[] }>('/api/gateways'),
+};
+
+export type GatewayStatus = {
+  slug: string;
+  configured: boolean;
+  source?: 'db' | 'env' | 'none';
+  missing?: string[];
+  fields?: { key: string; label?: string; required?: boolean; secret?: boolean; help?: string }[];
 };
 
 // ─── Setup ──────────────────────────────────────────────────────────────────

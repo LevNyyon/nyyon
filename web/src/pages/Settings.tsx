@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, onboarding, FeatureFlag } from '../lib/api';
+import { api, onboarding, modulePrereqs, FeatureFlag, GatewayStatus } from '../lib/api';
 import { SetupResumeBanner } from '../components/SetupResumeBanner';
 import {
   loadTheme, saveTheme, type Theme,
@@ -20,7 +20,7 @@ export function Settings() {
         <Appearance />
         <NyoBrain />
         <SidebarPlacement />
-        <WhatsAppConnection />
+        <Connections />
         <FeatureFlags />
       </div>
     </div>
@@ -211,197 +211,103 @@ function NyoBrain() {
   );
 }
 
-// ─── WhatsApp / wa-gateway connection ────────────────────────────
-type WaProbe = Awaited<ReturnType<typeof api.waProbe>>;
+// ─── Connections ────────────────────────────────────────────────
+// One surface for every external service, driven by the live gateway registry.
+//
+// This replaced a bespoke "WhatsApp connection" panel that had rotted into
+// something actively misleading: it hardcoded the old dev port (:8788, the
+// worker moved to :8799), offered to register a webhook against a daemon this
+// build no longer ships, and explained how to repair a wa-gateway pairing that
+// a shipped install never has. A panel per service also guarantees the next
+// one rots the same way. The registry already knows every gateway, which
+// credentials it needs and whether they resolve — so render THAT.
 
-function WhatsAppConnection() {
-  const [probe, setProbe] = useState<WaProbe | null>(null);
-  const [busy, setBusy]   = useState<'probe' | 'register' | 'test' | null>(null);
-  const [lastResult, setLastResult] = useState<string | null>(null);
+function Connections() {
+  const [rows, setRows] = useState<GatewayStatus[] | null>(null);
+  const [open, setOpen] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
-  async function runProbe() {
-    setBusy('probe');
+  const load = () => modulePrereqs.gatewayStatus()
+    .then((d) => setRows(d.gateways || []))
+    .catch((e) => setNote(`Could not read connections: ${String(e?.message || e)}`));
+  useEffect(() => { load(); }, []);
+
+  const save = async (slug: string) => {
+    setBusy(slug); setNote(null);
     try {
-      const p = await api.waProbe();
-      setProbe(p);
-      setLastResult(null);
-    } finally {
-      setBusy(null);
-    }
-  }
-  useEffect(() => { runProbe(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
-
-  async function registerWebhook() {
-    setBusy('register');
-    setLastResult(null);
-    try {
-      // Worker registers itself by URL — we just say "use my origin + /api/wa/inbound".
-      // In dev the worker is at :8788; in prod it's the same host as the ops UI.
-      const inbound = `${location.protocol}//localhost:8788/api/wa/inbound`;
-      const r = await api.waRegisterWebhook(inbound);
-      setLastResult(`Register webhook → HTTP ${r.http}  ·  ${r.ok ? 'OK' : 'failed'}\nbody: ${r.body.slice(0, 200)}`);
-      await runProbe();
+      const r = await modulePrereqs.connectGateway(slug, draft);
+      setNote(r.configured
+        ? `${slug} connected.`
+        : `${slug}: still missing ${(r.missing || []).join(', ') || 'required values'}`);
+      setOpen(null); setDraft({});
+      await load();
     } catch (e) {
-      setLastResult(`Register webhook → error: ${String(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function sendTest() {
-    setBusy('test');
-    setLastResult(null);
-    try {
-      const r = await api.waTestInbound('972549999000@c.us', '[settings test] synthetic inbound');
-      const verdict = r.result.accepted
-        ? `✓ accepted + persisted, person_id=${r.result.person_id ?? '(no identity yet)'}`
-        : `· chat policy = off (expected) — toggle the chat on in Channels → Chats, then re-run`;
-      setLastResult(`Synthetic inbound → ${verdict}`);
-    } catch (e) {
-      setLastResult(`Test inbound → error: ${String(e)}`);
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  // Pick a single-line status pill from probe state.
-  const status = !probe
-    ? { tone: 'neutral', label: '…', detail: 'probing' }
-    : probe.reachable
-      ? { tone: 'good', label: 'connected', detail: `${probe.url} · session ${probe.session_id}` }
-      : probe.http === 401
-        ? { tone: 'warn', label: 'auth required', detail: 'wa-gateway replied 401 — set WA_API_KEY in workers/api/.dev.vars' }
-        : probe.http
-          ? { tone: 'bad', label: `HTTP ${probe.http}`, detail: probe.error || 'see worker log' }
-          : { tone: 'bad', label: 'offline', detail: probe.error || `${probe.url} not reachable` };
+      setNote(`${slug}: ${String((e as Error)?.message || e)}`);
+    } finally { setBusy(null); }
+  };
 
   return (
     <Section
-      title="WhatsApp connection"
-      hint="The WhatsApp connection. This app ships its own gateway and starts it for you — setup generates the key, so there is normally nothing to configure here. Point it elsewhere only if you host a gateway yourself."
+      title="Connections"
+      hint="External services this install can reach. A gateway with no credentials simply stays off — the modules that use it say so and keep working in whatever degraded form they can."
     >
-      {/* Status pill */}
-      <div className="hairline rounded-sm bg-card/80 p-4 mb-4 flex items-start gap-3">
-        <span
-          className={
-            'mt-1 inline-block h-2 w-2 rounded-full shrink-0 ' +
-            (status.tone === 'good'
-              ? 'bg-emerald-500'
-              : status.tone === 'warn'
-                ? 'bg-amber-500'
-                : status.tone === 'bad'
-                  ? 'bg-rose-500'
-                  : 'bg-stone-400 animate-pulse')
-          }
-        />
-        <div className="min-w-0 flex-1">
-          <div className="flex items-baseline justify-between gap-3">
-            <span className="font-medium text-sm">wa-gateway · {status.label}</span>
-            <button
-              onClick={runProbe}
-              disabled={busy === 'probe'}
-              className="mono text-[10px] uppercase tracking-[0.18em] text-mute hover:text-ink"
-            >
-              {busy === 'probe' ? '· probing' : 'recheck ↻'}
-            </button>
+      {!rows && <div className="text-[12px] text-mute">Loading…</div>}
+      {rows?.length === 0 && <div className="text-[12px] text-mute">No gateways require configuration.</div>}
+      <div className="space-y-1.5">
+        {(rows || []).map((g) => (
+          <div key={g.slug} className="hairline rounded-sm bg-card/80 p-3">
+            <div className="flex items-center gap-2">
+              <span className={`inline-block h-2 w-2 rounded-full shrink-0 ${g.configured ? 'bg-emerald-500' : 'bg-stone-400'}`} />
+              <span className="mono text-[12px]">{g.slug}</span>
+              <span className="text-[11px] text-mute">
+                {g.configured ? `connected${g.source && g.source !== 'none' ? ` · ${g.source}` : ''}` : 'not connected'}
+              </span>
+              <span className="flex-1" />
+              {(g.fields || []).length > 0 && (
+                <button
+                  className="text-[11px] text-mute hover:text-ink"
+                  onClick={() => { setOpen(open === g.slug ? null : g.slug); setDraft({}); setNote(null); }}
+                >{open === g.slug ? 'cancel' : (g.configured ? 'update' : 'connect')}</button>
+              )}
+            </div>
+            {!g.configured && (g.missing || []).length > 0 && (
+              <div className="mt-1 text-[11px] text-mute">needs: {(g.missing || []).join(', ')}</div>
+            )}
+            {open === g.slug && (
+              <div className="mt-2 space-y-1.5">
+                {(g.fields || []).map((f) => (
+                  <label key={f.key} className="block">
+                    <span className="mono text-[9px] uppercase tracking-[0.14em] text-mute">
+                      {f.label || f.key}{f.required === false ? ' (optional)' : ''}
+                    </span>
+                    <input
+                      type={f.secret ? 'password' : 'text'}
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder={f.help || f.key}
+                      value={draft[f.key] ?? ''}
+                      onChange={(e) => setDraft((d) => ({ ...d, [f.key]: e.target.value }))}
+                      className="mt-0.5 w-full h-8 px-2 rounded-sm hairline bg-paper text-[12px] outline-none focus:border-emerald-500"
+                    />
+                  </label>
+                ))}
+                <button
+                  className="text-[12px] px-3 py-1.5 rounded-sm bg-ink text-paper disabled:opacity-40"
+                  disabled={busy === g.slug}
+                  onClick={() => save(g.slug)}
+                >{busy === g.slug ? 'Saving…' : 'Save'}</button>
+              </div>
+            )}
           </div>
-          <div className="mono text-[11px] text-mute mt-1 break-all">{status.detail}</div>
-        </div>
+        ))}
       </div>
-
-      {/* Configured values + what to fix */}
-      {probe && (
-        <ul className="hairline rounded-sm bg-card/80 divide-y divide-line text-[12px] mb-4">
-          <KvRow k="WA_BASE_URL"   v={probe.url} />
-          <KvRow k="WA_SESSION_ID" v={probe.session_id} />
-          <KvRow
-            k="WA_API_KEY"
-            v={probe.api_key_configured ? 'set ✓' : 'not set — add to .dev.vars'}
-            tone={probe.api_key_configured ? 'good' : 'warn'}
-          />
-          {probe.http !== null && <KvRow k="last probe" v={`HTTP ${probe.http}`} />}
-        </ul>
-      )}
-
-      {/* Webhooks list if wa-gateway returned one */}
-      {probe?.webhooks !== null && probe?.webhooks !== undefined && (
-        <div className="hairline rounded-sm bg-card/80 p-4 mb-4">
-          <div className="mono text-[10px] uppercase tracking-[0.2em] text-mute mb-2">registered webhooks</div>
-          <pre className="mono text-[11px] text-mute whitespace-pre-wrap break-all leading-snug">
-{JSON.stringify(probe.webhooks, null, 2)}
-          </pre>
-        </div>
-      )}
-
-      {/* Action row */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        <ActionBtn onClick={registerWebhook} pending={busy === 'register'}>
-          Register Nyyon webhook with wa-gateway
-        </ActionBtn>
-        <ActionBtn onClick={sendTest} pending={busy === 'test'}>
-          Send synthetic inbound
-        </ActionBtn>
-      </div>
-
-      {/* Last action result */}
-      {lastResult && (
-        <pre className="hairline rounded-sm bg-paper p-3 text-[11px] mono leading-snug whitespace-pre-wrap break-all text-ink">
-{lastResult}
-        </pre>
-      )}
-
-      {/* Inline help when 401.
-          Never print a key here. This used to show a literal
-          "WA_API_KEY=dev-admin-key", which both taught a known credential and
-          was wrong for this app: setup generates a unique key per install and
-          writes it to both sides, so a 401 means they have drifted apart, not
-          that a value needs typing in. */}
-      {probe?.http === 401 && (
-        <div className="mt-4 text-[12px] text-mute leading-relaxed">
-          <span className="mono text-ink">401</span> from the WhatsApp gateway means its key and this app's no longer match.
-          Setup generates one key for both, so re-running it re-pairs them:
-          <pre className="mt-2 mono text-[11px] bg-paper p-3 rounded-sm hairline overflow-x-auto leading-snug">
-npm run setup</pre>
-          Then click <span className="mono text-ink">recheck ↻</span>. If you point this at a gateway you host
-          yourself, set its key in Settings → Connections instead.
-        </div>
-      )}
+      {note && <div className="mt-2 text-[11px] text-mute">{note}</div>}
     </Section>
   );
 }
 
-function KvRow({ k, v, tone }: { k: string; v: string; tone?: 'good' | 'warn' | 'bad' }) {
-  const toneClass =
-    tone === 'good' ? 'text-emerald-700' :
-    tone === 'warn' ? 'text-amber-700' :
-    tone === 'bad'  ? 'text-rose-700' :
-    'text-ink';
-  return (
-    <li className="px-4 py-2.5 flex items-center justify-between gap-3">
-      <span className="mono text-[10px] uppercase tracking-[0.18em] text-mute shrink-0">{k}</span>
-      <span className={'mono text-[11px] truncate text-right ' + toneClass}>{v}</span>
-    </li>
-  );
-}
-
-function ActionBtn({ onClick, pending, children }: { onClick: () => void; pending?: boolean; children: React.ReactNode }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={pending}
-      className={
-        'h-9 px-4 rounded-sm hairline mono text-[10px] uppercase tracking-[0.18em] transition ' +
-        (pending
-          ? 'opacity-60 cursor-wait text-mute'
-          : 'text-mute hover:text-ink hover:border-ink hover:bg-card-hi')
-      }
-    >
-      {pending ? '· running' : children}
-    </button>
-  );
-}
-
-// ─── feature flags ───────────────────────────────────────────
 function FeatureFlags() {
   const [flags, setFlags] = useState<FeatureFlag[]>([]);
   const [saving, setSaving] = useState<string | null>(null);
