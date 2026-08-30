@@ -202,3 +202,11 @@ DELETE FROM workflows WHERE slug='hottake-produce' AND source='system';
 DELETE FROM workflows WHERE slug='hourly-awareness-sweep' AND source='system';
 DELETE FROM workflows WHERE slug='hottakes-first-ingest' AND source='system';
 DELETE FROM workflows WHERE slug='signal-to-blog' AND source='system';
+
+-- Knowledge-tree hygiene after the module-to-plugin conversions: host docs the
+-- packs read re-parent to the root; the emptied module-* tree nodes and the
+-- superseded cadence doc (zero readers) go away. module-nyo stays — Nyo is
+-- the host.
+UPDATE knowledge_docs SET parent_slug = 'knowledge-root' WHERE slug IN ('article-playbook', 'kpi-outreach');
+DELETE FROM knowledge_docs WHERE slug = 'outreach-queue-cadence';
+DELETE FROM knowledge_docs WHERE slug IN ('module-aeo','module-blog','module-calendar','module-channels','module-digest','module-gtm','module-hot-takes','module-osint','module-outbox','module-outreach','module-workflows');
