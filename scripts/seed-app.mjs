@@ -1008,10 +1008,10 @@ function stampSql() {
 // ───────────────────────────────────────────────────────────────────────────
 
 const DEMO_PREDICATES = [
-  ['gtm_outreach_angles',      `lead_id LIKE 'demo-%'`],
-  ['outreach_cohort_members',  `lead_id LIKE 'demo-%'`],
-  ['outreach_cohorts',         `id LIKE 'demo-%'`],
-  ['gtm_leads',                `id LIKE 'demo-%'`],
+  ['plugin_gtm_outreach_angles', `lead_id LIKE 'demo-%'`],
+  ['plugin_gtm_outreach_cohort_members', `lead_id LIKE 'demo-%'`],
+  ['plugin_gtm_outreach_cohorts', `id LIKE 'demo-%'`],
+  ['plugin_gtm_leads',          `id LIKE 'demo-%'`],
   ['social_posts',             `id LIKE 'demo-%'`],
   ['hot_take_packages',        `id LIKE 'demo-%'`],
   ['osint_topics',             `id LIKE 'demo-%'`],
@@ -1245,14 +1245,14 @@ The counting is boring and it is the only part that lets you say, later, whether
     { key: 'serp', label: 'SerpApi', status: 'found', reason: 'demo seed', at: NOW - 3 * DAY },
     { key: 'confirm', label: 'Confirm', status: 'found', reason: 'demo seed', at: NOW - 3 * DAY },
   ];
-  out.push('-- gtm_leads');
+  out.push('-- plugin_gtm_leads');
   for (const l of leads) {
     const socials = l.linkedin ? [{ type: 'linkedin', url: l.linkedin, src: 'demo' }] : [];
     const sources = l.name
       ? { name: { tool: 'demo', at: '' }, company: { tool: 'demo', at: '' }, position: { tool: 'demo', at: '' } }
       : {};
     out.push(
-      `INSERT INTO gtm_leads (id, phone, normalized_phone, status, source, batch_id, country, region, name, socials, linkedin, email, company, position,`,
+      `INSERT INTO plugin_gtm_leads (id, phone, normalized_phone, status, source, batch_id, country, region, name, socials, linkedin, email, company, position,`,
       `  line_type, carrier, sources, conflicts, dismissed, org_status, org_note, icp_fit, icp_reasons, outreach_lang, steps, company_staff_count, created_at, updated_at)`,
       `VALUES (${q(l.id)}, ${q(l.phone)}, ${q(l.phone.replace(/\D/g, ''))}, ${q(l.status)}, 'demo', 'demo-batch-1', ${q(l.country)}, ${q(l.region)}, ${q(l.name)},`,
       `  ${j(socials)}, ${q(l.linkedin)}, ${q(l.email)}, ${q(l.company)}, ${q(l.position)}, ${q(l.line)}, ${q(l.carrier)}, ${j(sources)}, '[]', '[]',`,
@@ -1292,9 +1292,9 @@ The counting is boring and it is the only part that lets you say, later, whether
     ],
     demo: true,
   };
-  out.push('-- gtm_outreach_angles');
+  out.push('-- plugin_gtm_outreach_angles');
   out.push(
-    `INSERT INTO gtm_outreach_angles (lead_id, payload, created_at, updated_at)`,
+    `INSERT INTO plugin_gtm_outreach_angles (lead_id, payload, created_at, updated_at)`,
     `VALUES ('demo-lead-1', ${j(angles)}, ${NOW - 2 * DAY}, ${NOW - 2 * DAY});`,
     '',
   );
@@ -1308,20 +1308,20 @@ The counting is boring and it is the only part that lets you say, later, whether
       { delay_hours: 168, channel: 'whatsapp', trigger: 'no_reply', bodies: { en: 'Last one from me. If this becomes relevant later, I am easy to find.' } },
     ],
   };
-  out.push('-- outreach_cohorts');
+  out.push('-- plugin_gtm_outreach_cohorts');
   out.push(
-    `INSERT INTO outreach_cohorts (id, name, note, created_at, updated_at, sequence, status, timezone, send_days, languages, start_hour, end_hour)`,
+    `INSERT INTO plugin_gtm_outreach_cohorts (id, name, note, created_at, updated_at, sequence, status, timezone, send_days, languages, start_hour, end_hour)`,
     `VALUES ('demo-cohort-1', 'Demo · operations leads', 'Seeded demo cohort. Remove with --clear-demo.', ${NOW - 6 * DAY}, ${NOW - 1 * DAY},`,
     `  ${j(sequence)}, 'active', 'UTC', ${j([1, 2, 3, 4, 5])}, ${j(['en'])}, 9, 19);`,
     '',
   );
-  out.push('-- outreach_cohort_members');
+  out.push('-- plugin_gtm_outreach_cohort_members');
   out.push(
-    `INSERT INTO outreach_cohort_members (lead_id, cohort_id, chat_id, status, step, next_send_at, last_sent_at, last_sent_text, enrolled_at, updated_at)`,
+    `INSERT INTO plugin_gtm_outreach_cohort_members (lead_id, cohort_id, chat_id, status, step, next_send_at, last_sent_at, last_sent_text, enrolled_at, updated_at)`,
     `VALUES ('demo-lead-1', 'demo-cohort-1', '15550100@c.us', 'active', 1, ${NOW + 2 * DAY}, ${NOW - 1 * DAY},`,
     `  'Hi Avery, [your name] here. I work with operations leads at companies like Northwind Robotics on the internal project nobody has room to lead.', ${NOW - 6 * DAY}, ${NOW - 1 * DAY});`,
     '',
-    `INSERT INTO outreach_cohort_members (lead_id, cohort_id, chat_id, status, step, next_send_at, enrolled_at, updated_at)`,
+    `INSERT INTO plugin_gtm_outreach_cohort_members (lead_id, cohort_id, chat_id, status, step, next_send_at, enrolled_at, updated_at)`,
     `VALUES ('demo-lead-2', 'demo-cohort-1', '15550101@c.us', 'active', 0, ${NOW + 4 * HOUR}, ${NOW - 2 * DAY}, ${NOW - 2 * DAY});`,
     '',
   );

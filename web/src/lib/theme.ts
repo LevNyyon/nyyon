@@ -13,16 +13,13 @@ const LEGACY_PREF_KEY = 'nyyon.sidebar.modules.v1'; // pre-2026-05-25 positive-l
 // Only "real" product modules belong here — these are the rows the operator can
 // toggle from Settings → Sidebar modules. Knowledge / Roadmap / Modules-registry
 // are system tools and live pinned in the System section instead.
-export type SurfaceSlug = 'nyo' | 'prospecting' | 'outreach' | 'hot-takes' | 'blog' | 'social';
+export type SurfaceSlug = 'nyo' | 'hot-takes' | 'blog' | 'social';
 // ORDER MATTERS — this array is the sidebar's running order (loadSidebarSlugs
 // filters it by the hidden-list, preserving this sequence) and also the order of
 // the toggle rows in Settings → Sidebar modules. The three the operator works out
 // of daily lead; everything else follows in its established order.
 export const SURFACE_MODULES: { slug: SurfaceSlug; label: string }[] = [
   { slug: 'hot-takes', label: 'Hot Takes' },
-  { slug: 'prospecting', label: 'Prospecting' },
-  // Straight after Prospecting — picking who to approach, then approaching them.
-  { slug: 'outreach',  label: 'Outreach' },
   { slug: 'blog',      label: 'Blog' },
   { slug: 'social',    label: 'Social' },
   { slug: 'nyo',       label: 'Nyo' },

@@ -81,6 +81,9 @@ for (const file of files) {
   // gateway) and register dynamically via the generated plugins aggregator.
   // The plugin validator (lib/plugins.js validateManifest) is their law.
   if (rel.startsWith("plugins/") || rel.includes("/plugins/")) continue;
+  // ROOT itself is inside a plugin pack (validator invoked from within
+  // plugins/<name>/) — the whole tree is plugin-contract territory.
+  if (String(ROOT).includes("/plugins/") || String(ROOT).endsWith("/plugins")) continue;
   const inTools = rel.startsWith("tools/");
   const inModules = rel.startsWith("modules/");
   const isIndex = INDEX_FILES.test("/" + rel);

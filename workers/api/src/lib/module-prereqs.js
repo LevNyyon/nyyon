@@ -233,51 +233,6 @@ const MODULES = {
     optional: [],
   },
 
-  // Outreach IS WhatsApp: the inbox, the threads and the sending all run
-  // through the wa-gateway (lib/outreach-wa.js, lib/whatsapp.js). With no
-  // gateway there is nothing to show and nothing to send.
-  //
-  // Voice is deliberately NOT a requirement here, against first instinct. The
-  // reply composer drafts from `outreach-reply-drafting`, `outreach-first-touch`
-  // and the approved GTM angle — checked in lib/outreach-wa.js draftReply — and
-  // never reads the voice documents. What DOES read them is Nyo, when you ask
-  // it to rewrite a reply, so they are listed as a benefit with that reason.
-  outreach: {
-    label: 'Outreach',
-    requires: [
-      gateway('whatsapp',
-        'Outreach reads and sends WhatsApp messages, so it needs the WhatsApp connection.',
-        'Without it the inbox stays empty and nothing can be sent.'),
-    ],
-    optional: [
-      voice(['brand-voice', 'personal-voice'],
-        'Asking Nyo to rewrite a reply uses your voice documents.',
-        'The composer itself drafts from your outreach notes and the approved angle, so it works either way.'),
-    ],
-  },
-
-  // Prospecting degrades cleanly by design: import and manual research work
-  // with nothing connected, and each enricher only widens what a lookup can
-  // find (lib/gtm.js pdlEnrich / serpSearch / twilioLookup).
-  prospecting: {
-    label: 'Prospecting',
-    requires: [],
-    optional: [
-      gateway('pdl',
-        'People Data Labs fills in a lead\'s role, company and email from an email address or a domain.',
-        'Without it a lead carries only what you imported.'),
-      gateway('serp',
-        'Search enrichment finds the company context an angle is argued from.',
-        'Without it the research step is whatever you paste in yourself.'),
-      gateway('twilio',
-        'Twilio checks that a phone number is real and reachable before an outreach queue uses it.',
-        'Without it numbers are taken as given.'),
-      voice(['icp'],
-        'Scoring a lead against your ICP uses the document that says who this is for.',
-        'Without it every lead scores the same.'),
-    ],
-  },
-
   // Nothing to declare: these run on the operator's own data or on nothing at
   // all, and gating them would be theatre.
   nyo:             { label: 'Nyo',           requires: [], optional: [] },

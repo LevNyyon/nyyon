@@ -23,7 +23,7 @@ import { fetchArticleText } from '../lib/heartbeat.js';
 import { fetchText as webGatewayFetchText } from '../lib/web-gateway.js';
 import { listDueMeetings, claimDueMeetings, composeReminderDigest } from '../lib/reminders.js';
 import { checkWaHealth, probeWaGateway } from '../lib/whatsapp.js';
-import { probeTheorg } from '../lib/gtm-context.js';
+import { probeTheorg } from '../lib/enrich-gateways.js';
 import { buildRegistry } from '../lib/registry.js';
 
 export const tools = {

@@ -15,8 +15,6 @@ import { Knowledge }       from './pages/Knowledge';
 import { ExpandBuild }     from './pages/ExpandBuild';
 import { Activity }        from './pages/Activity';
 import { Settings }        from './pages/Settings';
-import { Prospecting } from './pages/Prospecting';
-import { Outreach } from './pages/Outreach';
 import { Blog } from './pages/Blog';
 import { Social } from './pages/Social';
 import { HotTakes } from './pages/HotTakes';
@@ -31,7 +29,7 @@ import { ChatProvider, useChatState } from './lib/chat';
 // so a stale persisted nav can be rejected at runtime — an operator whose last
 // session ended on a since-removed surface would otherwise land on a blank page.
 const NAVS = [
-  'nyo', 'prospecting', 'outreach', 'blog', 'social', 'hot-takes',
+  'nyo', 'blog', 'social', 'hot-takes',
   'knowledge', 'plugins', 'activity', 'expand-build', 'settings',
 ] as const;
 export type Nav = typeof NAVS[number] | `plugin:${string}`;
@@ -289,8 +287,6 @@ export default function App() {
             product deliberately offered them. */}
         {setupDeferred && <SetupResumeBanner onResumed={() => void checkBoot()} />}
         {nav === 'nyo'    && <Nyo />}
-        {nav === 'prospecting' && <Prospecting />}
-        {nav === 'outreach'  && <Outreach />}
         {nav === 'blog'      && <Blog />}
         {nav === 'social'    && <Social />}
         {nav === 'hot-takes' && <HotTakes />}

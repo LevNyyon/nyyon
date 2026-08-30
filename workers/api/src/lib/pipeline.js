@@ -9,7 +9,28 @@
 
 import { now } from './util.js';
 import { logEvent, writeClient, writeContact } from './db.js';
-import { getLead, leadState } from './gtm.js';
+
+// The GTM lead store lives in the gtm plugin now (plugin_gtm_leads). Promotion
+// stays HOST — it writes the CRM tables a plugin may not touch (the crm
+// gateway's promote mode lands here) — so the two lead helpers it needs are
+// inlined from the moved lib/gtm.js, table renamed (host may read plugin tables).
+async function getLead(env, id) {
+  return env.DB.prepare('SELECT * FROM plugin_gtm_leads WHERE id = ?').bind(id).first();
+}
+
+// Enrichment signal (mirrors the plugin's leadState): green = first + last name
+// + company + person-linkedin + position; red = none; yellow = partial.
+const isCompanyLinkedin = (u) => /linkedin\.com\/company\//i.test(String(u || ''));
+function leadState(lead) {
+  let socials = [];
+  try { socials = lead.socials ? JSON.parse(lead.socials) : []; } catch { socials = []; }
+  const personLi = (lead.linkedin && !isCompanyLinkedin(lead.linkedin) ? lead.linkedin : null)
+    || (socials.find((s) => s.type === 'linkedin' && !isCompanyLinkedin(s.url))?.url ?? null);
+  const parts = String(lead.name || '').trim().split(/\s+/).filter(Boolean);
+  const signals = [parts.length >= 1, parts.length >= 2, !!lead.company, !!personLi, !!lead.position];
+  const n = signals.filter(Boolean).length;
+  return n === signals.length ? 'green' : n === 0 ? 'red' : 'yellow';
+}
 
 const DEAL_COLS = 'id, name, status, stage, deal_value, mrr_value, engagement';
 
@@ -55,7 +76,7 @@ export async function promoteLeadToPipeline(env, id, actor = 'system') {
     title: lead.position, linkedin_url: lead.linkedin, email: lead.email,
     status: 'prospect', source: 'cold_outreach', client_id: client.id, tags: ['gtm'],
   });
-  await env.DB.prepare('UPDATE gtm_leads SET client_id=?, updated_at=? WHERE id=?').bind(client.id, now(), id).run();
+  await env.DB.prepare('UPDATE plugin_gtm_leads SET client_id=?, updated_at=? WHERE id=?').bind(client.id, now(), id).run();
   await logEvent(env, { kind: 'lead_promoted', actor, payload: { lead_id: id, client_id: client.id, name: lead.name } });
 
   const updated = await getLead(env, id);

@@ -67,11 +67,6 @@ const WORKFLOWS = [
     touches: 'aeo_questions, blog_posts',
     knowledge: ['brand-voice', 'personal-voice', 'article-playbook', 'brand'], run_slug: 'aeo-daily-writer' },
 
-  { name: 'Outreach queue tick', kind: 'automated', trigger: 'cron · :45 hourly',
-    steps: 'walk the enrolments whose next message is due AND individually approved (while require_approval is on, an unapproved message is left where it is and never sent — it stays visible in the cohort sheet as a backlog) → re-read each conversation and drop anyone who replied (permanent) → apply the operator per-prospect edit if there is one → send, honouring the sending window, daily cap and minimum gap — DRY RUN unless the outreach.live feature flag is true',
-    touches: 'outreach_cohort_members, wa_messages, outbound_log',
-    knowledge: ['outreach-cohort-cadence'], run_slug: 'outreach-queue-tick' },
-
   { name: 'Hot Takes scheduler', kind: 'automated', trigger: 'cron · :00 hourly',
     steps: 'scan due scheduled releases → publish the website leg (blog pipeline — REAL, same trust as the Blog Approve button) + fire due LinkedIn legs (social gateway → outbox; DRY-RUN unless the hottakes.live feature flag is true — dry runs log hottake_dryrun events only)',
     touches: 'hot_take_packages, social_posts, blog_posts, outbound_log, calendar_events',
@@ -104,12 +99,6 @@ const WORKFLOWS = [
     steps: 'pull every enabled feed → score what came back → cluster it into hot topics (synthesis optional: a first pull can legitimately have too few scored signals to cluster). No scrape, no enrichment, no digest — the shortest path from "sources saved" to "the Topics tab has cards"',
     touches: 'osint_sources, osint_signals, osint_topics',
     knowledge: ['hottakes-source-scout', 'heartbeat-priorities'], run_slug: 'hottakes-first-ingest' },
-  { name: 'GTM intake enrichment', kind: 'on-demand', trigger: 'on-demand · per lead (batch stepper)',
-    steps: 'WhatsApp identity → company-from-LinkedIn → PDL → Twilio → Google → reconcile (provenance + conflicts kept)',
-    touches: 'gtm_leads', knowledge: [] },
-  { name: 'GTM outreach angles', kind: 'on-demand', trigger: 'on-demand · per green lead',
-    steps: 'compose gtm-you + brand-positioning + gtm-outreach + the verified org → Opus → ranked angles with draft bubbles',
-    touches: 'gtm_outreach_angles', knowledge: ['gtm-you', 'gtm-outreach', 'brand-positioning', 'brand-icp'] },
   { name: 'AEO interview & write', kind: 'on-demand', trigger: 'on-demand · Interview & Write button',
     steps: 'ask the 4 interview questions → draft the article in the brand voice → publish live + mirror to calendar',
     touches: 'aeo_questions, blog_posts, calendar_events', knowledge: ['brand-voice', 'article-playbook'] },
@@ -133,8 +122,6 @@ const WORKFLOWS = [
 // every send, the calendar store behind reminders and publish mirrors).
 const MODULES = [
   { key: 'nyo',       title: 'Nyo',       area: 'module', description: 'AI command chat — the tool pool\'s operator interface, wake-up briefings, voice mode' },
-  { key: 'prospecting', title: 'Prospecting', area: 'module', description: 'list-first view over the lead store: List Enrichment (compact table, traffic-light rows, per-row Truecaller) → Verified Contacts (cards of green, identity-confident leads)' },
-  { key: 'outreach',  title: 'Outreach',  area: 'module', description: 'approach the prospects Prospecting surfaced — Conversations (a WhatsApp inbox filtered to prospects, split active / unanswered / dead, each thread opening beside the prospect card with a suggested reply offered alongside) + Queue (who is enrolled in the automated ladder, what we last said, what goes next and when; a reply removes them from automation permanently)' },
   { key: 'blog',      title: 'Blog',      area: 'module', description: 'article drafts → review → publish (edge-rendered); the answer-engine writer + its daily cron run headless behind it' },
   { key: 'social',    title: 'Social',    area: 'module', description: 'per-channel social drafts → operator approve → Make webhooks' },
   { key: 'hot-takes', title: 'Hot Takes', area: 'module', description: 'editorial command center — topic → take → brief → article → review → social → schedule, one publication package; Publications tab carries the whole blog (any draft schedules into a release)' },
@@ -153,13 +140,6 @@ const MODULES = [
 // each comment below names the collision the position resolves. Adding a tool
 // whose name matches nothing here renders it ungrouped, not missing.
 const TOOL_GROUPS = [
-  // Ahead of Prospecting because read_lead_angles belongs to the outreach
-  // composer, not the enrichment chain. Note `due_messages` rather than a bare
-  // `_messages$`: that would swallow WhatsApp's backfill_wa_messages.
-  { group: 'Outreach',            re: /thread|cohort|_member|bubble|compose_reply|lead_angles|drafting_rules|sequence|cadence|step_copy|_message$|due_messages|_replies$|promotion_rules|schedule_send|scheduled_send|_sends$|send_outreach|approvals/, knowledge: ['outreach-reply-drafting', 'outreach-promotion', 'outreach-sentiment', 'gtm-outreach'] },
-  // Before WhatsApp (lookup_wa_identity is an enrichment source, not a chat
-  // tool) and before LinkedIn (lookup_company_from_linkedin likewise).
-  { group: 'Prospecting',         re: /^read_lead$|^save_lead$|^promote_lead$|_identity$|_identities$|org_chart|company_profile|open_roles|_pdl$|_twilio$|socials_serp|score_icp|^draft_angles$|^save_angles$|green_leads|^read_you$|api_usage|api_limits|company_from_linkedin/, knowledge: ['gtm-outreach', 'gtm-you', 'brand-icp', 'brand-positioning'] },
   { group: 'WhatsApp',            re: /whatsapp|wa_chat|wa_group|wa_session|backfill_wa_messages|backfill_lid_map|read_group_participants|set_chat_listening/, knowledge: ['prompt-wa-reply'] },
   { group: 'LinkedIn',            re: /linkedin/,                                          knowledge: [] },
   { group: 'Digest',              re: /digest/,                                            knowledge: [] },

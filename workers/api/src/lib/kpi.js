@@ -15,9 +15,7 @@
 // counter rolls over at local midnight, not UTC.
 
 import { readKnowledge, writeKnowledge, logEvent } from './db.js';
-import { ensureClassified } from './outreach-classify.js';
 import { callGateway } from '../gateways/index.js';
-import { refreshWaThreads, getThreadStats } from './outreach-threads.js';
 
 const KPI_SLUG = 'kpi-outreach';
 
@@ -136,17 +134,17 @@ export async function outreachKpi(env, { log = false } = {}) {
 
   // An outreach = a GENUINE outreach message (a pitch aligned with our outreach
   // content), not a follow-up/reply/personal chat. WhatsApp messages are judged
-  // by CONTENT (the outreach-classify verdict cached in wa_outreach_class); this
-  // read path counts only already-classified messages (fast, no LLM) — the
-  // hourly cron + opening the log keep classifications fresh.
+  // by CONTENT (the outreach-classify verdict cached in the gtm plugin's
+  // plugin_gtm_wa_outreach_class); this read path counts only already-classified
+  // messages (fast, no LLM) — the plugin keeps classifications fresh.
   //   WhatsApp: distinct 1:1 chats with a message classified is_outreach today
   //   LinkedIn: distinct conversations with a SENT message classified is_outreach
-  //             today (li_sent_messages, synced from the inbox — covers engine +
-  //             manual DMs; connection requests aren't messages, so never count)
+  //             today (plugin_gtm_li_sent_messages — covers engine + manual DMs;
+  //             connection requests aren't messages, so never count)
   const waSql = `SELECT COUNT(DISTINCT m.chat_id) AS n
-    FROM wa_messages m JOIN wa_outreach_class c ON c.msg_id = m.id
+    FROM wa_messages m JOIN plugin_gtm_wa_outreach_class c ON c.msg_id = m.id
     WHERE m.from_me = 1 AND m.chat_id NOT LIKE '%@g.us' AND m.timestamp >= ? AND c.is_outreach = 1`;
-  const liSql = `SELECT COUNT(DISTINCT conversation_urn) AS n FROM li_sent_messages
+  const liSql = `SELECT COUNT(DISTINCT conversation_urn) AS n FROM plugin_gtm_li_sent_messages
     WHERE is_outreach = 1 AND at >= ?`;
 
   let wa = 0; let li = 0;
@@ -195,8 +193,8 @@ export async function outreachKpi(env, { log = false } = {}) {
 // ── the outreach LOG — what you actually did today ──────────────────────────
 // The KPI counts distinct people; this is the itemized attempts behind it, so
 // clicking the bar answers "who did I reach out to, when, with what message".
-// Sources: LinkedIn = li_touches (the sent copy is stored per touch); WhatsApp
-// = outbound wa_messages (1:1 only). Each attempt is a real send, so multiple
+// Sources: LinkedIn = plugin_gtm_li_sent_messages (the sent copy per message);
+// WhatsApp = outbound wa_messages (1:1 only). Each attempt is a real send, so multiple
 // messages to one person show as multiple rows (unlike the deduped KPI count).
 
 // Resolve WhatsApp chat_ids → a human name, best source first:
@@ -262,7 +260,7 @@ async function resolveChatNames(env, chatIds, { backfill = false } = {}) {
   const phoneName = new Map();
   for (let i = 0; i < phones.length; i += 60) {
     const c = phones.slice(i, i + 60);
-    const r = (await env.DB.prepare(`SELECT normalized_phone, name FROM gtm_leads WHERE normalized_phone IN (${IN(c)})`).bind(...c).all()).results || [];
+    const r = (await env.DB.prepare(`SELECT normalized_phone, name FROM plugin_gtm_leads WHERE normalized_phone IN (${IN(c)})`).bind(...c).all()).results || [];
     for (const row of r) { const p = canonPhone(row.normalized_phone); if (p && row.name) phoneName.set(p, row.name); }
   }
 
@@ -295,25 +293,26 @@ async function resolveChatNames(env, chatIds, { backfill = false } = {}) {
   return out;
 }
 
-// The heavy, network-bound refresh behind the outreach log: content
-// classification (LLM), WhatsApp name resolution (gateway), and per-thread
-// reply/sentiment stats. Run this in the BACKGROUND (cron + a waitUntil on the
-// drawer route) — never inline in outreachAttempts, which must stay a fast
-// cached read. (Inline, it took ~11s and could hang on a slow WA gateway, the
-// same way the LI detail did.)
-export async function refreshOutreachData(env) {
-  const cfg = await loadKpiConfig(env);
-  const { dayStartMs } = localParts(cfg.tz, Date.now());
-  await ensureClassified(env, dayStartMs, { limit: 60 }).catch(() => {});
-  try {
-    const rows = (await env.DB.prepare(
-      `SELECT DISTINCT m.chat_id AS chat_id FROM wa_messages m JOIN wa_outreach_class c ON c.msg_id = m.id
-       WHERE c.is_outreach = 1 AND m.from_me = 1 AND m.chat_id NOT LIKE '%@g.us'`,
-    ).all()).results || [];
-    const keys = rows.map((r) => r.chat_id);
-    const names = await resolveChatNames(env, keys, { backfill: true }).catch(() => new Map());
-    await refreshWaThreads(env, keys.map((key) => ({ key, name: names.get(key) })));
-  } catch { /* best-effort */ }
+// The heavy refresh that used to live here (refreshOutreachData: LLM content
+// classification + WA name resolution + per-thread stat refresh) moved into
+// plugins/gtm with the module — the classify/threads code is plugin lib now.
+// This file only READS the caches the plugin maintains.
+
+// Per-thread reply / sentiment stats from the plugin's thread cache. Inlined
+// from the (moved) lib/outreach-threads.js getThreadStats, table renamed —
+// host code may read plugin tables.
+async function getThreadStats(env, keys = []) {
+  const out = new Map();
+  const uniq = [...new Set(keys.filter(Boolean))];
+  for (let i = 0; i < uniq.length; i += 90) {
+    const c = uniq.slice(i, i + 90);
+    const r = (await env.DB.prepare(
+      `SELECT key, channel, replied, uncaught, msgs_in, msgs_out, sentiment, sentiment_reason, last_inbound_text, last_inbound_at
+       FROM plugin_gtm_outreach_threads WHERE key IN (${c.map(() => '?').join(',')})`,
+    ).bind(...c).all().catch(() => ({ results: [] }))).results || [];
+    for (const row of r) out.set(row.key, row);
+  }
+  return out;
 }
 
 export async function outreachAttempts(env) {
@@ -321,9 +320,8 @@ export async function outreachAttempts(env) {
   const { dayStartMs } = localParts(cfg.tz, Date.now());
   const attempts = [];
 
-  // FAST READ ONLY — all classification / name-resolution / thread-stat work is
-  // done in the background (refreshOutreachData, via the cron + the drawer
-  // route's waitUntil). This just reads what's already cached.
+  // FAST READ ONLY — all classification / name-resolution / thread-stat work
+  // happens inside the gtm plugin. This just reads what's already cached.
 
   // Mirrors the KPI exactly: one entry per NEW person you first messaged today —
   // the first-touch message itself (its copy + time). Ongoing threads and
@@ -334,7 +332,7 @@ export async function outreachAttempts(env) {
   // MIN() row alongside the aggregate.
   try {
     const li = (await env.DB.prepare(
-      `SELECT conversation_urn AS key, MIN(at) AS at, body AS body, name AS name FROM li_sent_messages
+      `SELECT conversation_urn AS key, MIN(at) AS at, body AS body, name AS name FROM plugin_gtm_li_sent_messages
        WHERE is_outreach = 1 AND at >= ? GROUP BY conversation_urn ORDER BY at DESC`,
     ).bind(dayStartMs).all()).results || [];
     for (const r of li) attempts.push({ channel: 'linkedin', key: r.key, name: r.name || 'LinkedIn', company: null, kind: 'message', body: r.body || '', at: r.at });
@@ -347,7 +345,7 @@ export async function outreachAttempts(env) {
   try {
     waRows = (await env.DB.prepare(
       `SELECT m.chat_id AS chat_id, m.body AS body, MIN(m.timestamp) AS ts
-       FROM wa_messages m JOIN wa_outreach_class c ON c.msg_id = m.id
+       FROM wa_messages m JOIN plugin_gtm_wa_outreach_class c ON c.msg_id = m.id
        WHERE m.from_me = 1 AND m.chat_id NOT LIKE '%@g.us' AND m.timestamp >= ? AND c.is_outreach = 1
        GROUP BY m.chat_id ORDER BY ts DESC`,
     ).bind(dayStartMs).all()).results || [];
@@ -366,7 +364,7 @@ export async function outreachAttempts(env) {
        FROM wa_messages m
        WHERE m.from_me = 0 AND m.chat_id NOT LIKE '%@g.us' AND m.timestamp >= ?
          AND m.body IS NOT NULL AND length(trim(m.body)) > 0
-         AND m.chat_id IN (SELECT DISTINCT chat_id FROM wa_outreach_class WHERE is_outreach = 1)
+         AND m.chat_id IN (SELECT DISTINCT chat_id FROM plugin_gtm_wa_outreach_class WHERE is_outreach = 1)
        GROUP BY m.chat_id ORDER BY ts DESC`,
     ).bind(dayStartMs).all()).results || [];
   } catch { replyRows = []; }
@@ -380,8 +378,7 @@ export async function outreachAttempts(env) {
   for (const r of replyOnlyRows) attempts.push({ channel: 'whatsapp', key: r.chat_id, name: waNames.get(r.chat_id) || r.chat_id, company: null, kind: 'reply', body: r.body || '', at: waMs(r.ts) });
 
   // Enrich each attempt with its conversation stats (replied / uncaught reply /
-  // depth / sentiment) from the CACHE — computed in the background by
-  // refreshOutreachData, never inline here.
+  // depth / sentiment) from the CACHE the gtm plugin maintains — never inline.
   try {
     const stats = await getThreadStats(env, attempts.map((a) => a.key));
     for (const a of attempts) {

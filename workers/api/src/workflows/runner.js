@@ -112,14 +112,14 @@ export async function runWorkflow(env, slug, input = {}, { trigger_kind = 'manua
 // exists, failing every publish fan-out). An operator edit still wins, because
 // writeWorkflow stamps source='nyo' on any edited row and the UPDATE skips it.
 import { workflows as coreWorkflows } from './seeds/core.js';
-import { workflows as outreachWorkflows } from './seeds/outreach.js';
-import { workflows as prospectingWorkflows } from './seeds/prospecting.js';
 import { workflows as blogWorkflows } from './seeds/blog.js';
 import { workflows as socialWorkflows } from './seeds/social.js';
 import { workflows as hotTakesWorkflows } from './seeds/hottakes.js';
 
+// The prospecting + outreach seed files went with the GTM plugin conversion:
+// the gtm pack ships those 9 workflows in its manifest now.
 const SYSTEM_WORKFLOWS = [
-  ...coreWorkflows, ...outreachWorkflows, ...prospectingWorkflows,
+  ...coreWorkflows,
   ...blogWorkflows, ...socialWorkflows, ...hotTakesWorkflows,
 ];
 
