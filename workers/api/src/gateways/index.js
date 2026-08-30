@@ -33,7 +33,11 @@ import { ttsConfigured, synthesize } from '../lib/tts-gateway.js';
 import { probeTelegram, sendTelegramText } from '../lib/telegram.js';
 import { fetchText as webFetchText, fetchBytes as webFetchBytes, head as webHead, postJson as webPostJson } from '../lib/web-gateway.js';
 import { promoteLeadToPipeline, listPipeline, updateDeal } from '../lib/pipeline.js';
-import { writeContact as crmWriteContact } from '../lib/db.js';
+import { writeContact as crmWriteContact, upsertCalendarEvent, deleteCalendarEvent } from '../lib/db.js';
+import { beginSend, markSent, markFailed } from '../lib/outbox.js';
+import { renderSocialCard } from '../lib/social-cards.js';
+import { renderFigures as renderArticleFigures, renderCover as renderArticleCover } from '../lib/article-figures.js';
+import { renderCandidateImages } from '../lib/blog-images.js';
 import { pdlEnrich, twilioLookup, serpSearch } from '../lib/gtm.js';
 import { fetchTheorg, probeTheorg } from '../lib/gtm-context.js';
 import { hfComplete, probeHf } from '../lib/hf-gateway.js';
@@ -166,6 +170,68 @@ export const GATEWAYS = {
       write_contact: (env, input) => crmWriteContact(env, input || {}),
       pipeline: (env) => listPipeline(env),
       update_deal: (env, input) => updateDeal(env, input?.id, input?.patch || {}, input?.actor || 'plugin'),
+    },
+    configFields: [],
+  },
+
+  // WASM + bundled-font rendering (social cards, article figures, covers,
+  // featured-image candidates) stays HOST: plugin tool files are single .mjs
+  // and cannot carry binary assets. The boundary to that renderer is a gateway.
+  render: {
+    slug: 'render',
+    service: 'the host image renderer (resvg WASM + bundled fonts + R2 storage)',
+    description: 'Render social cards, article figures, covers, and featured-image candidates to stored images. Pure rendering: content in, stored URL out.',
+    modes: {
+      card:   (env, input) => renderSocialCard(env, input || {}),
+      figures: (env, input) => renderArticleFigures(env, input || {}),
+      cover:  (env, input) => renderArticleCover(env, input || {}),
+      images: (env, input) => renderCandidateImages(env, input || {}),
+    },
+    configFields: [],
+  },
+
+  // The outbound audit log. Every send CLAIM/RESULT flows through here so the
+  // operator's Outbox view stays whole no matter who is sending.
+  outbox: {
+    slug: 'outbox',
+    service: 'the host outbound_log audit store',
+    description: 'Claim a send (begin), then mark it sent or failed. The atomic no-duplicate seam every sender must use.',
+    modes: {
+      begin: (env, input) => beginSend(env, input || {}),
+      sent:  (env, input) => markSent(env, input?.id, input || {}),
+      failed: (env, input) => markFailed(env, input?.id, input?.error || 'failed'),
+    },
+    configFields: [],
+  },
+
+  // First-run receipts. A module's setup flow records "done" here; the host
+  // prereq panel reads all rows. One row per module key, plugin rows included.
+  setup: {
+    slug: 'setup',
+    service: 'the host module_setup receipt store',
+    description: 'Read or write a module first-run receipt (status, summary).',
+    modes: {
+      read: async (env, input) => (await env.DB.prepare('SELECT * FROM module_setup WHERE module = ?').bind(String(input?.module || '')).first()) || null,
+      write: async (env, input) => {
+        const t = Date.now();
+        await env.DB.prepare(
+          `INSERT INTO module_setup (module, status, completed_at, actor, summary, created_at, updated_at) VALUES (?,?,?,?,?,?,?)
+           ON CONFLICT(module) DO UPDATE SET status = excluded.status, completed_at = excluded.completed_at, actor = excluded.actor, summary = excluded.summary, updated_at = excluded.updated_at`,
+        ).bind(String(input?.module || ''), String(input?.status || 'done'), input?.completed_at || t, input?.actor || 'plugin', input?.summary || null, t, t).run();
+        return { ok: true };
+      },
+    },
+    configFields: [],
+  },
+
+  // The operator calendar mirror.
+  calendar: {
+    slug: 'calendar',
+    service: 'the host calendar_events store',
+    description: 'Upsert or delete a calendar mirror row (scheduled releases, follow-ups).',
+    modes: {
+      upsert: (env, input) => upsertCalendarEvent(env, input || {}),
+      remove: (env, input) => deleteCalendarEvent(env, input?.id),
     },
     configFields: [],
   },
