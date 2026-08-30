@@ -1087,7 +1087,7 @@ function SpineDrawer({ id, onClose, onOpenEditor }: { id: string; onClose: () =>
   );
 }
 
-// ─── Publications tab: components/HotTakesPublications.tsx (the blog experience
+// ─── Publications tab: ./HotTakesPublications.tsx (the blog experience
 //     + schedule-first approval), wired from the root above. ──────────────────
 
 // ─── the Publication Editor ───────────────────────────────────────────────────

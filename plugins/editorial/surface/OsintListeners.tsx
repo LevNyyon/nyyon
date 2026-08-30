@@ -4,7 +4,7 @@
 // Takes → Approved Sources tab render the identical table from one source of
 // truth. It is a SHARED control surface on purpose: toggling a listener or
 // changing its cadence here changes it everywhere, because both mount this
-// component against the same /api/osint/listeners endpoints.
+// component against the same list_osint_listeners / save_osint_listener tools.
 //
 // `timeAgo` is kept local (a copy of the one in Osint.tsx) rather than imported
 // from ArticleBits: that exported variant formats dates >30d differently, and

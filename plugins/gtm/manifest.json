@@ -179,11 +179,11 @@
       },
       {
         "name": "plugin_gtm_leads",
-        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_leads (id TEXT PRIMARY KEY, phone TEXT NOT NULL, normalized_phone TEXT, status TEXT NOT NULL DEFAULT 'new', source TEXT, batch_id TEXT, country TEXT, region TEXT, name TEXT, photo TEXT, socials TEXT NOT NULL DEFAULT '[]', linkedin TEXT, email TEXT, company TEXT, position TEXT, line_type TEXT, carrier TEXT, sources TEXT NOT NULL DEFAULT '{}', conflicts TEXT NOT NULL DEFAULT '[]', dismissed TEXT NOT NULL DEFAULT '[]', active_tool TEXT, org_status TEXT, org_note TEXT, theorg_slug TEXT, icp_fit TEXT, icp_reasons TEXT, company_li_id TEXT, open_positions TEXT, positions_checked_at INTEGER, outreach_lang TEXT, client_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_leads (id TEXT PRIMARY KEY, phone TEXT NOT NULL, normalized_phone TEXT, status TEXT NOT NULL DEFAULT 'new', source TEXT, batch_id TEXT, country TEXT, region TEXT, name TEXT, photo TEXT, socials TEXT NOT NULL DEFAULT '[]', linkedin TEXT, email TEXT, company TEXT, position TEXT, line_type TEXT, carrier TEXT, sources TEXT NOT NULL DEFAULT '{}', conflicts TEXT NOT NULL DEFAULT '[]', dismissed TEXT NOT NULL DEFAULT '[]', active_tool TEXT, org_status TEXT, org_note TEXT, theorg_slug TEXT, icp_fit TEXT, icp_reasons TEXT, company_li_id TEXT, open_positions TEXT, positions_checked_at INTEGER, outreach_lang TEXT, client_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, steps TEXT, company_staff_count INTEGER, company_context TEXT, company_checked_at INTEGER)"
       },
       {
         "name": "plugin_gtm_li_prospects",
-        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_li_prospects (id TEXT PRIMARY KEY, urn_id TEXT UNIQUE, public_id TEXT, name TEXT NOT NULL, role TEXT, company TEXT, circle INTEGER, location TEXT, status TEXT NOT NULL DEFAULT 'active', step_index INTEGER NOT NULL DEFAULT 0, next_action_at INTEGER, fail_count INTEGER NOT NULL DEFAULT 0, source_search TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_li_prospects (id TEXT PRIMARY KEY, urn_id TEXT, public_id TEXT, name TEXT NOT NULL, role TEXT, company TEXT, circle INTEGER, location TEXT, status TEXT NOT NULL DEFAULT 'active', step_index INTEGER NOT NULL DEFAULT 0, next_action_at INTEGER, fail_count INTEGER NOT NULL DEFAULT 0, source_search TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, sequence_json TEXT, accepted_at INTEGER, replied_at INTEGER)"
       },
       {
         "name": "plugin_gtm_org_people",
