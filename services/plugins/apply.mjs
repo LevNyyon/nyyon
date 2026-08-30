@@ -60,6 +60,25 @@ for (;;) {
     const work = await call('/api/plugins/pending', null, key);
     const pending = work.pending || [];
     const removals = work.remove || [];
+
+    // Reconcile: an installed plugin whose files vanished (source sync, disk
+    // mishap) is healed silently — the DB record is the source of truth.
+    let healed = 0;
+    for (const p of work.installed || []) {
+      for (const f of p.files) {
+        const abs = resolve(REPO, f.path);
+        let current = null;
+        try { current = readFileSync(abs, 'utf8'); } catch { /* missing */ }
+        if (current !== f.content) { safeWrite(f.path, f.content); healed++; }
+      }
+    }
+    if (healed) {
+      safeWrite(work.index_file.path, work.index_file.content);
+      console.log(`[plugin-apply] reconciled ${healed} missing/stale file(s); restarting`);
+      execSync('sudo systemctl restart nyyon', { stdio: 'inherit' });
+      await sleep(20_000);
+    }
+
     if (!pending.length && !removals.length) { await sleep(20_000); continue; }
 
     for (const name of removals) {

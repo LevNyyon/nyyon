@@ -281,6 +281,9 @@ export async function pendingMaterializations(env) {
   const installed = (await env.DB.prepare("SELECT * FROM plugins WHERE status IN ('bound','materialized','active')").all()).results || [];
   return {
     pending: pending.map((r) => ({ name: r.name, files: filesFor(JSON.parse(r.manifest_json), JSON.parse(r.binding_json || '{}')) })),
+    // Everything installed, for the applier's reconcile pass: a source sync or
+    // disk mishap that loses a materialized file gets healed on the next tick.
+    installed: installed.map((r) => ({ name: r.name, files: filesFor(JSON.parse(r.manifest_json), JSON.parse(r.binding_json || '{}')) })),
     index_file: { path: 'workers/api/src/plugins/index.js', content: generateIndex(installed) },
     remove: ((await env.DB.prepare("SELECT name FROM plugins WHERE status = 'removed'").all()).results || []).map((r) => r.name),
   };
