@@ -36,6 +36,7 @@ import { pdlEnrich, twilioLookup, serpSearch } from '../lib/gtm.js';
 import { fetchTheorg, probeTheorg } from '../lib/gtm-context.js';
 import { hfComplete, probeHf } from '../lib/hf-gateway.js';
 import { withResolvedCredentials } from '../lib/gateway-config.js';
+import { pluginGateways } from '../plugins/index.js';
 
 export const GATEWAYS = {
   llm: {
@@ -206,6 +207,9 @@ export const GATEWAYS = {
     },
   },
 };
+
+// Bundled plugin gateways (namespaced plugin-<name>-<slug>) join the registry.
+for (const [slug, gw] of Object.entries(pluginGateways)) GATEWAYS[slug] = gw;
 
 export function listGateways() {
   return Object.values(GATEWAYS).map((g) => ({

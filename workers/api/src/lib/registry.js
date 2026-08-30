@@ -139,6 +139,7 @@ const MODULES = [
   { key: 'blog',      title: 'Blog',      area: 'module', description: 'article drafts → review → publish (edge-rendered); the answer-engine writer + its daily cron run headless behind it' },
   { key: 'social',    title: 'Social',    area: 'module', description: 'per-channel social drafts → operator approve → Make webhooks' },
   { key: 'hot-takes', title: 'Hot Takes', area: 'module', description: 'editorial command center — topic → take → brief → article → review → social → schedule, one publication package; Publications tab carries the whole blog (any draft schedules into a release)' },
+  { key: 'plugins',   title: 'Plugins',   area: 'system', description: 'trade capabilities between nyyon systems — import/export signed manifests; code travels verbatim, gateways bind mechanically' },
   { key: 'knowledge', title: 'Knowledge', area: 'system', description: 'the editable rules layer — doc tree Nyo and the code read at runtime' },
   { key: 'activity',  title: 'Activity',  area: 'system', description: 'the event bus log — every mutation, live' },
   { key: 'expand-build', title: 'Expand build', area: 'system', description: 'where the source lives (the checkout IS the install) + the handoff prompt that briefs a coding agent on the layout and the five-layer rules; prompt body is the expand-build-prompt knowledge note' },
@@ -176,7 +177,7 @@ const TOOL_GROUPS = [
   { group: 'Workflows',           re: /workflow/,                                          knowledge: [] },
   { group: 'Web',                 re: /web_page|website|funnel|deploy/,                    knowledge: [] },
   { group: 'Knowledge',           re: /knowledge|log_note|list_events|notify_operator/,    knowledge: [] },
-  { group: 'System & Outbox',     re: /health|registry|restart|feature_flag|outbox|system|telegram/, knowledge: [] },
+  { group: 'System & Outbox',     re: /health|registry|restart|feature_flag|outbox|system|telegram|plugin/, knowledge: [] },
 ];
 
 function groupOf(name) {

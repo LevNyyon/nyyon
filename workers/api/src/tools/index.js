@@ -18,6 +18,8 @@ import { tools as blogTools } from './blog.js';
 import { tools as socialTools } from './social.js';
 import { tools as hotTakesTools } from './hottakes.js';
 import { tools as linkedinTools } from './li.js';
+import { tools as pluginMgmtTools } from './plugins.js';
+import { pluginTools } from '../plugins/index.js';
 
 const TOOL_REGISTRY = {
   ...coreTools,
@@ -29,6 +31,10 @@ const TOOL_REGISTRY = {
   ...socialTools,
   ...hotTakesTools,
   ...linkedinTools,
+  ...pluginMgmtTools,
+  // Installed plugins land last — the host pool always wins a name clash
+  // (import validation refuses clashes anyway; this is defense in depth).
+  ...pluginTools,
 };
 
 export async function visibleToolDefs(env) {

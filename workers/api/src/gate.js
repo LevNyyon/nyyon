@@ -174,6 +174,19 @@ export function gate() {
       return c.json({ ok: false, error: 'unauthorized' }, 401);
     }
 
+    // The plugin applier (bundled sidecar, or CI verify hook) speaks to
+    // exactly three endpoints with the install's NYYON_APPLIER_KEY.
+    if (path === '/api/plugins/pending' || path === '/api/plugins/applied' || path === '/api/plugins/verify') {
+      const auth   = c.req.header('Authorization') || '';
+      const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+      if (c.env.NYYON_APPLIER_KEY && bearer) {
+        const [got, expected] = await Promise.all([sha256(bearer), sha256(c.env.NYYON_APPLIER_KEY)]);
+        if (timingSafeEqual(got, expected)) return next();
+      }
+      // falls through to the cookie check so the logged-in operator can hit
+      // these from the app too (the Plugins page uses them read-only).
+    }
+
     if (path.startsWith('/api/dev')) {
       const auth   = c.req.header('Authorization') || '';
       const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';

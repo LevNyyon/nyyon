@@ -2100,6 +2100,45 @@ app.post('/api/social/generate/:slug', async (c) => {
 app.get('/api/li/probe', async (c) => c.json(await runTool(c.env, 'probe_linkedin', {})));
 // Connecting an account is Unipile's hosted auth page: this returns the URL
 // the operator opens. Cookie pasting is gone with the daemon it belonged to.
+// ─── Plugins (trade capabilities between nyyon systems) ─────────────────
+// Operator surface (gated): list / import / export / remove.
+// Applier surface (bearer NYYON_APPLIER_KEY, exempted in gate.js):
+// pending / applied / verify.
+app.get('/api/plugins', async (c) => {
+  const { listPlugins } = await import('./lib/plugins.js');
+  return c.json({ plugins: await listPlugins(c.env) });
+});
+app.post('/api/plugins/import', async (c) => {
+  const body = await c.req.json().catch(() => null);
+  if (!body?.manifest) return c.json({ ok: false, error: 'manifest required' }, 400);
+  const { importPlugin } = await import('./lib/plugins.js');
+  return c.json(await importPlugin(c.env, body.manifest, { actor: 'operator' }));
+});
+app.get('/api/plugins/:name/export', async (c) => {
+  const { exportPlugin } = await import('./lib/plugins.js');
+  try { return c.json(await exportPlugin(c.env, c.req.param('name'))); }
+  catch (e) { return c.json({ ok: false, error: String(e?.message || e) }, 404); }
+});
+app.delete('/api/plugins/:name', async (c) => {
+  const { removePlugin } = await import('./lib/plugins.js');
+  try { return c.json(await removePlugin(c.env, c.req.param('name'))); }
+  catch (e) { return c.json({ ok: false, error: String(e?.message || e) }, 404); }
+});
+app.get('/api/plugins/pending', async (c) => {
+  const { pendingMaterializations } = await import('./lib/plugins.js');
+  return c.json(await pendingMaterializations(c.env));
+});
+app.post('/api/plugins/applied', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { markMaterialized } = await import('./lib/plugins.js');
+  return c.json(await markMaterialized(c.env, body.name, { ok: !!body.ok, error: body.error || null }));
+});
+app.post('/api/plugins/verify', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { verifyPlugin } = await import('./lib/plugins.js');
+  return c.json(await verifyPlugin(c.env, body.name));
+});
+
 // ─── Telegram (Nyo's direct line — inbound from the bundled poll service) ─
 // Auth happens in gate.js (TELEGRAM_INBOUND_KEY bearer, timing-safe). The
 // heavy work rides waitUntil so the poller gets its 200 immediately.

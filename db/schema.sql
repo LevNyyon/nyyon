@@ -324,3 +324,17 @@ CREATE TABLE IF NOT EXISTS telegram_messages (
   timestamp INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_telegram_messages_chat ON telegram_messages(chat_id, timestamp DESC);
+
+-- Plugins (0072): capabilities traded between nyyon-lite systems.
+CREATE TABLE IF NOT EXISTS plugins (
+  name          TEXT PRIMARY KEY,
+  version       TEXT NOT NULL,
+  title         TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  manifest_json TEXT NOT NULL,
+  binding_json  TEXT,
+  report_json   TEXT,
+  installed_at  INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_plugins_status ON plugins(status);

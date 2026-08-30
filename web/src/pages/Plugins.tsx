@@ -1,0 +1,122 @@
+// Plugins — trade capabilities between nyyon systems.
+//
+// Import: paste the manifest JSON another system exported; the server
+// validates the format contract, binds gateways mechanically, and reports
+// either the binding or the exact blocking errors. Export: one click copies
+// the sealed manifest for handing to another system. Code materializes via
+// the applier (self-hosted: seconds; cloud: a CI deploy), and a plugin only
+// reads "active" once its tools are live in the pool.
+
+import { useEffect, useState } from 'react';
+
+type PluginRow = {
+  name: string; version: string; title: string; status: string;
+  binding: Record<string, { via: string; target: string }>;
+  report: { step?: string; errors?: string[]; error?: string };
+  installed_at: number; updated_at: number;
+};
+
+const STATUS_TONE: Record<string, string> = {
+  active: 'text-emerald-700 bg-emerald-500/10',
+  bound: 'text-amber-700 bg-amber-500/10',
+  materialized: 'text-amber-700 bg-amber-500/10',
+  blocked: 'text-rose-700 bg-rose-500/10',
+  removed: 'text-mute bg-line/40',
+};
+
+async function j<T>(url: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(url, init);
+  return r.json();
+}
+
+export function Plugins() {
+  const [rows, setRows] = useState<PluginRow[]>([]);
+  const [paste, setPaste] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  const reload = () => j<{ plugins: PluginRow[] }>('/api/plugins').then((d) => setRows(d.plugins || []));
+  useEffect(() => { reload(); const t = setInterval(reload, 15000); return () => clearInterval(t); }, []);
+
+  const doImport = async () => {
+    setBusy(true); setNote(null);
+    try {
+      const manifest = JSON.parse(paste);
+      const r = await j<{ ok: boolean; status?: string; errors?: string[] }>('/api/plugins/import', {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ manifest }),
+      });
+      setNote(r.ok ? `Imported — status: ${r.status}. Code activates when the applier finishes.` : `Blocked:\n${(r.errors || []).join('\n')}`);
+      if (r.ok) setPaste('');
+      reload();
+    } catch (e) {
+      setNote(`Not valid JSON: ${String((e as Error)?.message || e)}`);
+    } finally { setBusy(false); }
+  };
+
+  const doExport = async (name: string) => {
+    const m = await j<object>(`/api/plugins/${encodeURIComponent(name)}/export`);
+    await navigator.clipboard.writeText(JSON.stringify(m, null, 2));
+    setNote(`"${name}" manifest copied to the clipboard — paste it into the other system's Plugins page.`);
+  };
+
+  const doRemove = async (name: string) => {
+    if (!confirm(`Remove plugin "${name}"? Its workflows disable and its code is cleaned up. Tables and data stay.`)) return;
+    await j(`/api/plugins/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    reload();
+  };
+
+  return (
+    <div className="p-6 max-w-3xl space-y-6">
+      <header>
+        <h1 className="text-lg font-semibold">Plugins</h1>
+        <p className="text-[12px] text-mute mt-1">
+          Capabilities traded between nyyon systems. Code travels verbatim; only gateway
+          targets are bound to this install, mechanically. Format: docs/plugin-format.md.
+        </p>
+      </header>
+
+      <section className="hairline rounded-sm bg-card/80 p-4 space-y-2">
+        <div className="mono text-[10px] uppercase tracking-[0.14em] text-mute">Import a plugin</div>
+        <textarea
+          className="w-full h-32 text-[12px] mono p-2 rounded-sm bg-bg hairline"
+          placeholder='Paste the manifest JSON another system exported ({"nyyon_plugin":1, ...})'
+          value={paste} onChange={(e) => setPaste(e.target.value)}
+        />
+        <div className="flex items-center gap-3">
+          <button
+            className="text-[12px] px-3 py-1.5 rounded-sm bg-ink text-bg disabled:opacity-40"
+            disabled={busy || !paste.trim()} onClick={doImport}
+          >{busy ? 'Importing…' : 'Import'}</button>
+          {note && <pre className="text-[11px] text-mute whitespace-pre-wrap flex-1">{note}</pre>}
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <div className="mono text-[10px] uppercase tracking-[0.14em] text-mute">Installed</div>
+        {!rows.length && <div className="text-[12px] text-mute">Nothing installed yet.</div>}
+        {rows.map((r) => (
+          <div key={r.name} className="hairline rounded-sm bg-card/80 p-3">
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] font-medium">{r.title}</span>
+              <span className="mono text-[10px] text-mute">{r.name} · v{r.version}</span>
+              <span className={`mono text-[9px] uppercase tracking-[0.12em] px-1.5 py-0.5 rounded-full ${STATUS_TONE[r.status] || 'text-mute bg-line/40'}`}>{r.status}</span>
+              <span className="flex-1" />
+              <button className="text-[11px] text-mute hover:text-ink" onClick={() => doExport(r.name)}>Export</button>
+              {r.status !== 'removed' && (
+                <button className="text-[11px] text-rose-700/70 hover:text-rose-700" onClick={() => doRemove(r.name)}>Remove</button>
+              )}
+            </div>
+            {Object.keys(r.binding || {}).length > 0 && (
+              <div className="mt-1 text-[11px] text-mute">
+                gateways: {Object.entries(r.binding).map(([slug, b]) => `${slug} → ${b.target} (${b.via})`).join(' · ')}
+              </div>
+            )}
+            {r.status === 'blocked' && (
+              <pre className="mt-1 text-[11px] text-rose-700/90 whitespace-pre-wrap">{(r.report?.errors || [r.report?.error]).filter(Boolean).join('\n')}</pre>
+            )}
+          </div>
+        ))}
+      </section>
+    </div>
+  );
+}
