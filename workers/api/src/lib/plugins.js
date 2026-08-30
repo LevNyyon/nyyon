@@ -338,10 +338,20 @@ export async function validateManifest(env, m) {
     if (!arr(g.modes).length) errors.push(`requires.gateways: "${g.slug}" must list the modes it uses`);
   }
 
-  // Host collisions: a plugin may not shadow an existing pool tool.
+  // Host collisions: a plugin may not shadow an existing pool tool. The live
+  // pool CONTAINS the currently-installed version of this very plugin, so its
+  // own stored names are exempt — otherwise no code-bearing plugin could ever
+  // be re-imported (an icon tweak collided with itself).
   try {
     const { visibleToolDefs } = await import('../tools/index.js');
     const names = new Set((await visibleToolDefs(env)).map((d) => d.name));
+    const prevRow = env?.DB
+      ? await env.DB.prepare('SELECT manifest_json FROM plugins WHERE name = ?').bind(m.name).first().catch(() => null)
+      : null;
+    if (prevRow?.manifest_json) {
+      try { for (const pt of arr(JSON.parse(prevRow.manifest_json)?.provides?.tools)) names.delete(pt?.name); }
+      catch { /* unreadable stored manifest — keep the strict set */ }
+    }
     for (const t of tools) if (names.has(t.name)) errors.push(`tool ${t.name}: name collides with the host pool`);
   } catch (e) {
     // Fail CLOSED: without the pool we cannot rule out shadowing a host tool.
