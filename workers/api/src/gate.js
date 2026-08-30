@@ -81,7 +81,12 @@ async function verifyToken(secret, token) {
   const [payload, sig] = token.split('.');
   let expected;
   try { expected = await hmac(secret, payload); } catch { return false; }
-  const got = b64urlToBytes(sig || '');
+  // b64urlToBytes -> atob THROWS on a malformed cookie. Outside a try that
+  // became a 500 on every request carrying a corrupt cookie — including the
+  // login page itself, which locks the operator out of their own install.
+  // An unparsable signature is simply not a valid session.
+  let got;
+  try { got = b64urlToBytes(sig || ''); } catch { return false; }
   if (!timingSafeEqual(expected, got)) return false;
   try {
     const data = JSON.parse(new TextDecoder().decode(b64urlToBytes(payload)));
@@ -176,7 +181,7 @@ export function gate() {
 
     // The plugin applier (bundled sidecar, or CI verify hook) speaks to
     // exactly three endpoints with the install's NYYON_APPLIER_KEY.
-    if (path === '/api/plugins/pending' || path === '/api/plugins/applied' || path === '/api/plugins/verify') {
+    if (['/api/plugins/pending', '/api/plugins/applied', '/api/plugins/verify', '/api/plugins/cleaned'].includes(path)) {
       const auth   = c.req.header('Authorization') || '';
       const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
       if (c.env.NYYON_APPLIER_KEY && bearer) {
@@ -197,7 +202,7 @@ export function gate() {
       }
     }
 
-    const ok = await verifyToken(c.env.GATE_SECRET, readCookie(c, COOKIE));
+    const ok = await verifyToken(c.env.GATE_SECRET, readCookie(c, COOKIE)).catch(() => false);
     if (ok) return next();
 
     if (path.startsWith('/api') || path === '/health') {

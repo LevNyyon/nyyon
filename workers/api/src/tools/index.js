@@ -30,11 +30,14 @@ const TOOL_REGISTRY = {
   ...blogTools,
   ...socialTools,
   ...hotTakesTools,
+  // Installed plugins are spread FIRST so a host tool always wins a name
+  // clash. (The old comment claimed the host won while the spread order gave
+  // the opposite: a later spread overwrites an earlier key, so a plugin was
+  // silently overriding host tools.) Import validation refuses clashes too;
+  // this is the defence that holds if that check ever fails open.
+  ...pluginTools,
   ...linkedinTools,
   ...pluginMgmtTools,
-  // Installed plugins land last — the host pool always wins a name clash
-  // (import validation refuses clashes anyway; this is defense in depth).
-  ...pluginTools,
 };
 
 export async function visibleToolDefs(env) {

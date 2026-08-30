@@ -1,137 +1,227 @@
 // Plugins — trade capabilities between nyyon-lite systems.
 //
-// The contract is docs/plugin-format.md (v1); this file is its executor:
-// validate → bind gateways → activate data → hand code to the applier. The
-// whole point is MINIMAL reasoning: code is installed verbatim; the single
-// permitted modification is which gateway a callGateway line targets, and
-// that rewrite is a mechanical string substitution recorded in the binding.
+// The contract is docs/plugin-format.md (v2); this file is its executor:
+// validate → bind gateways → activate data → hand code to the applier.
 //
-// A Worker cannot load new code at runtime, so tools/bundled gateways are
-// materialized by an applier (self-hosted: the bundled sidecar writes files
-// and restarts; cloud: a GitHub commit + CI). Everything that is data —
-// workflows, knowledge, tables — activates instantly at import.
+// WHERE THE BOUNDARY ACTUALLY IS
+// v1 tried to confine plugins by regex-scanning their source at import. An
+// adversarial review dismantled that: SQL built at runtime, gateways never
+// declared, imports written without a space after the keyword. Source text
+// cannot constrain what code does with a handle it holds.
+//
+// So enforcement moved to lib/plugin-runtime.js. A v2 plugin tool receives a
+// CAPABILITY OBJECT, never `env`: a D1 proxy that parses every statement at
+// query time and refuses anything outside plugin_<name>_*, a gateway function
+// closed over exactly the slugs this plugin declared, and a namespaced logger.
+// Nothing in this file is load-bearing for security any more — the checks here
+// are an honest LINT: they catch mistakes early and give a clear import-time
+// error instead of a confusing runtime one.
+//
+// The one thing that IS load-bearing here: what the manifest is allowed to
+// activate as DATA (tables, workflows, knowledge), because that runs with host
+// authority at import time. Those rules are strict.
 //
 // Statuses: imported → bound → materialized → active | blocked | removed.
 // Every transition logs to the activity bus.
 
 import { logEvent, writeKnowledge } from './db.js';
 import { now } from './util.js';
+import { RESERVED_GATEWAYS, bundledGatewaySlug, tableNamespace } from './plugin-runtime.js';
 
-const FORMAT_VERSION = 1;
+// v2 is the capability contract. v1 manifests are accepted ONLY when they carry
+// no code at all (knowledge/workflow packs) — a v1 tool expected raw `env` and
+// there is no safe way to run it.
+const FORMAT_VERSIONS = [1, 2];
+const CODE_FORMAT_VERSION = 2;
 const NAME_RE = /^[a-z][a-z0-9-]{1,40}$/;
 const TOOL_RE = /^[a-z][a-z0-9_]{1,60}$/;
-// The ONLY imports plugin tool code may carry (gateway code: db line only).
-const ALLOWED_IMPORTS = [
-  /^import\s*{[^}]+}\s*from\s*'\.\.\/\.\.\/gateways\/index\.js';?$/,
-  /^import\s*{[^}]+}\s*from\s*'\.\.\/\.\.\/lib\/db\.js';?$/,
+const SLUG_RE = /^[a-z][a-z0-9-]{1,60}$/;
+
+// Anything that brings another module into a plugin's scope. v2 code imports
+// NOTHING — it is handed everything it may use — so the rule is simply "none",
+// which is far harder to slip past than an allowlist of shapes.
+const IMPORTY = [
+  [/(^|\n)\s*import\s*[{*'"a-zA-Z_$]/, 'import declaration'],
+  [/(^|\n)\s*export\s+(\*|{[^}]*})\s*from\b/, 're-export from another module'],
+  [/\bimport\s*\(/, 'dynamic import'],
+  [/\brequire\s*\(/, 'require'],
 ];
-const FORBIDDEN = [
-  [/\beval\s*\(/, 'eval'], [/new\s+Function/, 'new Function'],
-  [/\bimport\s*\(/, 'dynamic import'], [/\brequire\s*\(/, 'require'],
+// Lint only — the runtime is what actually stops these. Kept because they are
+// reliable signals of a plugin written against the old contract.
+const LINT = [
+  [/\beval\s*\(/, 'eval'],
+  [/new\s+Function/, 'new Function'],
   [/\bprocess\./, 'process'],
 ];
+
+const arr = (v) => (Array.isArray(v) ? v : []);
 
 export async function sha256Hex(s) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s));
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// NOTE: this is a CHECKSUM, not a signature. It proves the manifest was not
+// mangled in transit; it proves nothing about who wrote it, because the sender
+// computes it with no key. Trusting a plugin is trusting its author.
 export const manifestPayload = (m) => JSON.stringify({ requires: m.requires || {}, provides: m.provides || {} });
 
-// ─── validation (pure + host-aware, no mutations) ────────────────
+// ─── validation (import-time lint + the strict data rules) ───────
 
-function checkCode(code, { kind, toolName, pluginName }) {
+// Comments are prose; scanning them produced false positives on English text
+// like "update contacts". Strip them before looking for code shapes.
+const stripComments = (code) => String(code || '')
+  .replace(/\/\*[\s\S]*?\*\//g, ' ')
+  .replace(/(^|[^:])\/\/[^\n]*/g, '$1 ');
+
+function checkCode(code, { kind, toolName, pluginName, declaredGateways }) {
   const errors = [];
-  const lines = String(code || '').split('\n');
-  for (const line of lines) {
-    const t = line.trim();
-    if (t.startsWith('import ')) {
-      const ok = kind === 'gateway'
-        ? ALLOWED_IMPORTS[1].test(t)
-        : ALLOWED_IMPORTS.some((re) => re.test(t));
-      if (!ok) errors.push(`${kind} ${toolName}: forbidden import: ${t.slice(0, 80)}`);
-    }
+  const src = stripComments(code);
+
+  for (const [re, label] of IMPORTY) {
+    // A bundled gateway is the service boundary and still imports nothing:
+    // it is handed a projected env by the generated wrapper.
+    if (re.test(src)) errors.push(`${kind} ${toolName}: ${label} — v2 plugin code imports nothing; everything it may use is passed in`);
   }
-  for (const [re, label] of FORBIDDEN) {
-    if (re.test(code)) errors.push(`${kind} ${toolName}: forbidden construct: ${label}`);
+  for (const [re, label] of LINT) {
+    if (re.test(src)) errors.push(`${kind} ${toolName}: ${label} is not allowed`);
   }
-  if (kind === 'tool' && /\bfetch\s*\(/.test(code)) {
-    errors.push(`tool ${toolName}: raw fetch() — tools reach the world through gateways only`);
-  }
+
   if (kind === 'tool') {
-    if (!/export\s+const\s+def\s*=/.test(code)) errors.push(`tool ${toolName}: missing "export const def"`);
-    if (!/export\s+async\s+function\s+run\s*\(/.test(code)) errors.push(`tool ${toolName}: missing "export async function run("`);
+    if (!/export\s+const\s+def\s*=/.test(src)) errors.push(`tool ${toolName}: missing "export const def"`);
+    if (!/export\s+async\s+function\s+run\s*\(/.test(src)) errors.push(`tool ${toolName}: missing "export async function run("`);
+    // v2 tools take the capability object. A tool still reaching for env.DB or
+    // a bare callGateway was written against v1 and will fail at runtime.
+    if (/\benv\s*\.\s*DB\b/.test(src)) errors.push(`tool ${toolName}: uses env.DB — v2 tools use api.db (run(api, input))`);
+    if (/\bcallGateway\s*\(/.test(src)) errors.push(`tool ${toolName}: uses callGateway — v2 tools use api.gateway(slug, mode, input)`);
   }
-  if (kind === 'gateway' && !/export\s+const\s+gateway\s*=/.test(code)) {
+  if (kind === 'gateway' && !/export\s+const\s+gateway\s*=/.test(src)) {
     errors.push(`gateway ${toolName}: missing "export const gateway"`);
   }
-  // D1 namespace: any obvious table literal outside the plugin's namespace.
-  const tables = [...String(code).matchAll(/\b(?:FROM|INTO|UPDATE|TABLE)\s+([a-z_][a-z0-9_]*)/gi)].map((m2) => m2[1].toLowerCase());
-  for (const t of new Set(tables)) {
-    if (!t.startsWith(`plugin_${pluginName.replace(/-/g, '_')}_`) && !['sqlite_master'].includes(t)) {
-      errors.push(`${kind} ${toolName}: touches table "${t}" outside the plugin namespace plugin_${pluginName.replace(/-/g, '_')}_*`);
+
+  // Lint: literal gateway slugs must have been declared. The runtime enforces
+  // this for real (including slugs built at runtime, which this cannot see).
+  if (kind === 'tool' && declaredGateways) {
+    for (const m of src.matchAll(/\bapi\s*\.\s*gateway\s*\(\s*['"`]([a-z0-9-]+)['"`]/gi)) {
+      const slug = m[1].toLowerCase();
+      if (!declaredGateways.has(slug)) {
+        errors.push(`tool ${toolName}: calls gateway "${slug}" which requires.gateways does not declare`);
+      }
+    }
+  }
+
+  // Lint: literal table names outside the namespace. Runtime is authoritative.
+  const ns = tableNamespace(pluginName);
+  for (const m of src.matchAll(/\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+([a-z_][a-z0-9_]*)/gi)) {
+    const t = m[1].toLowerCase();
+    if (!t.startsWith(ns) && !['select', 'values'].includes(t)) {
+      errors.push(`${kind} ${toolName}: references table "${t}" outside ${ns}*`);
     }
   }
   return errors;
 }
 
+// DDL runs with HOST authority at import time, so this one is a real gate, not
+// a lint. The v1 version anchored only the prefix, which let
+// `CREATE TABLE IF NOT EXISTS plugin_x_c AS SELECT * FROM gateway_config`
+// copy the credential table into the plugin's namespace. Match the WHOLE
+// statement instead, and require a column list.
 function checkDdl(ddl, pluginName) {
-  const ns = `plugin_${pluginName.replace(/-/g, '_')}_`;
+  const ns = tableNamespace(pluginName);
   const errors = [];
-  const stmts = String(ddl || '').split(';').map((s) => s.trim()).filter(Boolean);
+  const raw = String(ddl || '');
+  // Split on semicolons that are not inside a string literal.
+  const stmts = raw.split(/;(?=(?:[^']*'[^']*')*[^']*$)/).map((s) => s.trim()).filter(Boolean);
+  const TABLE_RE = new RegExp(`^CREATE TABLE IF NOT EXISTS ${ns}[a-z0-9_]* \\(.*\\)$`, 'i');
+  const INDEX_RE = new RegExp(`^CREATE INDEX IF NOT EXISTS idx_${ns}[a-z0-9_]* ON ${ns}[a-z0-9_]* \\(.*\\)$`, 'i');
   for (const s of stmts) {
-    const ok = new RegExp(`^CREATE (TABLE|INDEX) IF NOT EXISTS (idx_)?${ns}`, 'i').test(s.replace(/\s+/g, ' '));
-    if (!ok) errors.push(`ddl: refused statement (only CREATE TABLE/INDEX IF NOT EXISTS ${ns}* allowed): ${s.slice(0, 90)}`);
+    const n = s.replace(/\s+/g, ' ').trim();
+    if (/\bAS\b\s*(WITH|SELECT|\()/i.test(n)) {
+      errors.push(`ddl: CREATE ... AS SELECT is refused (it can copy host tables): ${n.slice(0, 90)}`);
+      continue;
+    }
+    if (/\b(TEMP|TEMPORARY)\b/i.test(n) || /\bmain\s*\./i.test(n)) {
+      errors.push(`ddl: temp tables and schema-qualified names are refused: ${n.slice(0, 90)}`);
+      continue;
+    }
+    if (!TABLE_RE.test(n) && !INDEX_RE.test(n)) {
+      errors.push(`ddl: refused — only "CREATE TABLE IF NOT EXISTS ${ns}… ( … )" and "CREATE INDEX IF NOT EXISTS idx_${ns}… ON ${ns}… ( … )": ${n.slice(0, 90)}`);
+    }
   }
   return { errors, stmts };
 }
 
 export async function validateManifest(env, m) {
   const errors = [];
-  if (!m || m.nyyon_plugin !== FORMAT_VERSION) errors.push(`nyyon_plugin must be ${FORMAT_VERSION}`);
+  if (!m || !FORMAT_VERSIONS.includes(m.nyyon_plugin)) errors.push(`nyyon_plugin must be one of ${FORMAT_VERSIONS.join(', ')}`);
   if (!NAME_RE.test(m?.name || '')) errors.push('name: kebab-case slug required');
   if (!m?.title || !m?.version) errors.push('title + version required');
   if (errors.length) return { ok: false, errors };
 
   const p = m.provides || {};
-  const tools = p.tools || [];
-  const gateways = p.gateways || [];
-  if (!tools.length && !(p.workflows || []).length && !(p.knowledge || []).length) {
-    errors.push('provides: empty plugin');
+  const tools = arr(p.tools);
+  const gateways = arr(p.gateways);
+  const workflows = arr(p.workflows);
+  const knowledge = arr(p.knowledge);
+  const declaredGateways = new Set(arr(m.requires?.gateways).map((g) => g?.slug).filter(Boolean));
+
+  if (!tools.length && !workflows.length && !knowledge.length) errors.push('provides: empty plugin');
+
+  // v1 is data-only. A v1 tool was written for raw `env` and cannot be run
+  // under the capability contract, so refuse it with a migration pointer.
+  if (m.nyyon_plugin < CODE_FORMAT_VERSION && (tools.length || gateways.length)) {
+    errors.push('nyyon_plugin 1 carries code: v1 tools expected raw env and are no longer runnable. Re-author as v2 (run(api, input) using api.db / api.gateway) — see docs/plugin-format.md.');
   }
+
   if (m.sha256) {
     const got = await sha256Hex(manifestPayload(m));
-    if (got !== m.sha256) errors.push('sha256 mismatch — manifest was altered in transit');
+    if (got !== m.sha256) errors.push('checksum mismatch — the manifest was altered in transit');
   }
 
   for (const t of tools) {
     if (!TOOL_RE.test(t?.name || '')) errors.push(`tool name invalid: ${t?.name}`);
     if (t?.def?.name !== t?.name) errors.push(`tool ${t?.name}: def.name mismatch`);
-    errors.push(...checkCode(t?.code || '', { kind: 'tool', toolName: t?.name, pluginName: m.name }));
+    errors.push(...checkCode(t?.code, { kind: 'tool', toolName: t?.name, pluginName: m.name, declaredGateways }));
   }
   for (const g of gateways) {
-    if (!NAME_RE.test(g?.slug || '')) errors.push(`gateway slug invalid: ${g?.slug}`);
-    errors.push(...checkCode(g?.code || '', { kind: 'gateway', toolName: g?.slug, pluginName: m.name }));
+    if (!SLUG_RE.test(g?.slug || '')) errors.push(`gateway slug invalid: ${g?.slug}`);
+    if (g?.slug && RESERVED_GATEWAYS.has(g.slug)) errors.push(`gateway ${g.slug}: reserved — a plugin may never provide it`);
+    if (!arr(g?.modes).length) errors.push(`gateway ${g?.slug}: must declare its modes`);
+    errors.push(...checkCode(g?.code, { kind: 'gateway', toolName: g?.slug, pluginName: m.name }));
   }
-  for (const tb of (m.requires?.tables || [])) errors.push(...checkDdl(tb?.ddl, m.name).errors);
+  for (const tb of arr(m.requires?.tables)) errors.push(...checkDdl(tb?.ddl, m.name).errors);
+
+  // Gateway requirements: no reserved slugs, no binding to another plugin's
+  // bundled gateway, and a requirement that asserts no modes binds to anything.
+  for (const g of arr(m.requires?.gateways)) {
+    if (!SLUG_RE.test(g?.slug || '')) { errors.push(`requires.gateways: invalid slug ${g?.slug}`); continue; }
+    if (RESERVED_GATEWAYS.has(g.slug)) errors.push(`requires.gateways: "${g.slug}" is reserved and can never be bound by a plugin`);
+    if (g.slug.startsWith('plugin__') || g.slug.startsWith('plugin-')) errors.push(`requires.gateways: "${g.slug}" — a plugin may not bind another plugin's bundled gateway`);
+    if (!arr(g.modes).length) errors.push(`requires.gateways: "${g.slug}" must list the modes it uses`);
+  }
 
   // Host collisions: a plugin may not shadow an existing pool tool.
   try {
     const { visibleToolDefs } = await import('../tools/index.js');
     const names = new Set((await visibleToolDefs(env)).map((d) => d.name));
     for (const t of tools) if (names.has(t.name)) errors.push(`tool ${t.name}: name collides with the host pool`);
-  } catch { /* pool unavailable — collision check skipped, applier will surface it */ }
+  } catch (e) {
+    // Fail CLOSED: without the pool we cannot rule out shadowing a host tool.
+    errors.push(`tool pool unavailable, cannot check name collisions: ${String(e?.message || e)}`);
+  }
 
   // A plugin may only overwrite workflow slugs it created itself, and its
-  // knowledge lives in the plugin's own namespace, like tables and bundled
-  // gateways do. (Back-ported from the cmd port's review hardening.)
+  // knowledge lives in the plugin's own namespace, like tables and gateways do.
+  for (const w of workflows) {
+    if (!SLUG_RE.test(w?.slug || '')) errors.push(`workflow slug invalid: ${w?.slug}`);
+  }
   try {
-    for (const w of (p.workflows || [])) {
+    for (const w of workflows) {
       const row = await env.DB.prepare('SELECT created_by FROM workflows WHERE slug = ?').bind(w?.slug).first();
       if (row && row.created_by !== `plugin:${m.name}`) errors.push(`workflow ${w?.slug}: slug collides with a host workflow`);
     }
   } catch { /* db unavailable — the workflow upsert will surface it */ }
-  for (const k of (p.knowledge || [])) {
+  for (const k of knowledge) {
     if (!String(k?.slug || '').startsWith(`plugin-${m.name}`)) {
       errors.push(`knowledge ${k?.slug}: must live in the plugin namespace (slug starting "plugin-${m.name}")`);
     }
@@ -142,51 +232,58 @@ export async function validateManifest(env, m) {
     const { visibleToolDefs } = await import('../tools/index.js');
     const names = new Set((await visibleToolDefs(env)).map((d) => d.name));
     for (const t of tools) names.add(t.name);
-    for (const w of (p.workflows || [])) {
-      for (const st of (w.steps || [])) {
+    for (const w of workflows) {
+      for (const st of arr(w.steps)) {
         const stepName = typeof st === 'string' ? st : st?.tool;
         if (stepName && !names.has(stepName)) errors.push(`workflow ${w.slug}: step "${stepName}" exists in neither the host pool nor this plugin`);
       }
     }
-  } catch { /* same fallback */ }
+  } catch { /* already reported above */ }
 
   return { ok: !errors.length, errors };
 }
 
-// ─── gateway binding (mechanical) ────────────────────────────────
+// ─── gateway binding ─────────────────────────────────────────────
 
 export async function bindGateways(env, m) {
   const { listGateways } = await import('../gateways/index.js');
-  const host = Object.fromEntries(listGateways().map((g) => [g.slug, new Set(g.modes)]));
-  const bundled = Object.fromEntries((m.provides?.gateways || []).map((g) => [g.slug, g]));
+  const host = Object.fromEntries(listGateways().map((g) => [g.slug, new Set(arr(g.modes))]));
+  const bundled = Object.fromEntries(arr(m.provides?.gateways).map((g) => [g.slug, g]));
   const binding = {};
   const errors = [];
-  for (const req of (m.requires?.gateways || [])) {
+  for (const req of arr(m.requires?.gateways)) {
+    const modes = arr(req.modes);
+    if (RESERVED_GATEWAYS.has(req.slug)) { errors.push(`gateway ${req.slug}: reserved, never bindable by a plugin`); continue; }
     const have = host[req.slug];
-    const modesOk = have && (req.modes || []).every((mode) => have.has(mode));
-    if (modesOk) { binding[req.slug] = { via: 'host', target: req.slug }; continue; }
-    if (bundled[req.slug]) { binding[req.slug] = { via: 'bundled', target: `plugin-${m.name}-${req.slug}` }; continue; }
-    const missing = have ? (req.modes || []).filter((mode) => !have.has(mode)) : req.modes;
+    if (have && modes.every((mode) => have.has(mode))) { binding[req.slug] = { via: 'host', target: req.slug }; continue; }
+    const bun = bundled[req.slug];
+    if (bun) {
+      // A bundle only satisfies the requirement if it offers every mode.
+      const offers = new Set(arr(bun.modes));
+      const short = modes.filter((mode) => !offers.has(mode));
+      if (short.length) { errors.push(`gateway ${req.slug}: the bundled replacement lacks modes [${short}]`); continue; }
+      binding[req.slug] = { via: 'bundled', target: bundledGatewaySlug(m.name, req.slug) };
+      continue;
+    }
+    const missing = have ? modes.filter((mode) => !have.has(mode)) : modes;
     errors.push(`gateway ${req.slug}: host ${have ? `lacks modes [${missing}]` : 'does not have it'} and the plugin bundles no replacement`);
   }
   return { ok: !errors.length, binding, errors };
 }
 
-// The one permitted code modification: retarget callGateway at bundled slugs.
-export function applyBinding(code, binding) {
-  let out = String(code);
-  for (const [slug, b] of Object.entries(binding)) {
-    if (b.via !== 'bundled') continue;
-    out = out.replaceAll(`callGateway(env, '${slug}'`, `callGateway(env, '${b.target}'`)
-             .replaceAll(`callGateway(env, "${slug}"`, `callGateway(env, "${b.target}"`);
-  }
-  return out;
-}
-
 // ─── the import pipeline ─────────────────────────────────────────
 
 export async function importPlugin(env, manifest, { actor = 'operator' } = {}) {
-  const name = manifest?.name || 'unknown';
+  const name = manifest?.name;
+  // Refuse an unusable name BEFORE any write: the name becomes a directory path
+  // for the applier, so "../.." must never reach a stored row.
+  if (!NAME_RE.test(name || '')) {
+    return { ok: false, status: 'blocked', errors: ['name: kebab-case slug required (a plugin name becomes a directory path)'] };
+  }
+
+  const existing = await env.DB.prepare('SELECT status FROM plugins WHERE name = ?').bind(name).first().catch(() => null);
+  const live = existing && ['active', 'materialized'].includes(existing.status);
+
   const save = (status, extra = {}) => env.DB.prepare(
     `INSERT INTO plugins (name, version, title, status, manifest_json, binding_json, report_json, installed_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -197,103 +294,228 @@ export async function importPlugin(env, manifest, { actor = 'operator' } = {}) {
     JSON.stringify(manifest), JSON.stringify(extra.binding || {}), JSON.stringify(extra.report || {}),
     now(), now()).run();
 
+  // A failed re-import must NOT overwrite a working installation's row — that
+  // replaced a live plugin's manifest with the rejected one.
+  const reject = async (step, errs) => {
+    if (live) {
+      await logEvent(env, { kind: 'plugin_blocked', actor, payload: { name, step, errors: errs.slice(0, 10), kept_installed: true } });
+      return { ok: false, status: 'blocked', errors: errs, note: `the installed ${existing.status} plugin "${name}" was left untouched` };
+    }
+    await save('blocked', { report: { step, errors: errs } });
+    await logEvent(env, { kind: 'plugin_blocked', actor, payload: { name, step, errors: errs.slice(0, 10) } });
+    return { ok: false, status: 'blocked', errors: errs };
+  };
+
   const v = await validateManifest(env, manifest);
-  if (!v.ok) {
-    await save('blocked', { report: { step: 'validate', errors: v.errors } });
-    await logEvent(env, { kind: 'plugin_blocked', actor, payload: { name, errors: v.errors.slice(0, 10) } });
-    return { ok: false, status: 'blocked', errors: v.errors };
-  }
+  if (!v.ok) return reject('validate', v.errors);
 
   const b = await bindGateways(env, manifest);
-  if (!b.ok) {
-    await save('blocked', { binding: b.binding, report: { step: 'bind', errors: b.errors } });
-    await logEvent(env, { kind: 'plugin_blocked', actor, payload: { name, errors: b.errors } });
-    return { ok: false, status: 'blocked', errors: b.errors };
+  if (!b.ok) return reject('bind', b.errors);
+
+  // Record the attempt BEFORE mutating anything, so a throw mid-way leaves a
+  // row explaining the partial state instead of orphan tables with no record.
+  await save('imported', { binding: b.binding, report: { step: 'activating' } });
+
+  const warnings = [];
+  try {
+    for (const tb of arr(manifest.requires?.tables)) {
+      const { errors: ddlErrors, stmts } = checkDdl(tb.ddl, name);
+      if (ddlErrors.length) throw new Error(ddlErrors[0]);
+      for (const stmt of stmts) await env.DB.prepare(stmt).run();
+    }
+    for (const w of arr(manifest.provides?.workflows)) {
+      // An operator's deliberate disable survives a re-import.
+      await env.DB.prepare(
+        `INSERT INTO workflows (slug, name, description, trigger, steps, source, status, created_at, updated_at, created_by)
+         VALUES (?, ?, ?, ?, ?, 'plugin', 'active', ?, ?, ?)
+         ON CONFLICT(slug) DO UPDATE SET name = excluded.name, description = excluded.description,
+           steps = excluded.steps, updated_at = excluded.updated_at,
+           status = CASE WHEN workflows.status = 'disabled' THEN 'disabled' ELSE 'active' END`,
+      ).bind(w.slug, w.name || w.slug, w.goal || w.description || null,
+        JSON.stringify({ kind: 'manual' }), JSON.stringify(arr(w.steps)), now(), now(), `plugin:${name}`).run();
+    }
+    // Workflow slugs this plugin used to provide and no longer does are retired.
+    if (existing) {
+      const prev = await env.DB.prepare('SELECT manifest_json FROM plugins WHERE name = ?').bind(name).first().catch(() => null);
+      const prevSlugs = new Set(arr(JSON.parse(prev?.manifest_json || '{}')?.provides?.workflows).map((w) => w.slug));
+      const nextSlugs = new Set(arr(manifest.provides?.workflows).map((w) => w.slug));
+      for (const slug of prevSlugs) {
+        if (!nextSlugs.has(slug)) {
+          await env.DB.prepare("UPDATE workflows SET status = 'disabled', updated_at = ? WHERE slug = ? AND created_by = ?")
+            .bind(now(), slug, `plugin:${name}`).run().catch(() => {});
+        }
+      }
+    }
+    for (const k of arr(manifest.provides?.knowledge)) {
+      try {
+        await writeKnowledge(env, { slug: k.slug, title: k.title || k.slug, body: k.body || '', scope: 'global', module: null, parent_slug: 'knowledge-root' });
+      } catch (e) {
+        warnings.push(`knowledge ${k.slug}: ${String(e?.message || e)}`);
+      }
+    }
+  } catch (e) {
+    const err = `activation failed: ${String(e?.message || e)}`;
+    await save('blocked', { binding: b.binding, report: { step: 'activate', errors: [err], partial: true } });
+    await logEvent(env, { kind: 'plugin_blocked', actor, payload: { name, step: 'activate', error: err } });
+    return { ok: false, status: 'blocked', errors: [err] };
   }
 
-  // Data activates now: tables, workflows, knowledge.
-  for (const tb of (manifest.requires?.tables || [])) {
-    for (const stmt of checkDdl(tb.ddl, name).stmts) await env.DB.prepare(stmt).run();
-  }
-  for (const w of (manifest.provides?.workflows || [])) {
-    await env.DB.prepare(
-      `INSERT INTO workflows (slug, name, description, trigger, steps, source, status, created_at, updated_at, created_by)
-       VALUES (?, ?, ?, ?, ?, 'plugin', 'active', ?, ?, ?)
-       ON CONFLICT(slug) DO UPDATE SET name = excluded.name, description = excluded.description,
-         steps = excluded.steps, status = 'active', updated_at = excluded.updated_at`,
-    ).bind(w.slug, w.name || w.slug, w.goal || w.description || null,
-      JSON.stringify({ kind: 'manual' }), JSON.stringify(w.steps || []), now(), now(), `plugin:${name}`).run();
-  }
-  for (const k of (manifest.provides?.knowledge || [])) {
-    await writeKnowledge(env, { slug: k.slug, title: k.title || k.slug, body: k.body || '', scope: 'global', module: null, parent_slug: 'knowledge-root' }).catch(() => {});
+  // Knowledge-only plugins whose every write failed have delivered nothing.
+  const onlyKnowledge = !arr(manifest.provides?.tools).length && !arr(manifest.provides?.workflows).length;
+  if (onlyKnowledge && warnings.length === arr(manifest.provides?.knowledge).length && warnings.length) {
+    await save('blocked', { binding: b.binding, report: { step: 'activate', errors: warnings } });
+    return { ok: false, status: 'blocked', errors: warnings };
   }
 
-  const hasCode = (manifest.provides?.tools || []).length || (manifest.provides?.gateways || []).length;
-  await save(hasCode ? 'bound' : 'active', { binding: b.binding, report: { step: hasCode ? 'awaiting-applier' : 'done' } });
-  await logEvent(env, { kind: 'plugin_imported', actor, payload: { name, version: manifest.version, binding: b.binding, needs_materialization: !!hasCode } });
-  return { ok: true, status: hasCode ? 'bound' : 'active', binding: b.binding };
+  const hasCode = arr(manifest.provides?.tools).length || arr(manifest.provides?.gateways).length;
+  await save(hasCode ? 'bound' : 'active', {
+    binding: b.binding,
+    report: { step: hasCode ? 'awaiting-applier' : 'done', ...(warnings.length ? { warnings } : {}) },
+  });
+  await logEvent(env, { kind: 'plugin_imported', actor, payload: { name, version: manifest.version, binding: b.binding, needs_materialization: !!hasCode, warnings } });
+  return { ok: true, status: hasCode ? 'bound' : 'active', binding: b.binding, warnings };
 }
 
 // ─── materialization (consumed by the applier) ───────────────────
 
 const pluginDir = (name) => `workers/api/src/plugins/${name}`;
 
+// Only gateways the binding actually chose are materialized: a bundle the host
+// superseded is dead code, and registering it would let another plugin bind it.
+const bundledInUse = (manifest, binding) =>
+  arr(manifest.provides?.gateways).filter((g) => binding?.[g.slug]?.via === 'bundled');
+
 export function filesFor(manifest, binding) {
   const files = [];
-  for (const t of (manifest.provides?.tools || [])) {
-    files.push({ path: `${pluginDir(manifest.name)}/tool-${t.name}.mjs`, content: applyBinding(t.code, binding) });
+  if (!NAME_RE.test(manifest?.name || '')) return files; // never build a path from a bad name
+  for (const t of arr(manifest.provides?.tools)) {
+    if (!TOOL_RE.test(t?.name || '')) continue;
+    // Source is materialized VERBATIM — no rewriting. The gateway binding is
+    // resolved at runtime by the capability object, so there is nothing to
+    // patch and no call form that can be missed.
+    files.push({ path: `${pluginDir(manifest.name)}/tool-${t.name}.mjs`, content: String(t.code || '') });
   }
-  for (const g of (manifest.provides?.gateways || [])) {
-    files.push({ path: `${pluginDir(manifest.name)}/gateway-${g.slug}.mjs`, content: g.code });
+  for (const g of bundledInUse(manifest, binding)) {
+    files.push({ path: `${pluginDir(manifest.name)}/gateway-${g.slug}.mjs`, content: String(g.code || '') });
   }
   return files;
 }
 
 // plugins/index.js is GENERATED, fully, from the set of installed plugins —
-// deterministic, no reading of the previous file, so the applier is idempotent.
+// deterministic, never reading the previous file. It is also the injection
+// point for the capability boundary: every plugin run() is wrapped so it
+// receives pluginApi(...) instead of env.
 export function generateIndex(rows) {
-  const lines = [
+  const head = [
     '// GENERATED by the Plugins module — do not edit by hand.',
     '// Aggregates every installed plugin into the tool pool and gateway registry.',
+    '// Each plugin runs against a capability object (lib/plugin-runtime.js): a',
+    '// namespace-scoped DB, a gateway function closed over its own binding, and',
+    '// a namespaced logger. Plugin code never receives env.',
   ];
+  const imports = [];
   const toolRefs = [];
   const gwRefs = [];
+  const seenTool = new Set();
+  const seenGw = new Set();
   let i = 0;
+  const bindings = {};
+
   for (const row of rows) {
-    const m = JSON.parse(row.manifest_json);
-    for (const t of (m.provides?.tools || [])) {
+    let m;
+    try { m = JSON.parse(row.manifest_json); } catch { continue; }
+    if (!NAME_RE.test(m?.name || '')) continue;
+    let binding = {};
+    try { binding = JSON.parse(row.binding_json || '{}'); } catch { /* none */ }
+    bindings[m.name] = binding;
+
+    for (const t of arr(m.provides?.tools)) {
+      if (!TOOL_RE.test(t?.name || '') || seenTool.has(t.name)) continue;
+      seenTool.add(t.name);
       const v = `p${i++}`;
-      lines.push(`import * as ${v} from './${m.name}/tool-${t.name}.mjs';`);
-      toolRefs.push(`  [${v}.def.name]: { def: ${v}.def, run: ${v}.run },`);
+      imports.push(`import * as ${v} from './${m.name}/tool-${t.name}.mjs';`);
+      toolRefs.push(
+        `  [${v}.def.name]: { def: ${v}.def, run: (env, input, ctx) => `
+        + `${v}.run(pluginApi(env, ${JSON.stringify(m.name)}, BINDINGS[${JSON.stringify(m.name)}]), input, ctx) },`,
+      );
     }
-    for (const g of (m.provides?.gateways || [])) {
+    for (const g of arr(m.provides?.gateways).filter((gg) => binding?.[gg.slug]?.via === 'bundled')) {
+      const key = bundledGatewaySlug(m.name, g.slug);
+      if (seenGw.has(key)) continue;
+      seenGw.add(key);
       const v = `p${i++}`;
-      lines.push(`import * as ${v} from './${m.name}/gateway-${g.slug}.mjs';`);
-      gwRefs.push(`  'plugin-${m.name}-${g.slug}': { ...${v}.gateway, slug: 'plugin-${m.name}-${g.slug}' },`);
+      imports.push(`import * as ${v} from './${m.name}/gateway-${g.slug}.mjs';`);
+      gwRefs.push(
+        `  ${JSON.stringify(key)}: { ...${v}.gateway, slug: ${JSON.stringify(key)}, `
+        + `modes: wrapGatewayModes(${v}.gateway.modes, ${JSON.stringify(m.name)}) },`,
+      );
     }
   }
-  lines.push('', 'export const pluginTools = {', ...toolRefs, '};', '', 'export const pluginGateways = {', ...gwRefs, '};', '');
+
+  const lines = [
+    ...head,
+    '',
+    "import { pluginApi, wrapGatewayModes } from '../lib/plugin-runtime.js';",
+    ...imports,
+    '',
+    `const BINDINGS = ${JSON.stringify(bindings, null, 2)};`,
+    '',
+    'export const pluginTools = {',
+    ...toolRefs,
+    '};',
+    '',
+    'export const pluginGateways = {',
+    ...gwRefs,
+    '};',
+    '',
+  ];
   return lines.join('\n');
 }
 
 export async function pendingMaterializations(env) {
   const pending = (await env.DB.prepare("SELECT * FROM plugins WHERE status = 'bound'").all()).results || [];
   const installed = (await env.DB.prepare("SELECT * FROM plugins WHERE status IN ('bound','materialized','active')").all()).results || [];
+  const removedRows = (await env.DB.prepare("SELECT name, report_json FROM plugins WHERE status = 'removed'").all()).results || [];
+  // A removal already cleaned by the applier must drop off the work list, or
+  // the applier deletes nothing, restarts the app, and does it again forever.
+  const remove = removedRows.filter((r) => {
+    try { return JSON.parse(r.report_json || '{}')?.step !== 'cleaned'; } catch { return true; }
+  }).map((r) => r.name).filter((n) => NAME_RE.test(n || ''));
+
+  const shape = (r) => ({ name: r.name, files: filesFor(JSON.parse(r.manifest_json), JSON.parse(r.binding_json || '{}')) });
   return {
-    pending: pending.map((r) => ({ name: r.name, files: filesFor(JSON.parse(r.manifest_json), JSON.parse(r.binding_json || '{}')) })),
+    pending: pending.map(shape),
     // Everything installed, for the applier's reconcile pass: a source sync or
     // disk mishap that loses a materialized file gets healed on the next tick.
-    installed: installed.map((r) => ({ name: r.name, files: filesFor(JSON.parse(r.manifest_json), JSON.parse(r.binding_json || '{}')) })),
+    installed: installed.map(shape),
+    // Materialized-but-unverified plugins the applier should re-verify.
+    verify: installed.filter((r) => r.status === 'materialized').map((r) => r.name),
     index_file: { path: 'workers/api/src/plugins/index.js', content: generateIndex(installed) },
-    remove: ((await env.DB.prepare("SELECT name FROM plugins WHERE status = 'removed'").all()).results || []).map((r) => r.name),
+    remove,
   };
 }
 
+// Status transitions are guarded in SQL: a blocked plugin must not be walked
+// forward to materialized/active by an applier that reports on the wrong name.
 export async function markMaterialized(env, name, { ok, error = null } = {}) {
-  await env.DB.prepare('UPDATE plugins SET status = ?, report_json = ?, updated_at = ? WHERE name = ?')
-    .bind(ok ? 'materialized' : 'blocked', JSON.stringify({ step: 'materialize', error }), now(), name).run();
+  const r = await env.DB.prepare(
+    "UPDATE plugins SET status = ?, report_json = ?, updated_at = ? WHERE name = ? AND status = 'bound'",
+  ).bind(ok ? 'materialized' : 'blocked', JSON.stringify({ step: 'materialize', error }), now(), name).run();
+  const changed = r?.meta?.changes ?? r?.changes ?? 0;
+  if (!changed) return { ok: false, error: `plugin "${name}" is not awaiting materialization` };
   await logEvent(env, { kind: ok ? 'plugin_materialized' : 'plugin_blocked', actor: 'applier', payload: { name, error } });
-  return { ok };
+  return { ok: true };
+}
+
+// The applier calls this after deleting a removed plugin's files, so the
+// removal drops off the work list instead of repeating every tick.
+export async function markCleaned(env, name) {
+  const r = await env.DB.prepare(
+    "UPDATE plugins SET report_json = ?, updated_at = ? WHERE name = ? AND status = 'removed'",
+  ).bind(JSON.stringify({ step: 'cleaned' }), now(), name).run();
+  const changed = r?.meta?.changes ?? r?.changes ?? 0;
+  if (changed) await logEvent(env, { kind: 'plugin_cleaned', actor: 'applier', payload: { name } });
+  return { ok: !!changed };
 }
 
 // Post-restart/deploy verification: the plugin's tools must be in the live pool.
@@ -303,19 +525,25 @@ export async function verifyPlugin(env, name) {
   if (!['materialized', 'active'].includes(row.status)) {
     return { ok: false, error: `plugin is ${row.status} — only materialized plugins verify` };
   }
-  const m = JSON.parse(row.manifest_json);
+  let m = {};
+  try { m = JSON.parse(row.manifest_json); } catch { return { ok: false, error: 'stored manifest is unreadable' }; }
   const { visibleToolDefs } = await import('../tools/index.js');
   const names = new Set((await visibleToolDefs(env)).map((d) => d.name));
-  const missing = (m.provides?.tools || []).map((t) => t.name).filter((n) => !names.has(n));
+  const missing = arr(m.provides?.tools).map((t) => t.name).filter((n) => !names.has(n));
   if (missing.length) return { ok: false, error: `tools not live yet: ${missing.join(', ')}` };
-  await env.DB.prepare("UPDATE plugins SET status = 'active', updated_at = ? WHERE name = ?").bind(now(), name).run();
+  await env.DB.prepare("UPDATE plugins SET status = 'active', updated_at = ? WHERE name = ? AND status IN ('materialized','active')").bind(now(), name).run();
   await logEvent(env, { kind: 'plugin_active', actor: 'system', payload: { name } });
   return { ok: true };
 }
 
 export async function listPlugins(env) {
   const rows = (await env.DB.prepare('SELECT name, version, title, status, binding_json, report_json, installed_at, updated_at FROM plugins ORDER BY installed_at DESC').all()).results || [];
-  return rows.map((r) => ({ ...r, binding: JSON.parse(r.binding_json || '{}'), report: JSON.parse(r.report_json || '{}'), binding_json: undefined, report_json: undefined }));
+  return rows.map((r) => {
+    let binding = {}; let report = {};
+    try { binding = JSON.parse(r.binding_json || '{}'); } catch { /* keep empty */ }
+    try { report = JSON.parse(r.report_json || '{}'); } catch { /* keep empty */ }
+    return { ...r, binding, report, binding_json: undefined, report_json: undefined };
+  });
 }
 
 // The plugin registry: every installed plugin's full component map — the
@@ -327,36 +555,43 @@ export async function pluginRegistry(env) {
     'SELECT name, version, title, status, manifest_json, binding_json, installed_at, updated_at FROM plugins ORDER BY installed_at DESC',
   ).all()).results || [];
   return rows.map((r) => {
-    let m = {}, binding = {};
-    try { m = JSON.parse(r.manifest_json); } catch { /* keep empty */ }
-    try { binding = JSON.parse(r.binding_json || '{}'); } catch { /* keep empty */ }
-    const p = m.provides || {};
-    const dir = `${pluginDir(r.name)}`;
-    return {
-      name: r.name, title: r.title, version: r.version, status: r.status,
-      origin: m.origin || null,
-      installed_at: r.installed_at, updated_at: r.updated_at,
-      path: dir,
-      tools: (p.tools || []).map((t) => ({
-        name: t.name, path: `${dir}/tool-${t.name}.mjs`,
-        description: t.def?.description || '',
-      })),
-      gateways: (p.gateways || []).map((g) => ({
-        slug: g.slug, installed_as: `plugin-${r.name}-${g.slug}`,
-        path: `${dir}/gateway-${g.slug}.mjs`, service: g.service || '',
-      })),
-      gateway_bindings: Object.entries(binding).map(([slug, b]) => ({ slug, via: b.via, target: b.target })),
-      requires_gateways: (m.requires?.gateways || []).map((g) => ({ slug: g.slug, modes: g.modes || [] })),
-      workflows: (p.workflows || []).map((w) => ({
-        slug: w.slug, name: w.name || w.slug,
-        steps: (w.steps || []).map((st) => (typeof st === 'string' ? st : st?.tool)).filter(Boolean),
-      })),
-      knowledge: (p.knowledge || []).map((k) => ({ slug: k.slug, title: k.title || k.slug })),
-      tables: (m.requires?.tables || []).map((t) => t.name),
-      // v1 plugins ship no UI surfaces; the field is present so the registry
-      // shape is complete and future surface support renders here for free.
-      surfaces: (p.surfaces || []).map((sf) => ({ slug: sf.slug, path: sf.path || null })),
-    };
+    try {
+      let m = {}; let binding = {};
+      try { m = JSON.parse(r.manifest_json) || {}; } catch { /* keep empty */ }
+      try { binding = JSON.parse(r.binding_json || '{}') || {}; } catch { /* keep empty */ }
+      const p = m.provides || {};
+      const dir = pluginDir(r.name);
+      return {
+        name: r.name, title: r.title, version: r.version, status: r.status,
+        format: m.nyyon_plugin || null,
+        origin: m.origin || null,
+        installed_at: r.installed_at, updated_at: r.updated_at,
+        path: dir,
+        tools: arr(p.tools).map((t) => ({
+          name: t?.name, path: `${dir}/tool-${t?.name}.mjs`, description: t?.def?.description || '',
+        })),
+        gateways: arr(p.gateways).map((g) => ({
+          slug: g?.slug,
+          installed_as: bundledGatewaySlug(r.name, g?.slug),
+          in_use: binding?.[g?.slug]?.via === 'bundled',
+          path: `${dir}/gateway-${g?.slug}.mjs`, service: g?.service || '',
+        })),
+        gateway_bindings: Object.entries(binding).map(([slug, b]) => ({ slug, via: b?.via, target: b?.target })),
+        requires_gateways: arr(m.requires?.gateways).map((g) => ({ slug: g?.slug, modes: arr(g?.modes) })),
+        workflows: arr(p.workflows).map((w) => ({
+          slug: w?.slug, name: w?.name || w?.slug,
+          steps: arr(w?.steps).map((st) => (typeof st === 'string' ? st : st?.tool)).filter(Boolean),
+        })),
+        knowledge: arr(p.knowledge).map((k) => ({ slug: k?.slug, title: k?.title || k?.slug })),
+        tables: arr(m.requires?.tables).map((t) => t?.name),
+        // v2 plugins ship no UI surfaces; the field is present so the registry
+        // shape is complete and future surface support renders here for free.
+        surfaces: arr(p.surfaces).map((sf) => ({ slug: sf?.slug, path: sf?.path || null })),
+      };
+    } catch (e) {
+      // One unreadable row must not 500 the whole registry.
+      return { name: r.name, status: r.status, error: String(e?.message || e) };
+    }
   });
 }
 
@@ -373,11 +608,13 @@ export async function exportPlugin(env, name) {
 export async function removePlugin(env, name) {
   const row = await env.DB.prepare('SELECT * FROM plugins WHERE name = ?').bind(name).first();
   if (!row) throw new Error(`unknown plugin: ${name}`);
-  const m = JSON.parse(row.manifest_json);
-  for (const w of (m.provides?.workflows || [])) {
-    await env.DB.prepare("UPDATE workflows SET status = 'disabled', updated_at = ? WHERE slug = ?").bind(now(), w.slug).run();
+  let m = {};
+  try { m = JSON.parse(row.manifest_json) || {}; } catch { /* keep empty */ }
+  for (const w of arr(m.provides?.workflows)) {
+    await env.DB.prepare("UPDATE workflows SET status = 'disabled', updated_at = ? WHERE slug = ? AND created_by = ?")
+      .bind(now(), w.slug, `plugin:${name}`).run().catch(() => {});
   }
-  await env.DB.prepare("UPDATE plugins SET status = 'removed', updated_at = ? WHERE name = ?").bind(now(), name).run();
+  await env.DB.prepare("UPDATE plugins SET status = 'removed', report_json = '{}', updated_at = ? WHERE name = ?").bind(now(), name).run();
   await logEvent(env, { kind: 'plugin_removed', actor: 'operator', payload: { name } });
   return { ok: true, note: 'code files are cleaned by the applier on its next pass; tables are kept (data is the operator\'s)' };
 }

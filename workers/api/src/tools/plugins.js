@@ -19,14 +19,30 @@ export const tools = {
   import_plugin: {
     def: {
       name: 'import_plugin',
-      description: 'Import a nyyon plugin manifest (the JSON another system exported). Validates the format contract, binds required gateways to this system (mechanically), activates workflows/knowledge/tables immediately, and queues tool/gateway code for the applier. Returns the binding or the precise blocking errors. CONFIRM with the operator before importing anything they did not hand you themselves.',
+      description: 'Import a DATA-ONLY nyyon plugin manifest (workflows + knowledge). Manifests carrying tool or gateway CODE are refused here on purpose — importing code is an operator action on the Plugins page. Validates the format contract, binds required gateways to this system (mechanically), activates workflows/knowledge/tables immediately, and queues tool/gateway code for the applier. Returns the binding or the precise blocking errors. CONFIRM with the operator before importing anything they did not hand you themselves.',
       input_schema: {
         type: 'object',
         properties: { manifest: { type: 'object', description: 'the full plugin manifest JSON' } },
         required: ['manifest'],
       },
     },
-    run: async (env, input) => importPlugin(env, input.manifest, { actor: 'nyo' }),
+    run: async (env, input) => {
+      // A code-bearing plugin is foreign code that will run inside this
+      // install. That decision belongs to a human looking at the source, not
+      // to a model acting on a manifest someone pasted into a chat — so this
+      // path accepts data-only plugins and sends the rest to the Plugins page.
+      const m = input?.manifest || {};
+      const codeCount = (Array.isArray(m?.provides?.tools) ? m.provides.tools.length : 0)
+        + (Array.isArray(m?.provides?.gateways) ? m.provides.gateways.length : 0);
+      if (codeCount) {
+        return {
+          ok: false,
+          refused: 'carries code',
+          error: `"${m.name || 'this plugin'}" ships ${codeCount} code component(s). Importing code is an operator action: open the Plugins page, read the source, and import it there.`,
+        };
+      }
+      return importPlugin(env, input.manifest, { actor: 'nyo' });
+    },
   },
   export_plugin: {
     def: {

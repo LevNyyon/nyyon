@@ -2137,6 +2137,11 @@ app.post('/api/plugins/applied', async (c) => {
   const { markMaterialized } = await import('./lib/plugins.js');
   return c.json(await markMaterialized(c.env, body.name, { ok: !!body.ok, error: body.error || null }));
 });
+app.post('/api/plugins/cleaned', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  const { markCleaned } = await import('./lib/plugins.js');
+  return c.json(await markCleaned(c.env, body.name));
+});
 app.post('/api/plugins/verify', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const { verifyPlugin } = await import('./lib/plugins.js');
