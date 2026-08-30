@@ -273,9 +273,16 @@ export async function verifySetupAccess(env, { token = '', host = '', session = 
 // One write — a partial failure that burned the token without storing a hash
 // would leave an install nobody could claim or sign in to.
 export async function setAdminCredentials(env, { username, password } = {}) {
-  const user = String(username || '').trim();
+  const user = String(username || '').trim().toLowerCase();
   const pass = String(password || '');
-  if (!user) throw new Error('username required');
+  if (!user) throw new Error('email required');
+  // The sign-in form is type="email", so a non-email username creates an
+  // account the operator can never type into it — the browser refuses to
+  // submit and they are locked out of the install they just made. Enforce the
+  // same shape here, where it is authoritative, rather than trusting the form.
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(user)) {
+    throw new Error('sign-in uses an email address — enter one (this is what you will type to log in)');
+  }
   if (pass.length < 8) throw new Error('password must be at least 8 characters');
 
   const row = await readRow(env);
@@ -392,6 +399,9 @@ export async function verifyAdmin(env, { username, password } = {}) {
 
   const got = await pbkdf2(String(password || ''), salt, iterations);
   const pOk = timingSafeEqual(got, expected);
-  const uOk = safeStrEqual(username, row.admin_user);
+  // Emails are not case-sensitive in practice and the account is stored
+  // lowercased, so "Dev@Nyyon.com" must sign in as "dev@nyyon.com" — comparing
+  // exactly would lock out an operator who typed their own address naturally.
+  const uOk = safeStrEqual(String(username || '').trim().toLowerCase(), String(row.admin_user || '').toLowerCase());
   return uOk && pOk;
 }

@@ -30,7 +30,10 @@ export function OnboardingAccount({ onDone, mode = 'create', onCancel }: {
 
   const tooShort = password.length > 0 && password.length < 8;
   const mismatch = confirm.length > 0 && confirm !== password;
-  const ready    = !!username.trim() && password.length >= 8 && confirm === password;
+  // Same shape the server enforces AND the sign-in form demands: a non-email
+  // account cannot be typed into the type="email" login field later.
+  const emailOk  = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(username.trim());
+  const ready    = emailOk && password.length >= 8 && confirm === password;
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -87,8 +90,11 @@ export function OnboardingAccount({ onDone, mode = 'create', onCancel }: {
               </p>
 
               <label className="block mb-3">
-                <span className="mono text-[9px] uppercase tracking-[0.16em] text-mute">User</span>
+                <span className="mono text-[9px] uppercase tracking-[0.16em] text-mute">Email</span>
                 <input
+                  type="email"
+                  inputMode="email"
+                  placeholder="you@example.com"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
                   autoComplete="username"
