@@ -128,7 +128,7 @@ function checkCode(code, { kind, toolName, pluginName, declaredGateways, libName
   const ns = tableNamespace(pluginName);
   // `ON CONFLICT … DO UPDATE SET` is an upsert clause — the DO-preceded UPDATE
   // names no table (the runtime tokenizer already knew; this lint has to agree).
-  for (const m of src.matchAll(/\b(?:FROM|JOIN|INTO|(?<!\bdo\s)UPDATE|TABLE)\s+([a-z_][a-z0-9_]*)/gi)) {
+  for (const m of src.matchAll(/\b(?:FROM|JOIN|INTO|(?<!\bDO\s)UPDATE|TABLE)\s+([a-z_][a-z0-9_]*)/g)) {
     const t = m[1].toLowerCase();
     if (!t.startsWith(ns) && !(hostReadNames || new Set()).has(t) && !['select', 'values'].includes(t)) {
       errors.push(`${kind} ${toolName}: references table "${t}" outside ${ns}*`);
@@ -203,8 +203,8 @@ export async function validateManifest(env, m) {
   // runtime authority (none beyond the api handed to it) — and tools may import
   // ONLY these declared flat siblings.
   const libNames = new Set();
-  const hostReadNames = new Set(arr(p.requires?.host_reads).map((hr) => String((typeof hr === 'string' ? hr : hr?.table) || '').toLowerCase()).filter(Boolean));
-  for (const lf of arr(p.lib)) {
+  const hostReadNames = new Set(arr(m.requires?.host_reads).map((hr) => String((typeof hr === 'string' ? hr : hr?.table) || '').toLowerCase()).filter(Boolean));
+  for (const lf of arr(m.lib)) {
     if (!/^[a-z][a-z0-9_-]{0,60}\.mjs$/.test(lf?.path || '')) errors.push(`lib path must be a flat name.mjs — got ${JSON.stringify(lf?.path)}`);
     else libNames.add(lf.path);
     if (typeof lf?.code !== 'string' || !lf.code.trim()) errors.push(`lib ${lf?.path}: no code`);
@@ -246,7 +246,7 @@ export async function validateManifest(env, m) {
   // at import. The denylist is absolute — the stores that hold credentials,
   // sessions, or the plugin system itself are never grantable, and knowledge
   // goes through api.knowledge so the grant surface stays one list.
-  for (const hr of arr(p.requires?.host_reads)) {
+  for (const hr of arr(m.requires?.host_reads)) {
     const t = String((typeof hr === 'string' ? hr : hr?.table) || '').toLowerCase();
     if (!/^[a-z][a-z0-9_]{1,60}$/.test(t)) errors.push(`requires.host_reads: bad table name ${JSON.stringify(t)}`);
     else if (HOST_READ_DENY.has(t) || t.startsWith('gate_') || t.startsWith('plugin')) {
@@ -258,7 +258,7 @@ export async function validateManifest(env, m) {
   // (its own plugin-<name>-* docs need no grant). Read-only by construction —
   // the runtime has no write path — and declared so the operator sees exactly
   // which of the host's editable rules a foreign module runs on.
-  for (const k of arr(p.requires?.knowledge)) {
+  for (const k of arr(m.requires?.knowledge)) {
     const slug = typeof k === 'string' ? k : k?.slug;
     if (!/^[a-z][a-z0-9-]{1,80}$/.test(slug || '')) errors.push(`requires.knowledge: bad slug ${JSON.stringify(slug)}`);
   }

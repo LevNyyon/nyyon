@@ -138,8 +138,16 @@
     ],
     "host_reads": [
       {
-        "table": "wa_messages",
+        "table": "clients",
         "purpose": "read-only host store the module reported on before conversion"
+      },
+      {
+        "table": "contacts",
+        "purpose": "read-only host store the module reported on before conversion"
+      },
+      {
+        "table": "feature_flags",
+        "purpose": "the outreach kill-switch flag, read-only"
       },
       {
         "table": "wa_chats",
@@ -150,11 +158,7 @@
         "purpose": "read-only host store the module reported on before conversion"
       },
       {
-        "table": "contacts",
-        "purpose": "read-only host store the module reported on before conversion"
-      },
-      {
-        "table": "clients",
+        "table": "wa_messages",
         "purpose": "read-only host store the module reported on before conversion"
       }
     ],
