@@ -15,8 +15,8 @@ A plugin tool never receives `env`. It receives a capability object:
 
 | It gets | It can do | It cannot do |
 |---|---|---|
-| `api.db` | `prepare()` against its own `plugin_<name>_*` tables | touch any other table — every statement is parsed **at query time**, so SQL assembled at runtime is caught too |
-| `api.gateway(slug, mode, input)` | call **only** the gateways its manifest declared | reach an undeclared gateway, or a reserved one (`github`, `deploy`) |
+| `api.db` | `prepare()` against the exact tables it declared in `requires.tables` | touch any other table — every statement is **tokenized at query time** (string- and comment-aware), so SQL assembled at runtime, hidden in a string literal, or reached by a comma join is caught too |
+| `api.gateway(slug, mode, input)` | call **only** the gateways it declared, and **only in the modes** it declared | reach an undeclared gateway or mode, or a reserved gateway (`github`, `deploy`) |
 | `api.log(kind, payload)` | write to the activity bus under its own name | impersonate another actor |
 
 Because the capability object carries no credentials, a plugin that imports a
@@ -94,7 +94,8 @@ Rules (import is refused otherwise):
 2. `export const def` and `export async function run` must both exist, and
    `def.name` must equal the manifest tool name.
 3. Every `api.gateway('slug', …)` literal must appear in `requires.gateways`.
-   Non-literal slugs are allowed but resolved — and refused — at runtime.
+   Non-literal slugs are allowed but resolved — and refused — at runtime, where
+   the declared **mode** list is enforced as well.
 4. `env.DB` and `callGateway(…)` are v1 constructs and are refused with a
    migration pointer.
 
@@ -128,6 +129,11 @@ is only installed when the binding actually chose it.
 
 - `CREATE TABLE IF NOT EXISTS plugin_<name>_… ( … )`
 - `CREATE INDEX IF NOT EXISTS idx_plugin_<name>_… ON plugin_<name>_… ( … )`
+
+The `plugin_<name>_` prefix is a **naming** rule. Runtime access is decided by
+exact membership in the declared table set, never by prefix — `plugin_a_` is a
+prefix of `plugin_a_b_`, so prefix matching would let plugin `a` read plugin
+`a-b`'s data.
 
 `CREATE … AS SELECT` is refused outright: prefix-anchoring alone let
 `CREATE TABLE IF NOT EXISTS plugin_x_c AS SELECT * FROM gateway_config` copy the

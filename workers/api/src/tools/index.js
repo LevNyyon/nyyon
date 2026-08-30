@@ -22,6 +22,13 @@ import { tools as pluginMgmtTools } from './plugins.js';
 import { pluginTools } from '../plugins/index.js';
 
 const TOOL_REGISTRY = {
+  // Installed plugins are spread FIRST so EVERY host family overwrites them on
+  // a name clash. A later spread wins, so anything after this line is safe;
+  // being merely "before linkedinTools" still let a plugin shadow the eight
+  // families above it. Import validation refuses clashes too, but that check
+  // reads visibleToolDefs — which omits flag-disabled tools — so a plugin could
+  // claim the name of a host tool that is currently switched off.
+  ...pluginTools,
   ...coreTools,
   ...plannerTools,
   ...waTools,
@@ -30,12 +37,6 @@ const TOOL_REGISTRY = {
   ...blogTools,
   ...socialTools,
   ...hotTakesTools,
-  // Installed plugins are spread FIRST so a host tool always wins a name
-  // clash. (The old comment claimed the host won while the spread order gave
-  // the opposite: a later spread overwrites an earlier key, so a plugin was
-  // silently overriding host tools.) Import validation refuses clashes too;
-  // this is the defence that holds if that check ever fails open.
-  ...pluginTools,
   ...linkedinTools,
   ...pluginMgmtTools,
 };

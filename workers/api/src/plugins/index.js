@@ -7,6 +7,7 @@
 import { pluginApi, wrapGatewayModes } from '../lib/plugin-runtime.js';
 
 const BINDINGS = {};
+const TABLES = {};
 
 export const pluginTools = {
 };

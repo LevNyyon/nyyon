@@ -10,9 +10,10 @@
 // cannot constrain what code does with a handle it holds.
 //
 // So enforcement moved to lib/plugin-runtime.js. A v2 plugin tool receives a
-// CAPABILITY OBJECT, never `env`: a D1 proxy that parses every statement at
-// query time and refuses anything outside plugin_<name>_*, a gateway function
-// closed over exactly the slugs this plugin declared, and a namespaced logger.
+// CAPABILITY OBJECT, never `env`: a D1 proxy that TOKENIZES every statement at
+// query time and allows only the exact tables the manifest declared, a gateway
+// function closed over the declared slugs AND their declared modes, and a
+// namespaced logger.
 // Nothing in this file is load-bearing for security any more — the checks here
 // are an honest LINT: they catch mistakes early and give a clear import-time
 // error instead of a confusing runtime one.
@@ -255,14 +256,14 @@ export async function bindGateways(env, m) {
     const modes = arr(req.modes);
     if (RESERVED_GATEWAYS.has(req.slug)) { errors.push(`gateway ${req.slug}: reserved, never bindable by a plugin`); continue; }
     const have = host[req.slug];
-    if (have && modes.every((mode) => have.has(mode))) { binding[req.slug] = { via: 'host', target: req.slug }; continue; }
+    if (have && modes.every((mode) => have.has(mode))) { binding[req.slug] = { via: 'host', target: req.slug, modes }; continue; }
     const bun = bundled[req.slug];
     if (bun) {
       // A bundle only satisfies the requirement if it offers every mode.
       const offers = new Set(arr(bun.modes));
       const short = modes.filter((mode) => !offers.has(mode));
       if (short.length) { errors.push(`gateway ${req.slug}: the bundled replacement lacks modes [${short}]`); continue; }
-      binding[req.slug] = { via: 'bundled', target: bundledGatewaySlug(m.name, req.slug) };
+      binding[req.slug] = { via: 'bundled', target: bundledGatewaySlug(m.name, req.slug), modes };
       continue;
     }
     const missing = have ? modes.filter((mode) => !have.has(mode)) : modes;
@@ -364,6 +365,7 @@ export async function importPlugin(env, manifest, { actor = 'operator' } = {}) {
   const onlyKnowledge = !arr(manifest.provides?.tools).length && !arr(manifest.provides?.workflows).length;
   if (onlyKnowledge && warnings.length === arr(manifest.provides?.knowledge).length && warnings.length) {
     await save('blocked', { binding: b.binding, report: { step: 'activate', errors: warnings } });
+    await logEvent(env, { kind: 'plugin_blocked', actor, payload: { name, step: 'activate', errors: warnings.slice(0, 10) } });
     return { ok: false, status: 'blocked', errors: warnings };
   }
 
@@ -420,6 +422,7 @@ export function generateIndex(rows) {
   const seenGw = new Set();
   let i = 0;
   const bindings = {};
+  const tables = {};
 
   for (const row of rows) {
     let m;
@@ -428,6 +431,10 @@ export function generateIndex(rows) {
     let binding = {};
     try { binding = JSON.parse(row.binding_json || '{}'); } catch { /* none */ }
     bindings[m.name] = binding;
+    // The EXACT tables this plugin declared. Access is decided by membership in
+    // this set, never by a name prefix: `plugin_a_` is a prefix of
+    // `plugin_a_b_`, so prefix matching let plugin "a" read plugin "a-b"'s data.
+    tables[m.name] = arr(m.requires?.tables).map((t) => String(t?.name || '').toLowerCase()).filter(Boolean);
 
     for (const t of arr(m.provides?.tools)) {
       if (!TOOL_RE.test(t?.name || '') || seenTool.has(t.name)) continue;
@@ -436,7 +443,7 @@ export function generateIndex(rows) {
       imports.push(`import * as ${v} from './${m.name}/tool-${t.name}.mjs';`);
       toolRefs.push(
         `  [${v}.def.name]: { def: ${v}.def, run: (env, input, ctx) => `
-        + `${v}.run(pluginApi(env, ${JSON.stringify(m.name)}, BINDINGS[${JSON.stringify(m.name)}]), input, ctx) },`,
+        + `${v}.run(pluginApi(env, ${JSON.stringify(m.name)}, BINDINGS[${JSON.stringify(m.name)}], TABLES[${JSON.stringify(m.name)}]), input, ctx) },`,
       );
     }
     for (const g of arr(m.provides?.gateways).filter((gg) => binding?.[gg.slug]?.via === 'bundled')) {
@@ -447,7 +454,7 @@ export function generateIndex(rows) {
       imports.push(`import * as ${v} from './${m.name}/gateway-${g.slug}.mjs';`);
       gwRefs.push(
         `  ${JSON.stringify(key)}: { ...${v}.gateway, slug: ${JSON.stringify(key)}, `
-        + `modes: wrapGatewayModes(${v}.gateway.modes, ${JSON.stringify(m.name)}) },`,
+        + `modes: wrapGatewayModes(${v}.gateway.modes, ${JSON.stringify(m.name)}, TABLES[${JSON.stringify(m.name)}]) },`,
       );
     }
   }
@@ -459,6 +466,7 @@ export function generateIndex(rows) {
     ...imports,
     '',
     `const BINDINGS = ${JSON.stringify(bindings, null, 2)};`,
+    `const TABLES = ${JSON.stringify(tables, null, 2)};`,
     '',
     'export const pluginTools = {',
     ...toolRefs,
