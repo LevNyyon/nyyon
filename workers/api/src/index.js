@@ -2114,6 +2114,54 @@ app.post('/api/plugins/import', async (c) => {
   const { importPlugin } = await import('./lib/plugins.js');
   return c.json(await importPlugin(c.env, body.manifest, { actor: 'operator' }));
 });
+// A plugin package (.zip): manifest.json + real .mjs / .md files. The
+// authoring form — editable and diffable — assembled back into the canonical
+// manifest on import, so nothing downstream knows which form arrived.
+// The primary import path: a SOURCE, not a file. A URL carries a version, can
+// be re-fetched when the author ships a fix, and can be read before it is
+// trusted — none of which a pasted blob or a zip on a desktop can do.
+app.post('/api/plugins/import-url', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (!body?.url) return c.json({ ok: false, error: 'url required' }, 400);
+  try {
+    const { manifestFromUrl } = await import('./lib/plugin-package.js');
+    const manifest = await manifestFromUrl(c.env, body.url, body.ref);
+    const { importPlugin } = await import('./lib/plugins.js');
+    const r = await importPlugin(c.env, manifest, { actor: 'operator' });
+    return c.json({ ...r, source: manifest.origin });
+  } catch (e) {
+    return c.json({ ok: false, error: String(e?.message || e) }, 400);
+  }
+});
+app.post('/api/plugins/import-package', async (c) => {
+  const buf = await c.req.arrayBuffer().catch(() => null);
+  if (!buf || !buf.byteLength) return c.json({ ok: false, error: 'no package uploaded' }, 400);
+  if (buf.byteLength > 5_000_000) return c.json({ ok: false, error: 'package too large (5 MB limit)' }, 400);
+  try {
+    const { manifestFromZip } = await import('./lib/plugin-package.js');
+    const manifest = await manifestFromZip(buf);
+    const { importPlugin } = await import('./lib/plugins.js');
+    return c.json(await importPlugin(c.env, manifest, { actor: 'operator' }));
+  } catch (e) {
+    return c.json({ ok: false, error: String(e?.message || e) }, 400);
+  }
+});
+app.get('/api/plugins/:name/package', async (c) => {
+  const name = c.req.param('name');
+  try {
+    const { exportPlugin } = await import('./lib/plugins.js');
+    const { packageFiles, writeZip } = await import('./lib/plugin-package.js');
+    const zip = writeZip(packageFiles(await exportPlugin(c.env, name)));
+    return new Response(zip, {
+      headers: {
+        'content-type': 'application/zip',
+        'content-disposition': `attachment; filename="${name}.nyyon-plugin.zip"`,
+      },
+    });
+  } catch (e) {
+    return c.json({ ok: false, error: String(e?.message || e) }, 404);
+  }
+});
 app.get('/api/plugins/:name/export', async (c) => {
   const { exportPlugin } = await import('./lib/plugins.js');
   try { return c.json(await exportPlugin(c.env, c.req.param('name'))); }

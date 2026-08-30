@@ -31,7 +31,7 @@ import {
 } from '../lib/whatsapp.js';
 import { ttsConfigured, synthesize } from '../lib/tts-gateway.js';
 import { probeTelegram, sendTelegramText } from '../lib/telegram.js';
-import { fetchText as webFetchText, head as webHead, postJson as webPostJson } from '../lib/web-gateway.js';
+import { fetchText as webFetchText, fetchBytes as webFetchBytes, head as webHead, postJson as webPostJson } from '../lib/web-gateway.js';
 import { pdlEnrich, twilioLookup, serpSearch } from '../lib/gtm.js';
 import { fetchTheorg, probeTheorg } from '../lib/gtm-context.js';
 import { hfComplete, probeHf } from '../lib/hf-gateway.js';
@@ -158,6 +158,8 @@ export const GATEWAYS = {
     description: 'Shared bounded fetch for public pages/APIs. Users: gtm import/social-scan/photo, web_fetch tool, heartbeat feeds/articles, osint scrapers.',
     modes: {
       text: (env, input) => webFetchText(env, input || {}),
+      // Binary fetch — plugin packages arrive as zip archives.
+      bytes: (env, input) => webFetchBytes(env, input || {}),
       head: (env, input) => webHead(env, input || {}),
       post_json: (env, input) => webPostJson(env, input || {}),
     },

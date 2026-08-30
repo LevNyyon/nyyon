@@ -52,6 +52,7 @@ export function Plugins() {
   const [reg, setReg] = useState<Record<string, PluginReg>>({});
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const [paste, setPaste] = useState('');
+  const [srcUrl, setSrcUrl] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
@@ -82,6 +83,44 @@ export function Plugins() {
     } finally { setBusy(false); }
   };
 
+  // The primary path: install FROM A SOURCE. The URL is recorded with the
+  // plugin, so "where did this come from" and "is there a newer version" are
+  // answerable later — the two questions a pasted blob can never answer.
+  const doImportUrl = async () => {
+    setBusy(true); setNote(null);
+    try {
+      const r = await j<{ ok: boolean; status?: string; errors?: string[]; error?: string; source?: { source_url?: string; ref?: string } }>(
+        '/api/plugins/import-url',
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ url: srcUrl.trim() }) },
+      );
+      setNote(r.ok
+        ? `Imported from ${r.source?.source_url || srcUrl}${r.source?.ref ? ` @ ${r.source.ref}` : ''} — status: ${r.status}.`
+        : `Blocked:\n${(r.errors || [r.error]).filter(Boolean).join('\n')}`);
+      if (r.ok) setSrcUrl('');
+      reload();
+    } catch (e) {
+      setNote(`Could not fetch that source: ${String((e as Error)?.message || e)}`);
+    } finally { setBusy(false); }
+  };
+
+  // A package is the authoring form: manifest.json plus real .mjs/.md files.
+  // The server assembles it back into the same manifest the paste box takes.
+  const doImportPackage = async (file: File) => {
+    setBusy(true); setNote(null);
+    try {
+      const r = await fetch('/api/plugins/import-package', {
+        method: 'POST', headers: { 'content-type': 'application/zip' }, body: file,
+      });
+      const d = await r.json();
+      setNote(d.ok
+        ? `Imported ${file.name} — status: ${d.status}. Code activates when the applier finishes.`
+        : `Blocked:\n${(d.errors || [d.error]).filter(Boolean).join('\n')}`);
+      reload();
+    } catch (e) {
+      setNote(`Could not read the package: ${String((e as Error)?.message || e)}`);
+    } finally { setBusy(false); }
+  };
+
   const doExport = async (name: string) => {
     const m = await j<object>(`/api/plugins/${encodeURIComponent(name)}/export`);
     await navigator.clipboard.writeText(JSON.stringify(m, null, 2));
@@ -106,7 +145,25 @@ export function Plugins() {
       </header>
 
       <section className="hairline rounded-sm bg-card/80 p-4 space-y-2">
-        <div className="mono text-[10px] uppercase tracking-[0.14em] text-mute">Import a plugin</div>
+        <div className="mono text-[10px] uppercase tracking-[0.14em] text-mute">Install from a source</div>
+        <div className="flex items-center gap-2">
+          <input
+            className="flex-1 h-9 px-2.5 text-[12px] mono rounded-sm hairline bg-bg outline-none focus:border-emerald-500"
+            placeholder="https://github.com/owner/plugin  (or a link to a .zip / manifest.json)"
+            value={srcUrl}
+            onChange={(e) => setSrcUrl(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && srcUrl.trim() && !busy) doImportUrl(); }}
+          />
+          <button
+            className="text-[12px] px-3 py-1.5 rounded-sm bg-ink text-bg disabled:opacity-40 shrink-0"
+            disabled={busy || !srcUrl.trim()} onClick={doImportUrl}
+          >{busy ? 'Installing…' : 'Install'}</button>
+        </div>
+        <p className="text-[11px] text-mute">
+          A source is recorded with the plugin, so you can see where it came from and re-install a newer version later.
+        </p>
+
+        <div className="mono text-[10px] uppercase tracking-[0.14em] text-mute pt-2">Or paste a manifest</div>
         <textarea
           className="w-full h-32 text-[12px] mono p-2 rounded-sm bg-bg hairline"
           placeholder='Paste the manifest JSON another system exported ({"nyyon_plugin":1, ...})'
@@ -117,6 +174,13 @@ export function Plugins() {
             className="text-[12px] px-3 py-1.5 rounded-sm bg-ink text-bg disabled:opacity-40"
             disabled={busy || !paste.trim()} onClick={doImport}
           >{busy ? 'Importing…' : 'Import'}</button>
+          <label className="text-[11px] text-mute hover:text-ink cursor-pointer">
+            or upload a .zip package
+            <input
+              type="file" accept=".zip,application/zip" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) doImportPackage(f); e.target.value = ''; }}
+            />
+          </label>
           {note && <pre className="text-[11px] text-mute whitespace-pre-wrap flex-1">{note}</pre>}
         </div>
       </section>
@@ -131,7 +195,12 @@ export function Plugins() {
               <span className="mono text-[10px] text-mute">{r.name} · v{r.version}</span>
               <span className={`mono text-[9px] uppercase tracking-[0.12em] px-1.5 py-0.5 rounded-full ${STATUS_TONE[r.status] || 'text-mute bg-line/40'}`}>{r.status}</span>
               <span className="flex-1" />
-              <button className="text-[11px] text-mute hover:text-ink" onClick={() => doExport(r.name)}>Export</button>
+              <button className="text-[11px] text-mute hover:text-ink" onClick={() => doExport(r.name)}>Copy JSON</button>
+              <a
+                className="text-[11px] text-mute hover:text-ink"
+                href={`/api/plugins/${encodeURIComponent(r.name)}/package`}
+                download
+              >Download .zip</a>
               {r.status !== 'removed' && (
                 <button className="text-[11px] text-rose-700/70 hover:text-rose-700" onClick={() => doRemove(r.name)}>Remove</button>
               )}
