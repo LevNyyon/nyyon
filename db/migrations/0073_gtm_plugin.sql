@@ -104,3 +104,15 @@ UPDATE knowledge_docs SET slug='plugin-gtm-you' WHERE slug='gtm-you' AND NOT EXI
 DELETE FROM knowledge_docs WHERE slug='gtm-you';
 UPDATE knowledge_docs SET slug='plugin-gtm-you' WHERE slug='you' AND NOT EXISTS (SELECT 1 FROM knowledge_docs WHERE slug='plugin-gtm-you');
 DELETE FROM knowledge_docs WHERE slug='you';
+
+-- The host-seeded copies of the workflows now shipped BY the plugin: their
+-- seed files are deleted, so the rows are orphans blocking the plugin's slugs.
+DELETE FROM workflows WHERE slug='enrich-lead' AND created_by IN ('system','seed');
+DELETE FROM workflows WHERE slug='company-context' AND created_by IN ('system','seed');
+DELETE FROM workflows WHERE slug='qualify-lead' AND created_by IN ('system','seed');
+DELETE FROM workflows WHERE slug='draft-outreach-angles' AND created_by IN ('system','seed');
+DELETE FROM workflows WHERE slug='clean-identity' AND created_by IN ('system','seed');
+DELETE FROM workflows WHERE slug='draft-prospect-reply' AND created_by IN ('system','seed');
+DELETE FROM workflows WHERE slug='outreach-cohort-tick' AND created_by IN ('system','seed');
+DELETE FROM workflows WHERE slug='outreach-replies-to-pipeline' AND created_by IN ('system','seed');
+DELETE FROM workflows WHERE slug='scheduled-send-tick' AND created_by IN ('system','seed');
