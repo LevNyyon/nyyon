@@ -40,6 +40,10 @@ const STATUS_TONE: Record<string, string> = {
 
 async function j<T>(url: string, init?: RequestInit): Promise<T> {
   const r = await fetch(url, init);
+  // Ignoring the status turned a 401 into an empty plugin list, which reads as
+  // "nothing installed" — the most alarming possible way to say "signed out".
+  if (r.status === 401) throw new Error('session expired — reload the page to sign in');
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
   return r.json();
 }
 
@@ -51,10 +55,15 @@ export function Plugins() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
+  // Each half fails on its own: a broken registry must not blank the list, and
+  // a failed poll must surface instead of silently rejecting every 15s.
   const reload = () => Promise.all([
-    j<{ plugins: PluginRow[] }>('/api/plugins').then((d) => setRows(d.plugins || [])),
-    j<{ plugins: PluginReg[] }>('/api/plugins/registry').then((d) =>
-      setReg(Object.fromEntries((d.plugins || []).map((p) => [p.name, p])))),
+    j<{ plugins: PluginRow[] }>('/api/plugins')
+      .then((d) => setRows(d.plugins || []))
+      .catch((e) => setNote(`Could not load plugins: ${String(e?.message || e)}`)),
+    j<{ plugins: PluginReg[] }>('/api/plugins/registry')
+      .then((d) => setReg(Object.fromEntries((d.plugins || []).map((p) => [p.name, p]))))
+      .catch(() => { /* the registry is detail; the list above still renders */ }),
   ]);
   useEffect(() => { reload(); const t = setInterval(reload, 15000); return () => clearInterval(t); }, []);
 
@@ -90,8 +99,9 @@ export function Plugins() {
       <header>
         <h1 className="text-lg font-semibold">Plugins</h1>
         <p className="text-[12px] text-mute mt-1">
-          Capabilities traded between nyyon systems. Code travels verbatim; only gateway
-          targets are bound to this install, mechanically. Format: docs/plugin-format.md.
+          Capabilities traded between nyyon systems. Code travels verbatim and runs against a
+          capability boundary: its own tables, only the gateways it declared. Importing a plugin
+          is still a decision to trust its author. Format: docs/plugin-format.md.
         </p>
       </header>
 

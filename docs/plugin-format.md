@@ -1,19 +1,46 @@
-# Nyyon Plugin Format — v1 (canonical)
+# Nyyon Plugin Format — v2 (canonical)
 
-One plugin = one JSON document. This file is the contract; both the exporter
-and the importer validate against it and REFUSE anything that steps outside.
-The design goal is a trade with minimal reasoning: code travels verbatim, the
-only thing an importer may modify is which gateway a `callGateway` line
-targets, and it does that mechanically.
+One plugin = one JSON document. Both the exporter and the importer validate
+against this file and refuse anything outside it.
+
+## Read this first: the trust model
+
+**Installing a plugin means running someone else's code inside your install.**
+There is no way around that: plugins exist to add capabilities, and a Worker
+has no sandbox to put them in. So be plain about what is and is not enforced.
+
+**What IS enforced, at runtime, by lib/plugin-runtime.js:**
+
+A plugin tool never receives `env`. It receives a capability object:
+
+| It gets | It can do | It cannot do |
+|---|---|---|
+| `api.db` | `prepare()` against its own `plugin_<name>_*` tables | touch any other table — every statement is parsed **at query time**, so SQL assembled at runtime is caught too |
+| `api.gateway(slug, mode, input)` | call **only** the gateways its manifest declared | reach an undeclared gateway, or a reserved one (`github`, `deploy`) |
+| `api.log(kind, payload)` | write to the activity bus under its own name | impersonate another actor |
+
+Because the capability object carries no credentials, a plugin that imports a
+host library anyway gets a library with nothing to read.
+
+**What is NOT enforced.** A plugin runs in-process: it can burn CPU, allocate
+memory, and throw. Its declared gateways are real access — a plugin that
+declares `whatsapp` can send WhatsApp messages, because you approved that. The
+manifest `sha256` is a **checksum**, not a signature: it proves the document was
+not mangled in transit, and proves nothing about who wrote it.
+
+**The import-time checks in `lib/plugins.js` are a lint, not the boundary.**
+They catch mistakes and old-contract code early with a clear message. Do not
+rely on them to stop a determined author; rely on the runtime, and on
+installing plugins from people you trust.
 
 ## The manifest
 
 ```json
 {
-  "nyyon_plugin": 1,
+  "nyyon_plugin": 2,
   "name": "web-headline",
   "title": "Web Headline",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "One paragraph: what the plugin does for the operator.",
   "origin": { "system": "cmd.nyyon.com", "exported_at": 1787900000000 },
   "requires": {
@@ -21,7 +48,7 @@ targets, and it does that mechanically.
       { "slug": "web", "modes": ["text"], "purpose": "fetch the page to headline" }
     ],
     "tables": [
-      { "name": "plugin_web_headline_log", "ddl": "CREATE TABLE IF NOT EXISTS plugin_web_headline_log (id TEXT PRIMARY KEY, url TEXT, title TEXT, at INTEGER);" }
+      { "name": "plugin_web_headline_log", "ddl": "CREATE TABLE IF NOT EXISTS plugin_web_headline_log (id TEXT PRIMARY KEY, url TEXT, title TEXT, at INTEGER)" }
     ]
   },
   "provides": {
@@ -38,99 +65,109 @@ targets, and it does that mechanically.
       { "slug": "example", "service": "…", "modes": ["fetch"], "code": "<ESM module source>" }
     ]
   },
-  "sha256": "<hex sha-256 of the canonical provides+requires JSON>"
+  "sha256": "<hex sha-256 of the canonical requires+provides JSON — a checksum, not a signature>"
 }
 ```
 
-## Tool code contract (machine-enforced)
+## Tool code contract
 
-Each tool ships as one standalone ESM module:
+A v2 tool **imports nothing**. Everything it may use arrives in `api`:
 
 ```js
-import { callGateway } from '../../gateways/index.js';   // optional
-import { logEvent, readKnowledge, writeKnowledge } from '../../lib/db.js'; // optional
-
 export const def = { name: 'read_page_headline', description: '…', input_schema: { /* … */ } };
-export async function run(env, input, ctx) { /* … return JSON-safe data */ }
+
+export async function run(api, input) {
+  const r = await api.gateway('web', 'text', { url: input.url });   // declared gateways only
+  await api.db.prepare('INSERT INTO plugin_web_headline_log (id, url) VALUES (?, ?)')
+    .bind(id, input.url).run();                                     // own tables only
+  await api.log('read', { url: input.url });
+  return { title: /* … */ };
+}
 ```
 
-Hard rules the validator enforces on `code` (import is REFUSED otherwise):
+Rules (import is refused otherwise):
 
-1. Imports ONLY from the two whitelisted paths above. Nothing else — no npm
-   packages, no other lib files, no other plugins.
-2. No `fetch(`, no `eval`, no `new Function`, no `import(` (dynamic), no
-   `process`, no `require(`. A tool reaches the world through gateways only.
-3. `export const def` and `export async function run` must both exist, and
+1. **No imports, of any kind** — no `import`, no `export … from`, no dynamic
+   `import()`, no `require`. The rule is "none" precisely because an allowlist
+   of shapes was trivially evaded (`import{x}from'…'` with no space slipped
+   past a `startsWith('import ')` check).
+2. `export const def` and `export async function run` must both exist, and
    `def.name` must equal the manifest tool name.
-4. D1 access is allowed via `env.DB`, but only against tables named
-   `plugin_<plugin-name>_*` (the plugin's own namespace) — enforced by
-   review of the DDL list, and by the table namespace rule below.
+3. Every `api.gateway('slug', …)` literal must appear in `requires.gateways`.
+   Non-literal slugs are allowed but resolved — and refused — at runtime.
+4. `env.DB` and `callGateway(…)` are v1 constructs and are refused with a
+   migration pointer.
+
+### v1 manifests
+
+`nyyon_plugin: 1` is accepted **only** for data-only packs (workflows and
+knowledge, no code). A v1 tool expected raw `env` and cannot be run under the
+capability contract; re-author it as v2.
 
 ## Bundled gateway contract
 
-A plugin MAY bundle a gateway for a service the host might not have:
+A plugin MAY bundle a gateway for a service the host lacks:
 
 ```js
 export const gateway = {
   slug: 'example', service: '…', description: '…',
-  modes: { fetch: async (env, input) => { /* may use fetch() — this IS the boundary */ } },
+  modes: { fetch: async (env, input) => { /* raw fetch is legitimate HERE — this is the boundary */ } },
 };
 ```
 
-Bundled gateway code may use `fetch` (it is the service boundary) but has the
-same import whitelist (db.js only; a gateway never calls another gateway) and
-must do NO reasoning — no LLM calls, no business rules.
+It imports nothing, does no reasoning, and receives a **projected env**: the
+plugin's own scoped DB and nothing else — never the host's resolved
+credentials. It installs namespaced `plugin__<name>__<slug>` (double
+underscores: `plugin-a-b-c` was ambiguous between plugin `a-b`/slug `c` and
+plugin `a`/slug `b-c`, so one plugin could shadow another's gateway). A bundle
+is only installed when the binding actually chose it.
 
 ## Tables
 
-`requires.tables[].ddl` must consist ONLY of statements matching
-`CREATE TABLE IF NOT EXISTS plugin_<name>_…` or
-`CREATE INDEX IF NOT EXISTS idx_plugin_<name>_…`. Anything else is refused.
-Applied at import time (idempotent by construction).
+`requires.tables[].ddl` must match, for the whole statement:
 
-## Import pipeline (what the receiving system does)
+- `CREATE TABLE IF NOT EXISTS plugin_<name>_… ( … )`
+- `CREATE INDEX IF NOT EXISTS idx_plugin_<name>_… ON plugin_<name>_… ( … )`
 
-1. **Validate** — schema shape, sha256, code contracts, DDL namespace,
-   workflow steps reference tools that will exist post-install, no name
-   collisions with the host pool, workflow slugs only overwritable by the
-   plugin that created them, and knowledge slugs inside the plugin's own
-   namespace (`plugin-<name>…`). Any failure = the plugin is stored as
-   `blocked` with a precise report; nothing activates.
-2. **Bind gateways** — for each `requires.gateways` entry, in order:
-   a. Host has the slug with every required mode → bind to host. No changes.
-   b. Plugin bundles that slug → install it namespaced
-      `plugin-<name>-<slug>` and MECHANICALLY rewrite the plugin's own
-      `callGateway(env, '<slug>'` call sites to the namespaced slug.
-   c. Neither → `blocked`, report names the missing slug+modes.
-   The binding decision is recorded verbatim in the plugin row.
-3. **Activate data** — workflows, knowledge docs, tables: applied immediately
-   (they are data; a Worker can do this at runtime).
-4. **Materialize code** — tools + bundled gateways are files; a Worker cannot
-   load new code at runtime, so an applier writes them:
-   - Self-hosted (VM): the bundled applier service writes
-     `workers/api/src/plugins/<name>/…`, regenerates
-     `workers/api/src/plugins/index.js` from the full set of active plugins,
-     and restarts the app. Seconds.
-   - Cloud (cmd): the worker commits the same files through the GitHub API
-     and CI redeploys. Minutes.
-5. **Verify** — after materialization the plugin's tools must appear in the
-   live pool; only then does status become `active`.
+`CREATE … AS SELECT` is refused outright: prefix-anchoring alone let
+`CREATE TABLE IF NOT EXISTS plugin_x_c AS SELECT * FROM gateway_config` copy the
+host credential table into the plugin's namespace. Temp tables and
+schema-qualified names are refused too. DDL runs with host authority at import
+time, so this is a real gate, not a lint.
 
-Statuses: `imported → bound → materialized → active`, or `blocked` (with
-report) at any step, or `removed`. Every transition logs to the activity bus.
+## Import pipeline
 
-## Export
+1. **Validate** — shape, checksum, code contract, DDL, namespaces, no reserved
+   gateways, no host-owned workflow slugs, knowledge inside `plugin-<name>…`,
+   workflow steps that will exist, no collision with a host tool. Any failure
+   stores the plugin `blocked` with the reason and activates nothing. A failed
+   re-import never overwrites an already-installed plugin's record.
+2. **Bind gateways** — host has the slug with every required mode → bind to the
+   host; else the plugin bundles it with every required mode → install
+   namespaced; else `blocked`. The binding is stored and is what the runtime
+   enforces. **No source rewriting happens at any point.**
+3. **Activate data** — tables, workflows, knowledge apply immediately. An
+   operator's deliberately disabled workflow stays disabled across re-imports;
+   workflow slugs a new version drops are retired.
+4. **Materialize code** — a Worker cannot load code at runtime:
+   - Self-hosted: the applier writes `workers/api/src/plugins/<name>/…`,
+     regenerates `plugins/index.js` (which wraps every `run` in the capability
+     object), restarts, and re-verifies. It heals missing files from the DB.
+   - Cloud: the worker commits the same files and CI redeploys.
+5. **Verify** — the plugin's tools must be live in the pool before `active`.
 
-Exporting an installed plugin re-emits its manifest verbatim (round-trip
-safe). Authoring a NEW plugin happens in the Plugins module: workflows and
-knowledge can be lifted from the host directly (they are data); tool code is
-authored as plugin code from the start. Host tools that predate the plugin
-system do not have runtime-readable source and cannot be auto-exported — by
-design, not omission.
+Statuses: `imported → bound → materialized → active`, or `blocked`, or
+`removed`. Transitions are guarded in SQL; every one logs to the activity bus.
 
-## What is deliberately NOT in v1
+## Who may import
+
+Importing **code** is an operator action, taken in the Plugins page after
+reading the source. The model-callable `import_plugin` tool accepts data-only
+plugins and refuses anything carrying tools or gateways.
+
+## What is deliberately NOT in v2
 
 - No remote registries, no auto-updates, no dependency graphs between plugins.
-- No LLM-assisted call-site adaptation (the `b` path covers the honest cases;
-  when modes mismatch, a human decides).
-- No UI surfaces in plugins (tools/workflows/knowledge/gateways only).
+- No signature verification (see the trust model above).
+- No UI surfaces in plugins.
+- No CPU/memory limits — the boundary confines data reach, not resources.
