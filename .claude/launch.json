@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "trade-demo",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["NYYON_API_PORT=8797", "npm", "run", "server"],
+      "port": 8797
+    }
+  ]
+}

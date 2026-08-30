@@ -147,7 +147,7 @@ export function PluginSurface({ def }: { def: PluginSurfaceDef }) {
   const active = def.tabs.find((t) => t.key === tab) || def.tabs[0];
 
   return (
-    <div className="p-6 max-w-4xl space-y-4">
+    <div className="flex-1 min-h-0 overflow-y-auto p-6 max-w-4xl space-y-4">
       <header>
         <h1 className="text-lg font-semibold">{def.title}</h1>
         <p className="text-[11px] text-mute mt-0.5">

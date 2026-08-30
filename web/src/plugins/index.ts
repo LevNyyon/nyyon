@@ -2,4 +2,6 @@
 // Maps 'plugin:<name>:<slug>' nav keys to installed plugins' pages.
 import { lazy } from 'react';
 export const PLUGIN_PAGES: Record<string, ReturnType<typeof lazy>> = {
+  "gtm:prospecting": lazy(() => import("./gtm/prospecting")),
+  "gtm:outreach": lazy(() => import("./gtm/outreach")),
 };
