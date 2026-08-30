@@ -218,6 +218,15 @@ export async function validateManifest(env, m) {
     }
   }
 
+  // Knowledge READ grants: host docs the plugin's tools may read at runtime
+  // (its own plugin-<name>-* docs need no grant). Read-only by construction —
+  // the runtime has no write path — and declared so the operator sees exactly
+  // which of the host's editable rules a foreign module runs on.
+  for (const k of arr(p.requires?.knowledge)) {
+    const slug = typeof k === 'string' ? k : k?.slug;
+    if (!/^[a-z][a-z0-9-]{1,80}$/.test(slug || '')) errors.push(`requires.knowledge: bad slug ${JSON.stringify(slug)}`);
+  }
+
   // Surfaces: a module IS its page, so a plugin that cannot ship one cannot be
   // a module. It ships a DESCRIPTION, not code — the host renders it in its own
   // look. That is what makes a module exchangeable between users: nobody
@@ -238,8 +247,18 @@ export async function validateManifest(env, m) {
       if (hasPage && tabs.length) { errors.push(`surface ${sf.slug}: page_code and tabs are exclusive — pick one form`); continue; }
       if (hasPage) {
         if (sf.page_code.length > 500_000) errors.push(`surface ${sf.slug}: page_code over 500KB`);
+        // Support files (components the page imports as './X'). Flat names
+        // only — a path with a separator could climb out of the plugin dir.
+        for (const f of arr(sf.files)) {
+          if (!/^[A-Za-z][A-Za-z0-9_-]{0,60}\.(tsx|ts|css)$/.test(f?.path || '')) {
+            errors.push(`surface ${sf.slug}: file path must be a flat Name.tsx/.ts/.css — got ${JSON.stringify(f?.path)}`);
+          }
+          if (typeof f?.code !== 'string' || !f.code.trim()) errors.push(`surface ${sf.slug}: file ${f?.path} has no code`);
+          else if (f.code.length > 500_000) errors.push(`surface ${sf.slug}: file ${f.path} over 500KB`);
+        }
         continue;
       }
+      if (arr(sf.files).length) { errors.push(`surface ${sf.slug}: files only accompany page_code`); continue; }
       if (!tabs.length) errors.push(`surface ${sf.slug}: needs tabs or page_code`);
       for (const tab of tabs) {
         if (!tab?.key || !tab?.title) { errors.push(`surface ${sf.slug}: every tab needs a key and a title`); continue; }
@@ -489,6 +508,10 @@ export function filesFor(manifest, binding) {
     if (!SLUG_RE.test(sf?.slug || '')) continue;
     if (typeof sf?.page_code === 'string' && sf.page_code.trim()) {
       files.push({ path: `web/src/plugins/${manifest.name}/${sf.slug}.tsx`, content: String(sf.page_code) });
+      for (const f of arr(sf.files)) {
+        if (!/^[A-Za-z][A-Za-z0-9_-]{0,60}\.(tsx|ts|css)$/.test(f?.path || '')) continue;
+        files.push({ path: `web/src/plugins/${manifest.name}/${f.path}`, content: String(f.code || '') });
+      }
     }
   }
   return files;
@@ -514,6 +537,7 @@ export function generateIndex(rows) {
   let i = 0;
   const bindings = {};
   const tables = {};
+  const knowledge = {};
 
   for (const row of rows) {
     let m;
@@ -544,6 +568,9 @@ export function generateIndex(rows) {
     tables[m.name] = arr(m.requires?.tables)
       .map((t) => String(t?.name || '').toLowerCase())
       .filter((t) => t && t.startsWith(ns));
+    knowledge[m.name] = arr(m.requires?.knowledge)
+      .map((k) => String((typeof k === 'string' ? k : k?.slug) || '').toLowerCase())
+      .filter(Boolean);
 
     for (const t of arr(m.provides?.tools)) {
       if (!TOOL_RE.test(t?.name || '') || seenTool.has(t.name)) continue;
@@ -552,7 +579,7 @@ export function generateIndex(rows) {
       imports.push(`import * as ${v} from './${m.name}/tool-${t.name}.mjs';`);
       toolRefs.push(
         `  ${JSON.stringify(t.name)}: { def: ${v}.def, run: (env, input, ctx) => `
-        + `${v}.run(pluginApi(env, ${JSON.stringify(m.name)}, BINDINGS[${JSON.stringify(m.name)}], TABLES[${JSON.stringify(m.name)}]), input, ctx) },`,
+        + `${v}.run(pluginApi(env, ${JSON.stringify(m.name)}, BINDINGS[${JSON.stringify(m.name)}], TABLES[${JSON.stringify(m.name)}], KNOWLEDGE[${JSON.stringify(m.name)}]), input, ctx) },`,
       );
     }
     for (const g of arr(m.provides?.gateways).filter((gg) => binding?.[gg.slug]?.via === 'bundled')) {
@@ -576,6 +603,7 @@ export function generateIndex(rows) {
     '',
     `const BINDINGS = ${JSON.stringify(bindings, null, 2)};`,
     `const TABLES = ${JSON.stringify(tables, null, 2)};`,
+    `const KNOWLEDGE = ${JSON.stringify(knowledge, null, 2)};`,
     '',
     'export const pluginTools = {',
     ...toolRefs,

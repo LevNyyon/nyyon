@@ -1,0 +1,259 @@
+{
+  "nyyon_plugin": 2,
+  "name": "daily-planner",
+  "title": "Daily Planner",
+  "version": "1.0.0",
+  "description": "Planning workspace: a guided chat produces a persisted, editable day plan (Focus Sessions + to-dos), with weekly objectives, history search and day time-travel. Full module-as-plugin: seven tools, the persona knowledge doc, and the real two-pane page.",
+  "origin": {
+    "system": "nyyon-app"
+  },
+  "requires": {
+    "gateways": [],
+    "knowledge": [
+      {
+        "slug": "kpi-outreach",
+        "purpose": "the operator timezone + workweek days that anchor 'today' and the week's Sunday"
+      }
+    ],
+    "tables": [
+      {
+        "name": "plugin_daily_planner_plans",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_daily_planner_plans (date TEXT PRIMARY KEY, plan TEXT NOT NULL, mode TEXT NOT NULL DEFAULT 'wing_it', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
+      },
+      {
+        "name": "plugin_daily_planner_objectives",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_daily_planner_objectives (week_start TEXT PRIMARY KEY, objectives TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
+      }
+    ]
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "read_daily_plan",
+        "code_file": "tools/read_daily_plan.mjs",
+        "def": {
+          "name": "read_daily_plan",
+          "description": "Read one day's plan (schedule blocks + to-dos). date is YYYY-MM-DD, default today. Call this before editing a day or to see what is already planned.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "description": "YYYY-MM-DD; default today"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "save_daily_plan",
+        "code_file": "tools/save_daily_plan.mjs",
+        "def": {
+          "name": "save_daily_plan",
+          "description": "Write (or replace) a day's plan — this is what fills the plan panel. schedule = time blocks [{start:'HH:MM', end:'HH:MM', title, deliverable, focus}]. Mark each ~2-hour FOCUS SESSION block focus:true (the operator says how many fit in a day) — those are the day's backbone; supporting blocks are focus:false. todos = [{text, priority, star}], star:true for the extra-important few. mode 'strategic' (aligned to the week's objectives, set weekly_ref = that week's Sunday) or 'wing_it'. date defaults to today. Replaces the whole plan; use update_daily_plan to change part of one.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "description": "YYYY-MM-DD; default today"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "strategic",
+                  "wing_it"
+                ]
+              },
+              "summary": {
+                "type": "string",
+                "description": "one line on what this day is about"
+              },
+              "weekly_ref": {
+                "type": "string",
+                "description": "the aligned week's Sunday (YYYY-MM-DD), strategic mode"
+              },
+              "schedule": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "description": "time blocks, each with a concrete deliverable"
+              },
+              "todos": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "description": "checklist items"
+              }
+            },
+            "required": [
+              "schedule"
+            ]
+          }
+        }
+      },
+      {
+        "name": "update_daily_plan",
+        "code_file": "tools/update_daily_plan.mjs",
+        "def": {
+          "name": "update_daily_plan",
+          "description": "Edit part of a day's plan during the day (tick a block or to-do done, add a to-do, shift the schedule). Pass ONLY the keys you are changing; everything else is kept as-is. date defaults to today.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "date": {
+                "type": "string",
+                "description": "YYYY-MM-DD; default today"
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "strategic",
+                  "wing_it"
+                ]
+              },
+              "summary": {
+                "type": "string"
+              },
+              "weekly_ref": {
+                "type": "string"
+              },
+              "schedule": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "todos": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "search_daily_plans",
+        "code_file": "tools/search_daily_plans.mjs",
+        "def": {
+          "name": "search_daily_plans",
+          "description": "Search past daily plans by text (matches the summary, the to-dos and the blocks). Use it to recall or reuse an earlier day. An empty query returns the most recent plans.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "limit": {
+                "type": "number",
+                "description": "default 20, max 100"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_recent_plans",
+        "code_file": "tools/list_recent_plans.mjs",
+        "def": {
+          "name": "list_recent_plans",
+          "description": "The most recent PAST daily plans, strictly before today (default the last 3). Call it at the start of planning to surface unfinished priorities and ask the operator what happened to each (done / carry over / drop).",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "days": {
+                "type": "number",
+                "description": "how many past plans, default 3"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_weekly_objectives",
+        "code_file": "tools/read_weekly_objectives.mjs",
+        "def": {
+          "name": "read_weekly_objectives",
+          "description": "Read a week's strategic objectives. week_start is that week's Sunday (YYYY-MM-DD), or pass any `date` to have its workweek anchored for you; default is the current week. Read this in strategic mode before planning a day so the day points at the week.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "week_start": {
+                "type": "string",
+                "description": "the week's Sunday, YYYY-MM-DD; default this week"
+              },
+              "date": {
+                "type": "string",
+                "description": "any day (YYYY-MM-DD) — its workweek is anchored server-side"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "set_weekly_objectives",
+        "code_file": "tools/set_weekly_objectives.mjs",
+        "def": {
+          "name": "set_weekly_objectives",
+          "description": "Set a week's strategic objectives — the 2-4 outcomes that move the business in the intended direction. objectives is a list of short outcome strings (or {text, done} objects) and REPLACES the week's list. week_start defaults to the current week's Sunday.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "objectives": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "string",
+                    "object"
+                  ]
+                },
+                "description": "short outcome strings, or {text, done}"
+              },
+              "week_start": {
+                "type": "string",
+                "description": "the week's Sunday, YYYY-MM-DD; default this week"
+              }
+            },
+            "required": [
+              "objectives"
+            ]
+          }
+        }
+      }
+    ],
+    "workflows": [],
+    "knowledge": [
+      {
+        "slug": "plugin-daily-planner-persona",
+        "title": "Daily Planner — planner persona (system prompt)",
+        "body_file": "knowledge/plugin-daily-planner-persona.md"
+      }
+    ],
+    "surfaces": [
+      {
+        "slug": "planner",
+        "title": "Daily Planner",
+        "page_file": "surface/planner.tsx",
+        "files": [
+          {
+            "path": "PlanPanel.tsx",
+            "code_file": "surface/PlanPanel.tsx"
+          },
+          {
+            "path": "data.ts",
+            "code_file": "surface/data.ts"
+          }
+        ]
+      }
+    ]
+  }
+}

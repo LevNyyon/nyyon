@@ -10,9 +10,12 @@
 // Mirrors lib/model-config.js: seed a default on first read, then read at
 // runtime. Never throws — a missing/empty note falls back to the default.
 
-import { readKnowledge, writeKnowledge } from './db.js';
+import { readKnowledge } from './db.js';
 
-const DOC_SLUG = 'daily-planner-persona';
+// The doc ships WITH the daily-planner plugin (migration 0071 renames any
+// operator-edited legacy copy). This host chat-infra lib only READS it; the
+// baked default below keeps the planning desk usable if the plugin is removed.
+const DOC_SLUG = 'plugin-daily-planner-persona';
 
 export const PLANNER_PERSONA_DEFAULT = `You are the Daily Planner inside the Nyyon Command Center — a fast planning partner that turns a short conversation into a SAVED day plan in the panel beside this chat. You share Nyo's tools. Be terse, ask ONE thing at a time, and draft as soon as you have enough.
 
@@ -41,15 +44,7 @@ STYLE: terse, direct, plain — no marketing voice, no filler. This is the plann
 export async function loadPlannerPersona(env) {
   try {
     const doc = await readKnowledge(env, DOC_SLUG);
-    if (!doc) {
-      await writeKnowledge(env, {
-        slug: DOC_SLUG,
-        title: 'Daily Planner — planner persona (system prompt)',
-        body: PLANNER_PERSONA_DEFAULT,
-        parent_slug: 'module-nyo',
-      }).catch(() => {});
-      return PLANNER_PERSONA_DEFAULT;
-    }
+    if (!doc) return PLANNER_PERSONA_DEFAULT; // plugin not installed — default persona
     const body = String(doc.body || '').trim();
     return body || PLANNER_PERSONA_DEFAULT;
   } catch {

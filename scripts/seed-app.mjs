@@ -91,7 +91,7 @@ your company instead of like a generic install.` },
 
 The in-app chat assistant and the surfaces it drives. Its model tiers live in
 \`llm-models\`; the Daily Planner's own system prompt lives in
-\`daily-planner-persona\`.` },
+\`plugin-daily-planner-persona\`.` },
 
   { slug: 'module-blog', title: 'Blog', parent: ROOT, scope: 'module', module: 'blog', body:
 `# Blog
@@ -235,7 +235,7 @@ time, not here.
 \`\`\`
 ` },
 
-  { slug: 'daily-planner-persona', title: 'Daily Planner — planner persona (system prompt)', parent: 'module-nyo', scope: 'global', module: null, body:
+  { slug: 'plugin-daily-planner-persona', title: 'Daily Planner — planner persona (system prompt)', parent: 'module-nyo', scope: 'global', module: null, body:
 `You are the Daily Planner inside this command center — a fast planning partner that turns a short conversation into a SAVED day plan in the panel beside this chat. You share the assistant's tools. Be terse, ask ONE thing at a time, and draft as soon as you have enough.
 
 Each new day the chat and the panel start empty. Ground yourself quietly first: call read_daily_plan (today) and read_weekly_objectives (this week) before your first reply. If today already has a plan, recap it in one line and ask what to change instead of re-asking.
@@ -1024,7 +1024,7 @@ const DEMO_PREDICATES = [
   // JSON carries a marker instead — and because saving the plan from the UI
   // rewrites that JSON without the marker, a plan the operator has touched is
   // no longer considered demo data and survives a clear. That is deliberate.
-  ['daily_plans',              `plan LIKE '%"__demo_seed":true%'`],
+  ['plugin_daily_planner_plans',              `plan LIKE '%"__demo_seed":true%'`],
 ];
 
 function clearSql() {
@@ -1344,9 +1344,9 @@ The counting is boring and it is the only part that lets you say, later, whether
       { id: 't3', text: 'Delete the demo rows once the real data is in', done: false, star: false, priority: 3 },
     ],
   };
-  out.push('-- daily_plans');
+  out.push('-- plugin_daily_planner_plans');
   out.push(
-    `INSERT INTO daily_plans (date, plan, mode, created_at, updated_at)`,
+    `INSERT INTO plugin_daily_planner_plans (date, plan, mode, created_at, updated_at)`,
     `VALUES (${q(TODAY)}, ${j(plan)}, 'strategic', ${NOW - 8 * HOUR}, ${NOW - 2 * HOUR});`,
     '',
   );
@@ -1375,7 +1375,7 @@ The counting is boring and it is the only part that lets you say, later, whether
     { id: 'demo-event-5', kind: 'outreach_cohort_sent', actor: 'demo', at: NOW - DAY, payload: { cohort_id: 'demo-cohort-1', lead_id: 'demo-lead-1', step: 0, channel: 'whatsapp' } },
     { id: 'demo-event-6', kind: 'blog_post_published', actor: 'demo', at: NOW - 5 * DAY, payload: { slug: 'demo-what-to-automate-first', title: 'What to automate first, and how to know it worked' } },
     { id: 'demo-event-7', kind: 'hottake_topic_added', actor: 'demo', at: NOW - 2 * DAY, payload: { id: 'demo-package-1', origin: 'osint_topic', origin_ref: 'demo-topic-3' } },
-    { id: 'demo-event-8', kind: 'daily_plan_saved', actor: 'demo', at: NOW - 8 * HOUR, payload: { date: TODAY, mode: 'strategic', blocks: 4, todos: 3 } },
+    { id: 'demo-event-8', kind: 'plugin_daily_planner_plan_saved', actor: 'demo', at: NOW - 8 * HOUR, payload: { date: TODAY, mode: 'strategic', blocks: 4, todos: 3 } },
   ];
   out.push('-- events (activity bus)');
   for (const e of evs) {

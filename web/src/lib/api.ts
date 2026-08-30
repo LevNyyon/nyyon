@@ -259,21 +259,6 @@ export type GtmGreenLead = GtmLead & {
 };
 
 // ─── Daily Planner (per-day plan + weekly objectives) ──────────
-export type PlanBlock = { id: string; start: string | null; end: string | null; title: string; deliverable: string | null; done: boolean; focus?: boolean };
-export type PlanTodo  = { id: string; text: string; done: boolean; priority: number; star?: boolean };
-export type DailyPlan = {
-  date: string;
-  mode: 'strategic' | 'wing_it';
-  summary: string;
-  weekly_ref: string | null;
-  schedule: PlanBlock[];
-  todos: PlanTodo[];
-  created_at: number;
-  updated_at: number;
-};
-export type WeeklyObjective  = { id: string; text: string; done: boolean };
-export type WeeklyObjectives = { week_start: string; objectives: WeeklyObjective[]; created_at: number; updated_at: number };
-
 // ─── Hot Takes — editorial command center (topic → take → brief → article → distribute) ─
 export type HotTakePackage = {
   id: string;
@@ -435,27 +420,6 @@ export type FirstIngestResult = {
 
 export const api = {
   health: () => j<{ ok: boolean }>('/health'),
-
-  // Daily Planner — per-day plan + weekly objectives (operator + planner chat).
-  dailyPlan: (date?: string) =>
-    j<{ date: string; plan: DailyPlan | null }>(`/api/daily-plan${date ? `?date=${encodeURIComponent(date)}` : ''}`),
-  saveDailyPlan: (plan: Partial<DailyPlan>) =>
-    j<{ plan: DailyPlan }>('/api/daily-plan', { method: 'PUT', body: JSON.stringify({ plan }) }).then((r) => r.plan),
-  searchDailyPlans: (q: string, limit = 30) =>
-    j<{ query: string; results: DailyPlan[] }>(`/api/daily-plan/search?q=${encodeURIComponent(q)}&limit=${limit}`).then((r) => r.results),
-  recentDailyPlans: (days = 3) =>
-    j<{ days: number; results: DailyPlan[] }>(`/api/daily-plan/recent?days=${days}`).then((r) => r.results),
-  // `week` = a literal week_start; `date` = any day, anchored to its workweek
-  // server-side (the convention lives there, never re-derived in the client).
-  weeklyObjectives: ({ week, date }: { week?: string; date?: string } = {}) => {
-    const p = new URLSearchParams();
-    if (week) p.set('week', week);
-    if (date) p.set('date', date);
-    const qs = p.toString();
-    return j<{ week_start: string; objectives: WeeklyObjectives | null }>(`/api/weekly-objectives${qs ? `?${qs}` : ''}`);
-  },
-  saveWeeklyObjectives: (objectives: WeeklyObjective[], week_start?: string) =>
-    j<{ objectives: WeeklyObjectives }>('/api/weekly-objectives', { method: 'PUT', body: JSON.stringify({ objectives, week_start }) }).then((r) => r.objectives),
 
   // Hot Takes — editorial command center (topic → take → brief → article → distribute).
   hotTakePackages: (status?: string) =>

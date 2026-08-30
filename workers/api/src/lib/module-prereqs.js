@@ -280,7 +280,6 @@ const MODULES = {
 
   // Nothing to declare: these run on the operator's own data or on nothing at
   // all, and gating them would be theatre.
-  'daily-planner': { label: 'Daily Planner', requires: [], optional: [] },
   nyo:             { label: 'Nyo',           requires: [], optional: [] },
   knowledge:       { label: 'Knowledge',     requires: [], optional: [] },
   registry:        { label: 'Registry',      requires: [], optional: [] },

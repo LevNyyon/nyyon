@@ -274,11 +274,27 @@ function scopedGateway(env, pluginName, binding) {
 
 // Build one plugin's capability object. Called by the GENERATED
 // plugins/index.js wrapper — plugin code never constructs its own.
-export function pluginApi(env, pluginName, binding, tables) {
+export function pluginApi(env, pluginName, binding, tables, knowledgeSlugs) {
   const allowed = new Set((tables || []).map((t) => String(t).toLowerCase()));
+  // Host knowledge a plugin may READ. Its OWN docs (plugin-<name>-*) are
+  // always readable; anything else must be declared in requires.knowledge so
+  // the operator sees the read at import. Never a write path — plugin writes
+  // to host docs would let one plugin rewrite the rules every other module
+  // runs on. Secrets live in gateway_config, not knowledge, which is what
+  // makes a declared read grant safe to offer at all.
+  const readable = new Set((knowledgeSlugs || []).map((k) => String(k).toLowerCase()));
+  const ownDoc = new RegExp(`^plugin-${pluginName}(-|$)`);
   return {
     db: scopedDb(env, pluginName, allowed),
     gateway: scopedGateway(env, pluginName, binding || {}),
+    knowledge: async (slug) => {
+      const sl = String(slug || '').toLowerCase();
+      if (!ownDoc.test(sl) && !readable.has(sl)) {
+        throw new Error(`plugin ${pluginName}: knowledge doc "${sl}" is not in its declared read set`);
+      }
+      const row = await env.DB.prepare('SELECT slug, title, body FROM knowledge_docs WHERE slug = ?').bind(sl).first();
+      return row || null;
+    },
     log: (kind, payload) => logEvent(env, {
       kind: `plugin_${String(pluginName).replace(/-/g, '_')}_${kind}`,
       actor: `plugin:${pluginName}`,
@@ -288,6 +304,7 @@ export function pluginApi(env, pluginName, binding, tables) {
       name: pluginName,
       tables: [...allowed],
       gateways: Object.keys(binding || {}),
+      knowledge: [...readable],
     },
   };
 }

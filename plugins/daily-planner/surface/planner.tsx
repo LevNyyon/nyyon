@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Chat } from '../components/Chat';
-import { PlanPanel } from '../components/PlanPanel';
+import { Chat } from '../../components/Chat';
+import { PlanPanel } from './PlanPanel';
 
 // Daily Planner workspace — MOBILE FIRST.
 //
@@ -18,7 +18,7 @@ import { PlanPanel } from '../components/PlanPanel';
 
 const DESKTOP = '(min-width: 1024px)'; // Tailwind lg
 
-export function DailyPlanner() {
+export default function DailyPlanner() {
   const [chatOpen, setChatOpen] = useState(false);
   const [desktop, setDesktop] = useState(
     () => typeof window !== 'undefined' && window.matchMedia(DESKTOP).matches,

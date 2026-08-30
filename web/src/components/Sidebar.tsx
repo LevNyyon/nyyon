@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { api } from '../lib/api';
 import { loadSidebarSlugs, type SurfaceSlug } from '../lib/theme';
 import type { Nav } from '../App';
-import { BookOpen, Cube, Activity as ActivityIcon, Gear, Terminal, MessageSquare, Newspaper, CalendarCheck, LinkedIn, Flame, Target, WhatsApp, X } from './Icons';
+import { BookOpen, Cube, Activity as ActivityIcon, Gear, Terminal, MessageSquare, Newspaper, LinkedIn, Flame, Target, WhatsApp, X } from './Icons';
 
 type Item = {
   key: Nav;
@@ -11,7 +11,6 @@ type Item = {
 };
 
 const SURFACE_ITEMS: Record<SurfaceSlug, Item> = {
-  'daily-planner': { key: 'daily-planner', label: 'Daily Planner', Icon: CalendarCheck },
   'hot-takes': { key: 'hot-takes', label: 'Hot Takes', Icon: Flame },
   prospecting: { key: 'prospecting', label: 'Prospecting', Icon: Target },
   outreach: { key: 'outreach', label: 'Outreach', Icon: WhatsApp },

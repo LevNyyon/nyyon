@@ -21,7 +21,6 @@ import { Blog } from './pages/Blog';
 import { Social } from './pages/Social';
 import { HotTakes } from './pages/HotTakes';
 import { Nyo } from './pages/Nyo';
-import { DailyPlanner } from './pages/DailyPlanner';
 import { MessageSquare, Menu } from './components/Icons';
 import { applyTheme, loadTheme, watchSystemTheme } from './lib/theme';
 import { ChatProvider, useChatState } from './lib/chat';
@@ -32,16 +31,19 @@ import { ChatProvider, useChatState } from './lib/chat';
 // so a stale persisted nav can be rejected at runtime — an operator whose last
 // session ended on a since-removed surface would otherwise land on a blank page.
 const NAVS = [
-  'nyo', 'daily-planner', 'prospecting', 'outreach', 'blog', 'social', 'hot-takes',
+  'nyo', 'prospecting', 'outreach', 'blog', 'social', 'hot-takes',
   'knowledge', 'plugins', 'activity', 'expand-build', 'settings',
 ] as const;
-export type Nav = typeof NAVS[number];
+export type Nav = typeof NAVS[number] | `plugin:${string}`;
 
 const NAV_KEY       = 'nyyon.nav.v1';
 const CHAT_OPEN_KEY = 'nyyon.chat.open.v1';
 
 // Section title for the mobile top bar (desktop shows the sidebar rail instead).
-const NAV_TITLES: Partial<Record<Nav, string>> = { nyo: 'Nyo', 'daily-planner': 'Daily Planner', 'hot-takes': 'Hot Takes', 'expand-build': 'Expand build' };
+const NAV_TITLES: Partial<Record<Nav, string>> = { nyo: 'Nyo', 'hot-takes': 'Hot Takes', 'expand-build': 'Expand build' };
+// The planner ships as a plugin; its page key exists only once materialized.
+const PLANNER_NAV = 'plugin:daily-planner:planner';
+const DEFAULT_NAV: Nav = PLUGIN_PAGES['daily-planner:planner'] ? PLANNER_NAV : 'nyo';
 const navTitle = (n: Nav) => NAV_TITLES[n] ?? n.charAt(0).toUpperCase() + n.slice(1);
 
 // What the app opens into. Setup is a SEQUENCE, the server names the point in
@@ -147,7 +149,8 @@ export default function App() {
   // they left off.
   const [nav, setNav] = useState<Nav>(() => {
     const saved = localStorage.getItem(NAV_KEY) as Nav | null;
-    return saved && NAVS.includes(saved) ? saved : 'daily-planner';
+    if (saved && ((NAVS as readonly string[]).includes(saved) || saved.startsWith('plugin:'))) return saved as Nav;
+    return DEFAULT_NAV;
   });
   const [chatOpen, setChatOpen] = useState<boolean>(() => localStorage.getItem(CHAT_OPEN_KEY) === '1');
   // Off-canvas sidebar state (mobile only; desktop keeps the static rail).
@@ -193,7 +196,7 @@ export default function App() {
   useEffect(() => {
     const handler = (e: Event) => {
       const target = (e as CustomEvent<{ target?: Nav }>).detail?.target;
-      if (target && NAVS.includes(target)) setNav(target);
+      if (target && ((NAVS as readonly string[]).includes(target) || target.startsWith('plugin:'))) setNav(target);
     };
     window.addEventListener('nyyon:nav-to', handler);
     return () => window.removeEventListener('nyyon:nav-to', handler);
@@ -249,8 +252,8 @@ export default function App() {
         // has seen this app before would otherwise reopen whatever page the
         // last session ended on, which for a brand new install is nobody's
         // idea of a first screen.
-        onReady={() => { setNav('daily-planner'); void checkBoot(); }}
-        onLater={() => { setNav('daily-planner'); void checkBoot(); }}
+        onReady={() => { setNav(DEFAULT_NAV); void checkBoot(); }}
+        onLater={() => { setNav(DEFAULT_NAV); void checkBoot(); }}
         onBack={() => setEditAccount(true)}
       />
     );
@@ -271,7 +274,7 @@ export default function App() {
             title and its actions, so both bars together burned ~104px of a phone
             screen to say one thing. It renders the hamburger itself and asks for
             the menu via 'nyyon:open-menu' (same event pattern as nav-to / open-chat). */}
-        {nav !== 'daily-planner' && (
+        {nav !== PLANNER_NAV && (
           <div className="lg:hidden h-12 shrink-0 border-b border-line panel flex items-center gap-1 px-2">
             <button onClick={() => setSidebarOpen(true)} aria-label="Open menu" className="h-10 w-10 grid place-items-center text-ink">
               <Menu size={22} />
@@ -286,7 +289,6 @@ export default function App() {
             product deliberately offered them. */}
         {setupDeferred && <SetupResumeBanner onResumed={() => void checkBoot()} />}
         {nav === 'nyo'    && <Nyo />}
-        {nav === 'daily-planner' && <DailyPlanner />}
         {nav === 'prospecting' && <Prospecting />}
         {nav === 'outreach'  && <Outreach />}
         {nav === 'blog'      && <Blog />}
@@ -334,7 +336,7 @@ export default function App() {
           thread) with its own trigger, and on mobile the floating button would land
           on top of the plan and compete with it. Two chat entry points on one screen
           reads as one. */}
-      {!chatOpen && nav !== 'nyo' && nav !== 'daily-planner' && (
+      {!chatOpen && nav !== 'nyo' && nav !== PLANNER_NAV && (
         <FloatingLauncher onOpen={() => setChatOpen(true)} />
       )}
     </div>

@@ -133,7 +133,6 @@ const WORKFLOWS = [
 // every send, the calendar store behind reminders and publish mirrors).
 const MODULES = [
   { key: 'nyo',       title: 'Nyo',       area: 'module', description: 'AI command chat — the tool pool\'s operator interface, wake-up briefings, voice mode' },
-  { key: 'daily-planner', title: 'Daily Planner', area: 'module', description: 'planning workspace — a guided chat produces a persisted, editable day plan (schedule + to-dos); weekly objectives vs wing-it, history search, 3-day follow-ups' },
   { key: 'prospecting', title: 'Prospecting', area: 'module', description: 'list-first view over the lead store: List Enrichment (compact table, traffic-light rows, per-row Truecaller) → Verified Contacts (cards of green, identity-confident leads)' },
   { key: 'outreach',  title: 'Outreach',  area: 'module', description: 'approach the prospects Prospecting surfaced — Conversations (a WhatsApp inbox filtered to prospects, split active / unanswered / dead, each thread opening beside the prospect card with a suggested reply offered alongside) + Queue (who is enrolled in the automated ladder, what we last said, what goes next and when; a reply removes them from automation permanently)' },
   { key: 'blog',      title: 'Blog',      area: 'module', description: 'article drafts → review → publish (edge-rendered); the answer-engine writer + its daily cron run headless behind it' },
@@ -171,7 +170,6 @@ const TOOL_GROUPS = [
   { group: 'Hot Takes & Signals', re: /hottake|topic_feed|adopt_blog_draft|article_meta|heartbeat|feed_url|_signal$|_signals$|pulse|hot_topics|osint|mention/, knowledge: ['industry-pulse', 'heartbeat-priorities', 'hottakes-source-scout'] },
   { group: 'Editorial (Blog / AEO)', re: /blog_post|aeo_|voice_profile|_article$|faq_schema|_figures$|_cover$|featured_image|visual_brief|_images$|interview_|taste_profile|suggestion_policy|suggestion_angles/, knowledge: ['brand-voice', 'personal-voice', 'article-playbook', 'brand'] },
   { group: 'Social',              re: /social_post|social_integrations|social_card|_card$/, knowledge: ['brand-voice', 'personal-voice'] },
-  { group: 'Daily Planner',       re: /daily_plan|recent_plans|weekly_objectives/,          knowledge: ['daily-planner-persona'] },
   { group: 'Calendar & Reminders', re: /calendar|meeting|reminder/,                        knowledge: ['meeting-reminders'] },
   { group: 'Conversations',       re: /conversation/,                                      knowledge: [] },
   { group: 'Workflows',           re: /workflow/,                                          knowledge: [] },

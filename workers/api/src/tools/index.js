@@ -10,7 +10,6 @@
 
 import { flagsAsObject } from '../lib/db.js';
 import { tools as coreTools } from './core.js';
-import { tools as plannerTools } from './planner.js';
 import { tools as waTools } from './wa.js';
 import { tools as outreachTools } from './outreach.js';
 import { tools as prospectingTools } from './prospecting.js';
@@ -30,7 +29,6 @@ const TOOL_REGISTRY = {
   // claim the name of a host tool that is currently switched off.
   ...pluginTools,
   ...coreTools,
-  ...plannerTools,
   ...waTools,
   ...outreachTools,
   ...prospectingTools,

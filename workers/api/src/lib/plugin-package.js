@@ -116,6 +116,9 @@ export function assembleManifest(files) {
   }
   for (const sf of (Array.isArray(m?.provides?.surfaces) ? m.provides.surfaces : [])) {
     if (sf?.page_file) { sf.page_code = read(sf.page_file, `surface ${sf.slug}`); delete sf.page_file; }
+    for (const f of (Array.isArray(sf?.files) ? sf.files : [])) {
+      if (f?.code_file) { f.code = read(f.code_file, `surface file ${f.path}`); delete f.code_file; }
+    }
   }
   return m;
 }
@@ -250,6 +253,14 @@ export function packageFiles(manifest) {
       files[ref] = sf.page_code;
       sf.page_file = ref;
       delete sf.page_code;
+    }
+    for (const f of arr(sf?.files)) {
+      if (typeof f?.code === 'string') {
+        const ref = `surface/${f.path}`;
+        files[ref] = f.code;
+        f.code_file = ref;
+        delete f.code;
+      }
     }
   }
   // The checksum describes the ASSEMBLED document, which this file no longer

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, type DailyPlan, type PlanBlock, type PlanTodo, type WeeklyObjective, type WeeklyObjectives } from '../lib/api';
-import { Search, X, MessageSquare, Menu } from './Icons';
+import { planner, type DailyPlan, type PlanBlock, type PlanTodo, type WeeklyObjective, type WeeklyObjectives } from './data';
+import { Search, X, MessageSquare, Menu } from '../../components/Icons';
 
 // The plan surface of the Daily Planner workspace — the main course, and on a
 // phone the ENTIRE page (the chat is a drawer over it; see pages/DailyPlanner).
@@ -68,7 +68,7 @@ export function PlanPanel({ onOpenChat }: Props) {
 
   const loadToday = useCallback(async () => {
     try {
-      const [pr, wo] = await Promise.all([api.dailyPlan(), api.weeklyObjectives({}).catch(() => null)]);
+      const [pr, wo] = await Promise.all([planner.dailyPlan(), planner.weeklyObjectives({}).catch(() => null)]);
       const cur = planRef.current;
       // A chat turn changed the plan → snapshot the pre-change version for Undo.
       if (cur && pr.plan && planSig(cur) !== planSig(pr.plan)) {
@@ -97,8 +97,8 @@ export function PlanPanel({ onOpenChat }: Props) {
     }
     try {
       const [pr, wo] = await Promise.all([
-        api.dailyPlan(target),
-        api.weeklyObjectives({ date: target }).catch(() => null),
+        planner.dailyPlan(target),
+        planner.weeklyObjectives({ date: target }).catch(() => null),
       ]);
       setViewing(pr.plan || { ...EMPTY, date: target });
       if (wo) setObjectives(wo.objectives || null);
@@ -141,7 +141,7 @@ export function PlanPanel({ onOpenChat }: Props) {
     }
     setPlan(next);            // optimistic
     setSaving(true);
-    try { setPlan(await api.saveDailyPlan(next)); }
+    try { setPlan(await planner.saveDailyPlan(next)); }
     catch { /* keep optimistic copy */ } finally { setSaving(false); }
   }
   // Undo/redo shuttle the plan between two stacks. undo pops the last past plan
@@ -173,19 +173,19 @@ export function PlanPanel({ onOpenChat }: Props) {
   async function saveObjectives(list: WeeklyObjective[]) {
     setObjectives((o) => (o ? { ...o, objectives: list } : { week_start: '', objectives: list, created_at: 0, updated_at: 0 }));
     setSaving(true);
-    try { setObjectives(await api.saveWeeklyObjectives(list)); } catch { /* keep */ } finally { setSaving(false); }
+    try { setObjectives(await planner.saveWeeklyObjectives(list)); } catch { /* keep */ } finally { setSaving(false); }
   }
   const toggleObjective = (id: string) => saveObjectives(objList.map((o) => o.id === id ? { ...o, done: !o.done } : o));
 
-  async function runSearch() { try { setResults(await api.searchDailyPlans(q.trim(), 30)); } catch { setResults([]); } }
+  async function runSearch() { try { setResults(await planner.searchDailyPlans(q.trim(), 30)); } catch { setResults([]); } }
   // Reuse a past day as today's draft. This REPLACES today's plan wholesale, so
   // it is the most destructive action in the panel and must go through persist()
   // — that is what pushes the outgoing plan onto the Undo stack. It used to call
-  // api.saveDailyPlan directly, which overwrote today with no way back: ↩ had
+  // the save endpoint directly, which overwrote today with no way back: ↩ had
   // nothing to restore.
   //
   // Spread `base` (today), never `src` (the past day). The PUT route resolves the
-  // target day from the payload — `b.date || src.date || todayLocal` in index.js —
+  // target day from the payload — `input.date || today` in the save_daily_plan tool —
   // so carrying the source day's date across would rewrite THAT day instead of
   // today, quietly destroying a second plan.
   async function reuseAsToday(src: DailyPlan) {
@@ -200,7 +200,7 @@ export function PlanPanel({ onOpenChat }: Props) {
     // Drop out of the past-day view first so the reused plan is what you land on
     // (and snap the header + objectives back to today's week).
     setViewing(null); setViewDate(todayLocal()); setSearchOpen(false); setResults(null); setQ('');
-    void api.weeklyObjectives({}).then((wo) => setObjectives(wo.objectives || null)).catch(() => {});
+    void planner.weeklyObjectives({}).then((wo) => setObjectives(wo.objectives || null)).catch(() => {});
     await persist(next);
   }
 

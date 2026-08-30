@@ -29,7 +29,6 @@ import {
   syncFromGateway,
 } from './lib/whatsapp.js';
 import { handleChat } from './chat/index.js';
-import { todayLocal, weekAnchor, readPlan, savePlan, searchPlans, recentPlans, readWeeklyObjectives, saveWeeklyObjectives } from './lib/daily-planner.js';
 import {
   listPackages as htListPackages, readPackage as htReadPackage, createPackage as htCreatePackage,
   patchPackage as htPatchPackage, dismissPackage as htDismissPackage, listPosts as htListPosts,
@@ -1720,40 +1719,8 @@ app.put('/api/outreach/wa/settings', async (c) => {
 });
 
 // ─── daily planner (per-day plan + weekly objectives; operator + planner chat) ──
-app.get('/api/daily-plan', async (c) => {
-  const date = c.req.query('date') || (await todayLocal(c.env));
-  const plan = await readPlan(c.env, date);
-  return c.json({ date, plan });
-});
-app.put('/api/daily-plan', async (c) => {
-  const b = await c.req.json();
-  const src = b.plan || b;
-  const date = b.date || src.date || (await todayLocal(c.env));
-  const plan = await savePlan(c.env, { date, plan: src, mode: src.mode, actor: 'operator' });
-  return c.json({ plan });
-});
-app.get('/api/daily-plan/search', async (c) => {
-  const r = await searchPlans(c.env, { query: c.req.query('q') || '', limit: Number(c.req.query('limit')) || 20 });
-  return c.json(r);
-});
-app.get('/api/daily-plan/recent', async (c) => {
-  const r = await recentPlans(c.env, { days: Number(c.req.query('days')) || 3 });
-  return c.json(r);
-});
-app.get('/api/weekly-objectives', async (c) => {
-  // `week` = a literal week_start; `date` = any day, anchored server-side (the
-  // workweek convention lives in weekAnchor — clients never re-derive it).
-  const wk = c.req.query('week')
-    || (await weekAnchor(c.env, c.req.query('date') || await todayLocal(c.env)));
-  const objectives = await readWeeklyObjectives(c.env, wk);
-  return c.json({ week_start: wk, objectives });
-});
-app.put('/api/weekly-objectives', async (c) => {
-  const b = await c.req.json();
-  const wk = b.week_start || (await weekAnchor(c.env, await todayLocal(c.env)));
-  const objectives = await saveWeeklyObjectives(c.env, { week_start: wk, objectives: b.objectives || [], actor: 'operator' });
-  return c.json({ objectives });
-});
+// Daily Planner routes removed — the module ships as a plugin; its surface
+// drives the plugin's own tools via /api/plugins/daily-planner/invoke/*.
 
 // ─── Hot Takes (editorial command center — topic → take → brief → article → distribute) ──
 app.get('/api/hot-takes/packages', async (c) => {

@@ -76,6 +76,11 @@ for (const file of files) {
   let src;
   try { src = readFileSync(file, "utf8"); } catch { continue; }
   const rel = relative(ROOT, file);
+  // plugins/ packs follow the PLUGIN contract, not the host layer rules: their
+  // tools reach the DB through the scoped `api` capability (that IS their
+  // gateway) and register dynamically via the generated plugins aggregator.
+  // The plugin validator (lib/plugins.js validateManifest) is their law.
+  if (rel.startsWith("plugins/") || rel.includes("/plugins/")) continue;
   const inTools = rel.startsWith("tools/");
   const inModules = rel.startsWith("modules/");
   const isIndex = INDEX_FILES.test("/" + rel);
