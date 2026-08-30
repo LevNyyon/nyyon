@@ -103,6 +103,16 @@ GATE_SECRET=${randomBytes(32).toString('hex')}
 // this at a gateway of their own) would otherwise be declared "already set"
 // while the service side was never written — leaving a daemon that refuses to
 // boot and a Connect button that never goes green.
+// The Telegram bridge's inbound key: the poll sidecar authenticates to the
+// worker with it. Without it gate.js 401s every update and the line is dead.
+{
+  const text = existsSync(devVars) ? readFileSync(devVars, 'utf8') : '';
+  if (!/^TELEGRAM_INBOUND_KEY=.+/m.test(text)) {
+    writeFileSync(devVars, `${text.replace(/\s*$/, '')}\n\n# Shared with the Telegram poll service (services/telegram/poll.mjs).\nTELEGRAM_INBOUND_KEY=${randomBytes(24).toString('hex')}\n`);
+    say('Telegram inbound key generated');
+  }
+}
+
 // The plugin applier's key. Same per-install discipline as GATE_SECRET: the
 // applier sidecar reads it from .dev.vars and the worker's gate compares
 // against it, so without this a code-bearing plugin sits at `bound` forever

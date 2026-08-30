@@ -50,7 +50,10 @@ for (;;) {
       continue;
     }
     for (const update of j.result || []) {
-      offset = update.update_id + 1;
+      // The offset is what tells Telegram "I have this one". Advancing it
+      // BEFORE delivery meant a worker restart mid-batch dropped the
+      // operator's message permanently — Telegram never sends it again.
+      // It moves only after the worker has accepted the update.
       try {
         const r = await fetch(INBOUND, {
           method: 'POST',
@@ -58,10 +61,17 @@ for (;;) {
           body: JSON.stringify(update),
           signal: AbortSignal.timeout(15_000),
         });
-        if (!r.ok) console.error('[telegram-poll] inbound', r.status, await r.text().catch(() => ''));
+        if (!r.ok) {
+          console.error('[telegram-poll] inbound', r.status, await r.text().catch(() => ''));
+          // A 5xx is the worker's problem and may pass; leave the offset so
+          // the update is redelivered. A 4xx will never succeed — step over it.
+          if (r.status >= 500) { await sleep(5_000); break; }
+        }
+        offset = update.update_id + 1;
       } catch (e) {
         console.error('[telegram-poll] worker unreachable:', e?.message || e);
         await sleep(5_000);
+        break;   // keep the offset; retry this update on the next pass
       }
     }
   } catch (e) {

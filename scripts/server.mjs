@@ -46,13 +46,24 @@ const child = spawn('npx',
 // `bound`, and stays there — the Plugins module looks broken for a reason
 // nothing on screen explains. It is idle (one poll every 20s) until there is
 // work, and it no-ops when no applier key exists yet.
-const applier = spawn(process.execPath, [join(repo, 'services', 'plugins', 'apply.mjs')], {
-  cwd: repo,
-  stdio: 'inherit',
-  env: { ...process.env, NYYON_API_PORT: PORT, NYYON_RESTART_CMD: process.env.NYYON_RESTART_CMD ?? '' },
+const sidecars = [
+  ['plugin applier', join(repo, 'services', 'plugins', 'apply.mjs')],
+  // The Telegram line's only inbound path — a Worker cannot hold a long poll
+  // open. It sleeps until a bot token exists, so it costs nothing when unused.
+  ['telegram poll', join(repo, 'services', 'telegram', 'poll.mjs')],
+].map(([label, script]) => {
+  const p = spawn(process.execPath, [script], {
+    cwd: repo,
+    stdio: 'inherit',
+    env: { ...process.env, NYYON_API_PORT: PORT, NYYON_RESTART_CMD: process.env.NYYON_RESTART_CMD ?? '' },
+  });
+  p.on('error', (e) => console.error(`[server] ${label} failed to start:`, e?.message || e));
+  return p;
 });
-applier.on('error', (e) => console.error('[server] plugin applier failed to start:', e?.message || e));
 
-const stop = () => { try { child.kill('SIGTERM'); } catch { /* gone */ } try { applier.kill('SIGTERM'); } catch { /* gone */ } };
+const stop = () => {
+  try { child.kill('SIGTERM'); } catch { /* gone */ }
+  for (const p of sidecars) { try { p.kill('SIGTERM'); } catch { /* gone */ } }
+};
 child.on('exit', (code) => { stop(); process.exit(code ?? 0); });
 for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, stop);

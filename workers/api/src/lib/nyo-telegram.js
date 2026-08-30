@@ -163,6 +163,11 @@ export async function handleTelegramInbound(env, update) {
     }
     while (messages.length && messages[0].role !== 'user') messages.shift();
     if (!messages.length || messages[messages.length - 1].role !== 'user') {
+      // The claim was taken before the model ran, so a return that answers
+      // NOTHING has to give it back — otherwise this message is marked
+      // answered forever and the operator's next line is the only one Nyo
+      // ever sees.
+      await syncSet(env, claimKey(chatId), prevClaim);
       return { ok: true, skipped: 'nothing to answer' };
     }
 
@@ -172,6 +177,7 @@ export async function handleTelegramInbound(env, update) {
     });
     const reply = await sseTextFromResponse(res);
     if (!reply) {
+      await syncSet(env, claimKey(chatId), prevClaim);
       await logEvent(env, { kind: 'nyo_telegram_empty', actor: 'nyo', payload: { msg_id: msgId } });
       return { ok: false, reason: 'empty reply' };
     }
@@ -203,16 +209,23 @@ export async function nyoTelegramPush(env) {
   ).bind(since, Number(cfg.push_max_per_run) || 5).all()).results || [];
   if (!rows.length) return { ok: true, pushed: 0 };
 
+  // The watermark may only pass a message that actually reached a chat.
+  // Advancing it regardless meant a Telegram outage silently discarded every
+  // update queued during it — the operator simply never heard about them.
   let pushed = 0;
+  let failed = 0;
   let watermark = since;
   for (const row of rows) {
+    let delivered = false;
     for (const chatId of chats) {
-      await sendTelegramText(env, { chat_id: chatId, text: row.content }).catch(() => {});
+      try { await sendTelegramText(env, { chat_id: chatId, text: row.content }); delivered = true; }
+      catch { /* try the remaining chats before giving up on this message */ }
     }
+    if (!delivered) { failed++; break; }   // stop: keep the queue ordered
     watermark = row.created_at;
     pushed++;
   }
-  await syncSet(env, PUSH_KEY, watermark);
-  await logEvent(env, { kind: 'nyo_telegram_pushed', actor: 'system', payload: { pushed, chats: chats.length } });
-  return { ok: true, pushed };
+  if (pushed) await syncSet(env, PUSH_KEY, watermark);
+  await logEvent(env, { kind: 'nyo_telegram_pushed', actor: 'system', payload: { pushed, failed, chats: chats.length } });
+  return { ok: true, pushed, failed };
 }
