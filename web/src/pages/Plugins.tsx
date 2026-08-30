@@ -16,6 +16,20 @@ type PluginRow = {
   installed_at: number; updated_at: number;
 };
 
+// The registry entry: everything one plugin put into this system, with paths.
+type PluginReg = {
+  name: string; title: string; version: string; status: string;
+  origin: { system?: string } | null; path: string;
+  tools: { name: string; path: string; description: string }[];
+  gateways: { slug: string; installed_as: string; path: string; service: string }[];
+  gateway_bindings: { slug: string; via: string; target: string }[];
+  requires_gateways: { slug: string; modes: string[] }[];
+  workflows: { slug: string; name: string; steps: string[] }[];
+  knowledge: { slug: string; title: string }[];
+  tables: string[];
+  surfaces: { slug: string; path: string | null }[];
+};
+
 const STATUS_TONE: Record<string, string> = {
   active: 'text-emerald-700 bg-emerald-500/10',
   bound: 'text-amber-700 bg-amber-500/10',
@@ -31,11 +45,17 @@ async function j<T>(url: string, init?: RequestInit): Promise<T> {
 
 export function Plugins() {
   const [rows, setRows] = useState<PluginRow[]>([]);
+  const [reg, setReg] = useState<Record<string, PluginReg>>({});
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const [paste, setPaste] = useState('');
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
-  const reload = () => j<{ plugins: PluginRow[] }>('/api/plugins').then((d) => setRows(d.plugins || []));
+  const reload = () => Promise.all([
+    j<{ plugins: PluginRow[] }>('/api/plugins').then((d) => setRows(d.plugins || [])),
+    j<{ plugins: PluginReg[] }>('/api/plugins/registry').then((d) =>
+      setReg(Object.fromEntries((d.plugins || []).map((p) => [p.name, p])))),
+  ]);
   useEffect(() => { reload(); const t = setInterval(reload, 15000); return () => clearInterval(t); }, []);
 
   const doImport = async () => {
@@ -114,9 +134,68 @@ export function Plugins() {
             {r.status === 'blocked' && (
               <pre className="mt-1 text-[11px] text-rose-700/90 whitespace-pre-wrap">{(r.report?.errors || [r.report?.error]).filter(Boolean).join('\n')}</pre>
             )}
+            {reg[r.name] && (
+              <button className="mt-1 text-[11px] text-mute hover:text-ink" onClick={() => setOpen((o) => ({ ...o, [r.name]: !o[r.name] }))}>
+                {open[r.name] ? '▾ registry' : '▸ registry'}
+              </button>
+            )}
+            {open[r.name] && reg[r.name] && <PluginRegistry p={reg[r.name]} />}
           </div>
         ))}
       </section>
+    </div>
+  );
+}
+
+// One plugin's full registry: every component it put into this system, with
+// the real paths its code lives at. This IS the Registry — plugin-scoped.
+function PluginRegistry({ p }: { p: PluginReg }) {
+  const Section = ({ label, children }: { label: string; children: React.ReactNode }) => (
+    <div className="mt-1.5">
+      <div className="mono text-[9px] uppercase tracking-[0.14em] text-mute">{label}</div>
+      <div className="text-[11px] mt-0.5 space-y-0.5">{children}</div>
+    </div>
+  );
+  const none = <span className="text-mute">none</span>;
+  return (
+    <div className="mt-2 pl-3 border-l border-line/70">
+      <Section label="Path">
+        <span className="mono text-[10px]">{p.path}/</span>
+        {p.origin?.system && <span className="text-mute"> · from {p.origin.system}</span>}
+      </Section>
+      <Section label={`Tools (${p.tools.length})`}>
+        {p.tools.length ? p.tools.map((t) => (
+          <div key={t.name}><span className="mono text-[10px]">{t.name}</span> — <span className="mono text-[10px] text-mute">{t.path}</span>
+            {t.description && <div className="text-mute">{t.description.slice(0, 110)}</div>}</div>
+        )) : none}
+      </Section>
+      <Section label={`Gateways (${p.gateways.length} bundled · ${p.gateway_bindings.length} bound)`}>
+        {p.gateways.map((g) => (
+          <div key={g.slug}><span className="mono text-[10px]">{g.installed_as}</span> — <span className="mono text-[10px] text-mute">{g.path}</span></div>
+        ))}
+        {p.gateway_bindings.map((b) => (
+          <div key={b.slug}><span className="mono text-[10px]">{b.slug}</span> → <span className="mono text-[10px]">{b.target}</span> <span className="text-mute">({b.via})</span></div>
+        ))}
+        {!p.gateways.length && !p.gateway_bindings.length && none}
+      </Section>
+      <Section label={`Workflows (${p.workflows.length})`}>
+        {p.workflows.length ? p.workflows.map((w) => (
+          <div key={w.slug}><span className="mono text-[10px]">{w.slug}</span> — {w.steps.join(' → ') || <span className="text-mute">observability-only</span>}</div>
+        )) : none}
+      </Section>
+      <Section label={`Knowledge (${p.knowledge.length})`}>
+        {p.knowledge.length ? p.knowledge.map((k) => (
+          <div key={k.slug}><span className="mono text-[10px]">{k.slug}</span> — {k.title}</div>
+        )) : none}
+      </Section>
+      <Section label={`Tables (${p.tables.length})`}>
+        {p.tables.length ? p.tables.map((t) => <div key={t} className="mono text-[10px]">{t}</div>) : none}
+      </Section>
+      <Section label={`Surfaces (${p.surfaces.length})`}>
+        {p.surfaces.length ? p.surfaces.map((sf) => (
+          <div key={sf.slug}><span className="mono text-[10px]">{sf.slug}</span>{sf.path && <span className="mono text-[10px] text-mute"> — {sf.path}</span>}</div>
+        )) : <span className="text-mute">none — v1 plugins ship no UI surfaces</span>}
+      </Section>
     </div>
   );
 }

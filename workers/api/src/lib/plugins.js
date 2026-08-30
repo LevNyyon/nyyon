@@ -318,6 +318,48 @@ export async function listPlugins(env) {
   return rows.map((r) => ({ ...r, binding: JSON.parse(r.binding_json || '{}'), report: JSON.parse(r.report_json || '{}'), binding_json: undefined, report_json: undefined }));
 }
 
+// The plugin registry: every installed plugin's full component map — the
+// paths its code lives at, the gateways it binds or bundles, its workflows,
+// tools, knowledge docs, tables and surfaces. This IS the Registry, scoped to
+// plugins and owned by the Plugins module.
+export async function pluginRegistry(env) {
+  const rows = (await env.DB.prepare(
+    'SELECT name, version, title, status, manifest_json, binding_json, installed_at, updated_at FROM plugins ORDER BY installed_at DESC',
+  ).all()).results || [];
+  return rows.map((r) => {
+    let m = {}, binding = {};
+    try { m = JSON.parse(r.manifest_json); } catch { /* keep empty */ }
+    try { binding = JSON.parse(r.binding_json || '{}'); } catch { /* keep empty */ }
+    const p = m.provides || {};
+    const dir = `${pluginDir(r.name)}`;
+    return {
+      name: r.name, title: r.title, version: r.version, status: r.status,
+      origin: m.origin || null,
+      installed_at: r.installed_at, updated_at: r.updated_at,
+      path: dir,
+      tools: (p.tools || []).map((t) => ({
+        name: t.name, path: `${dir}/tool-${t.name}.mjs`,
+        description: t.def?.description || '',
+      })),
+      gateways: (p.gateways || []).map((g) => ({
+        slug: g.slug, installed_as: `plugin-${r.name}-${g.slug}`,
+        path: `${dir}/gateway-${g.slug}.mjs`, service: g.service || '',
+      })),
+      gateway_bindings: Object.entries(binding).map(([slug, b]) => ({ slug, via: b.via, target: b.target })),
+      requires_gateways: (m.requires?.gateways || []).map((g) => ({ slug: g.slug, modes: g.modes || [] })),
+      workflows: (p.workflows || []).map((w) => ({
+        slug: w.slug, name: w.name || w.slug,
+        steps: (w.steps || []).map((st) => (typeof st === 'string' ? st : st?.tool)).filter(Boolean),
+      })),
+      knowledge: (p.knowledge || []).map((k) => ({ slug: k.slug, title: k.title || k.slug })),
+      tables: (m.requires?.tables || []).map((t) => t.name),
+      // v1 plugins ship no UI surfaces; the field is present so the registry
+      // shape is complete and future surface support renders here for free.
+      surfaces: (p.surfaces || []).map((sf) => ({ slug: sf.slug, path: sf.path || null })),
+    };
+  });
+}
+
 export async function exportPlugin(env, name) {
   const row = await env.DB.prepare('SELECT * FROM plugins WHERE name = ?').bind(name).first();
   if (!row) throw new Error(`unknown plugin: ${name}`);

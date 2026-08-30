@@ -2124,6 +2124,10 @@ app.delete('/api/plugins/:name', async (c) => {
   try { return c.json(await removePlugin(c.env, c.req.param('name'))); }
   catch (e) { return c.json({ ok: false, error: String(e?.message || e) }, 404); }
 });
+app.get('/api/plugins/registry', async (c) => {
+  const { pluginRegistry } = await import('./lib/plugins.js');
+  return c.json({ plugins: await pluginRegistry(c.env) });
+});
 app.get('/api/plugins/pending', async (c) => {
   const { pendingMaterializations } = await import('./lib/plugins.js');
   return c.json(await pendingMaterializations(c.env));
