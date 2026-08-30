@@ -11,7 +11,7 @@
 // timer) can fire the scheduled work wrangler cannot fire itself off-cloud.
 
 import { spawnSync, spawn } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -30,10 +30,31 @@ if (!existsSync(join(api, '.dev.vars'))) {
 
 // The compiled SPA is a build product, not a checkout file. Build it if it is
 // missing or the source is newer — first boot, and after any self-edit.
-if (!existsSync(join(web, 'dist', 'index.html'))) {
-  console.log('Building the web app (first run)…');
+// Rebuild when dist is missing OR older than any source file. Building only on
+// "missing" meant a source update (a sync, a git pull, an edit) kept serving a
+// stale bundle forever: a page added to the app simply never appeared, with
+// nothing on screen or in the log to say why.
+function newestSourceMtime(dir) {
+  let newest = 0;
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === 'node_modules' || entry.name === 'dist' || entry.name.startsWith('.')) continue;
+    const full = join(dir, entry.name);
+    newest = Math.max(newest, entry.isDirectory() ? newestSourceMtime(full) : statSync(full).mtimeMs);
+  }
+  return newest;
+}
+const distIndex = join(web, 'dist', 'index.html');
+const distAt = existsSync(distIndex) ? statSync(distIndex).mtimeMs : 0;
+if (!distAt || newestSourceMtime(web) > distAt) {
+  console.log(distAt ? 'Web sources changed — rebuilding…' : 'Building the web app (first run)…');
   const r = spawnSync('npm', ['run', 'build'], { cwd: web, stdio: 'inherit' });
-  if (r.status !== 0) process.exit(r.status ?? 1);
+  // A failed build must be LOUD: continuing would silently serve the old
+  // bundle, which is exactly how a stale UI hides a broken deploy.
+  if (r.status !== 0) {
+    console.error('\n✗ The web build failed. The app would serve a stale bundle, so it is not starting.');
+    console.error('  Fix the errors above (a common cause is a source file deleted upstream but left behind by a sync).');
+    process.exit(r.status ?? 1);
+  }
 }
 
 const PORT = process.env.NYYON_API_PORT || '8799';
