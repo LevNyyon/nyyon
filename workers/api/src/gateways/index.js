@@ -30,6 +30,7 @@ import {
   setChatListening, restartWaSession, backfillMessages, backfillWaLidMap,
 } from '../lib/whatsapp.js';
 import { ttsConfigured, synthesize } from '../lib/tts-gateway.js';
+import { probeTelegram, sendTelegramText } from '../lib/telegram.js';
 import { fetchText as webFetchText, head as webHead, postJson as webPostJson } from '../lib/web-gateway.js';
 import { pdlEnrich, twilioLookup, serpSearch } from '../lib/gtm.js';
 import { fetchTheorg, probeTheorg } from '../lib/gtm-context.js';
@@ -129,6 +130,15 @@ export const GATEWAYS = {
     },
   },
 
+  telegram: {
+    slug: 'telegram',
+    service: 'Telegram Bot API (the operator\'s direct Nyo line)',
+    description: 'Sends messages as the Nyo bot. Inbound updates arrive through the bundled poll service, not here.',
+    modes: {
+      probe: (env) => probeTelegram(env),
+      send:  (env, input) => sendTelegramText(env, input || {}),
+    },
+  },
   tts: {
     slug: 'tts',
     service: 'text-to-speech service (TTS_BASE_URL — off until connected)',

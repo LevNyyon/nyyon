@@ -161,6 +161,19 @@ export function gate() {
     // test bench, never the operator surface. Timing-safe compare, same
     // discipline as the login path. Falls through to the cookie check so a
     // logged-in operator can also use /api/dev from the browser.
+    // The bundled Telegram poll service delivers updates here with a bearer
+    // key generated at install (TELEGRAM_INBOUND_KEY). Same discipline as
+    // /api/dev: timing-safe compare, exemption scoped to exactly one path.
+    if (path === '/api/telegram/inbound') {
+      const auth   = c.req.header('Authorization') || '';
+      const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
+      if (c.env.TELEGRAM_INBOUND_KEY && bearer) {
+        const [got, expected] = await Promise.all([sha256(bearer), sha256(c.env.TELEGRAM_INBOUND_KEY)]);
+        if (timingSafeEqual(got, expected)) return next();
+      }
+      return c.json({ ok: false, error: 'unauthorized' }, 401);
+    }
+
     if (path.startsWith('/api/dev')) {
       const auth   = c.req.header('Authorization') || '';
       const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';

@@ -73,6 +73,9 @@ export const CREDENTIALS = {
     { key: 'UNIPILE_API_KEY',    label: 'Unipile API key',    required: true,  secret: true },
     { key: 'UNIPILE_ACCOUNT_ID', label: 'Unipile account id', required: false, secret: false, help: 'optional — first connected LinkedIn account is used otherwise' },
   ],
+  telegram: [
+    { key: 'TELEGRAM_BOT_TOKEN', label: 'Telegram bot token', required: true, secret: true, help: 'from @BotFather — /newbot, then paste the token' },
+  ],
   social: [
     // A Make.com webhook URL is bearer-equivalent: the URL IS the credential.
     { key: 'NYYON_GW_LINKEDIN_COMPANY_URL',  label: 'LinkedIn company webhook',  required: false, secret: true },

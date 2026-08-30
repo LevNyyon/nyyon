@@ -39,6 +39,7 @@ const GATEWAY_META = {
   assets:   { kind: 'binding',    knowledge: [] },
   whatsapp: { kind: 'tunnel',     knowledge: ['prompt-wa-reply'] },
   tts:      { kind: 'tunnel',     knowledge: ['nyo-voice'] },
+  telegram: { kind: 'saas',       knowledge: ['nyo-telegram'] },
   web:      { kind: 'public-api', knowledge: [] },
   pdl:      { kind: 'saas',       knowledge: [] },
   twilio:   { kind: 'saas',       knowledge: [] },
@@ -175,7 +176,7 @@ const TOOL_GROUPS = [
   { group: 'Workflows',           re: /workflow/,                                          knowledge: [] },
   { group: 'Web',                 re: /web_page|website|funnel|deploy/,                    knowledge: [] },
   { group: 'Knowledge',           re: /knowledge|log_note|list_events|notify_operator/,    knowledge: [] },
-  { group: 'System & Outbox',     re: /health|registry|restart|feature_flag|outbox|system/, knowledge: [] },
+  { group: 'System & Outbox',     re: /health|registry|restart|feature_flag|outbox|system|telegram/, knowledge: [] },
 ];
 
 function groupOf(name) {

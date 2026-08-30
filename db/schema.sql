@@ -314,3 +314,13 @@ CREATE INDEX IF NOT EXISTS idx_identity_links_cookie ON identity_links(cookie_id
 CREATE INDEX IF NOT EXISTS idx_identity_links_person ON identity_links(person_id);
 CREATE INDEX IF NOT EXISTS idx_identity_links_value  ON identity_links(identifier_value);
 CREATE INDEX IF NOT EXISTS idx_identity_links_type   ON identity_links(identifier_type);
+
+-- Nyo on Telegram (0071): message store behind the operator's direct line.
+CREATE TABLE IF NOT EXISTS telegram_messages (
+  id        TEXT PRIMARY KEY,
+  chat_id   TEXT NOT NULL,
+  from_me   INTEGER NOT NULL DEFAULT 0,
+  body      TEXT NOT NULL,
+  timestamp INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_telegram_messages_chat ON telegram_messages(chat_id, timestamp DESC);

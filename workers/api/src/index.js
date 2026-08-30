@@ -2100,6 +2100,17 @@ app.post('/api/social/generate/:slug', async (c) => {
 app.get('/api/li/probe', async (c) => c.json(await runTool(c.env, 'probe_linkedin', {})));
 // Connecting an account is Unipile's hosted auth page: this returns the URL
 // the operator opens. Cookie pasting is gone with the daemon it belonged to.
+// ─── Telegram (Nyo's direct line — inbound from the bundled poll service) ─
+// Auth happens in gate.js (TELEGRAM_INBOUND_KEY bearer, timing-safe). The
+// heavy work rides waitUntil so the poller gets its 200 immediately.
+app.post('/api/telegram/inbound', async (c) => {
+  const update = await c.req.json().catch(() => null);
+  if (!update) return c.json({ ok: false, error: 'bad update' }, 400);
+  const { handleTelegramInbound } = await import('./lib/nyo-telegram.js');
+  c.executionCtx.waitUntil(handleTelegramInbound(c.env, update).catch((e) => console.error('[telegram-inbound]', e?.message || e)));
+  return c.json({ ok: true });
+});
+
 app.post('/api/li/connect-link', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   try { return c.json(await callGateway(c.env, 'linkedin', 'connect_link', body)); }
@@ -2619,6 +2630,16 @@ async function handleScheduled(event, env, ctx) {
         trigger_kind: 'cron', error: String(e?.message || e), started_at: t0,
       }).catch(console.error);
     }
+  })());
+
+  // Nyo → Telegram: push queued update messages to the paired chats, so the
+  // operator hears about finished work without opening the app.
+  ctx.waitUntil((async () => {
+    try {
+      const { nyoTelegramPush } = await import('./lib/nyo-telegram.js');
+      const r = await nyoTelegramPush(env);
+      if (r.pushed) console.log('[telegram-push]', cron, JSON.stringify(r));
+    } catch (e) { console.error('[telegram-push] unhandled', e?.message || e); }
   })());
 
   // WhatsApp lid-map backfill — resolve outbound @lid chats to phones so

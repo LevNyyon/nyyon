@@ -120,6 +120,28 @@ export const tools = {
       return { ok: true };
     },
   },
+  get_telegram_pairing: {
+    def: {
+      name: 'get_telegram_pairing',
+      description: 'The pairing code for Nyo\'s Telegram line. The operator texts this code to their Nyo bot (created with @BotFather) once; that chat becomes their direct line — questions answered with real data, queued updates pushed hourly. Also reports which chats are already paired and whether the bot token is configured.',
+      input_schema: { type: 'object', properties: {} },
+    },
+    run: async (env) => {
+      const { pairingCode, nyoTelegramCfg } = await import('../lib/nyo-telegram.js');
+      const { callGateway } = await import('../gateways/index.js');
+      const [code, cfg, probe] = await Promise.all([
+        pairingCode(env), nyoTelegramCfg(env),
+        callGateway(env, 'telegram', 'probe', {}).catch((e) => ({ ok: false, error: String(e?.message || e) })),
+      ]);
+      return {
+        pairing_code: code,
+        paired_chats: (cfg.chat_ids || []).length,
+        bot: probe.ok ? probe.bot : null,
+        bot_error: probe.ok ? null : probe.error,
+        how: 'Text the pairing code to the bot in Telegram. One code pairs any number of your own chats.',
+      };
+    },
+  },
   notify_operator: {
     def: {
       name: 'notify_operator',
