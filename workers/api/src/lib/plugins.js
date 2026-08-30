@@ -122,6 +122,21 @@ export async function validateManifest(env, m) {
     for (const t of tools) if (names.has(t.name)) errors.push(`tool ${t.name}: name collides with the host pool`);
   } catch { /* pool unavailable — collision check skipped, applier will surface it */ }
 
+  // A plugin may only overwrite workflow slugs it created itself, and its
+  // knowledge lives in the plugin's own namespace, like tables and bundled
+  // gateways do. (Back-ported from the cmd port's review hardening.)
+  try {
+    for (const w of (p.workflows || [])) {
+      const row = await env.DB.prepare('SELECT created_by FROM workflows WHERE slug = ?').bind(w?.slug).first();
+      if (row && row.created_by !== `plugin:${m.name}`) errors.push(`workflow ${w?.slug}: slug collides with a host workflow`);
+    }
+  } catch { /* db unavailable — the workflow upsert will surface it */ }
+  for (const k of (p.knowledge || [])) {
+    if (!String(k?.slug || '').startsWith(`plugin-${m.name}`)) {
+      errors.push(`knowledge ${k?.slug}: must live in the plugin namespace (slug starting "plugin-${m.name}")`);
+    }
+  }
+
   // Workflow steps must exist post-install (host pool + this plugin's tools).
   try {
     const { visibleToolDefs } = await import('../tools/index.js');
@@ -282,6 +297,9 @@ export async function markMaterialized(env, name, { ok, error = null } = {}) {
 export async function verifyPlugin(env, name) {
   const row = await env.DB.prepare('SELECT * FROM plugins WHERE name = ?').bind(name).first();
   if (!row) return { ok: false, error: 'unknown plugin' };
+  if (!['materialized', 'active'].includes(row.status)) {
+    return { ok: false, error: `plugin is ${row.status} — only materialized plugins verify` };
+  }
   const m = JSON.parse(row.manifest_json);
   const { visibleToolDefs } = await import('../tools/index.js');
   const names = new Set((await visibleToolDefs(env)).map((d) => d.name));

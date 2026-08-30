@@ -92,7 +92,9 @@ Applied at import time (idempotent by construction).
 
 1. **Validate** — schema shape, sha256, code contracts, DDL namespace,
    workflow steps reference tools that will exist post-install, no name
-   collisions with the host pool. Any failure = the plugin is stored as
+   collisions with the host pool, workflow slugs only overwritable by the
+   plugin that created them, and knowledge slugs inside the plugin's own
+   namespace (`plugin-<name>…`). Any failure = the plugin is stored as
    `blocked` with a precise report; nothing activates.
 2. **Bind gateways** — for each `requires.gateways` entry, in order:
    a. Host has the slug with every required mode → bind to host. No changes.
