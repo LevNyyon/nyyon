@@ -96,6 +96,53 @@ function tryBuildOrRollback(pluginName, webIndexContent) {
   }
 }
 
+// ── bundled-pack seeding ────────────────────────────────────────────────────
+// A fresh install must come up with its standard modules INSTALLED. The repo
+// ships them as packs under plugins/<name>/; on every boot the applier offers
+// each one to the worker (which skips names it already has, any status) and
+// the normal pipeline takes it from bound to active.
+import { readdirSync } from 'node:fs';
+
+function assemblePack(dir) {
+  const readRef = (ref) => {
+    const abs = resolve(dir, ref);
+    if (!abs.startsWith(resolve(dir) + sep)) throw new Error(`ref escapes pack: ${ref}`);
+    return readFileSync(abs, 'utf8');
+  };
+  const m = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
+  const arr = (v) => (Array.isArray(v) ? v : []);
+  for (const lf of arr(m.lib)) if (lf.code_file) { lf.code = readRef(lf.code_file); delete lf.code_file; }
+  for (const t of arr(m.provides?.tools)) if (t.code_file) { t.code = readRef(t.code_file); delete t.code_file; }
+  for (const g of arr(m.provides?.gateways)) if (g.code_file) { g.code = readRef(g.code_file); delete g.code_file; }
+  for (const k of arr(m.provides?.knowledge)) if (k.body_file) { k.body = readRef(k.body_file); delete k.body_file; }
+  for (const sf of arr(m.provides?.surfaces)) {
+    if (sf.page_file) { sf.page_code = readRef(sf.page_file); delete sf.page_file; }
+    for (const f of arr(sf.files)) if (f.code_file) { f.code = readRef(f.code_file); delete f.code_file; }
+  }
+  return m;
+}
+
+let seeded = false;
+async function seedBundledPacks(key) {
+  if (seeded) return;
+  const packsDir = join(REPO, 'plugins');
+  let names = [];
+  try { names = readdirSync(packsDir).filter((n) => NAME_RE.test(n) && existsSync(join(packsDir, n, 'manifest.json'))); }
+  catch { seeded = true; return; }
+  for (const name of names) {
+    try {
+      const manifest = assemblePack(join(packsDir, name));
+      const r = await report('/api/plugins/import-bundled', { manifest }, key);
+      if (r?.skipped) console.log(`[plugin-apply] bundled ${name}: ${r.skipped}`);
+      else if (r?.ok) console.log(`[plugin-apply] bundled ${name}: imported (${r.status})`);
+      else console.error(`[plugin-apply] bundled ${name}: refused —`, (r?.errors || [r?.error]).slice(0, 3).join('; '));
+    } catch (e) {
+      console.error(`[plugin-apply] bundled ${name}:`, e?.message || e);
+    }
+  }
+  seeded = true;
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function call(path, body = null, key) {
@@ -147,6 +194,7 @@ for (;;) {
   const key = applierKey();
   if (!key) { await sleep(60_000); continue; }
   try {
+    await seedBundledPacks(key);
     const work = await call('/api/plugins/pending', null, key);
     const pending = work.pending || [];
     const removals = work.remove || [];

@@ -181,7 +181,7 @@ export function gate() {
 
     // The plugin applier (bundled sidecar, or CI verify hook) speaks to
     // exactly three endpoints with the install's NYYON_APPLIER_KEY.
-    if (['/api/plugins/pending', '/api/plugins/applied', '/api/plugins/verify', '/api/plugins/cleaned'].includes(path)) {
+    if (['/api/plugins/pending', '/api/plugins/applied', '/api/plugins/verify', '/api/plugins/cleaned', '/api/plugins/import-bundled'].includes(path)) {
       const auth   = c.req.header('Authorization') || '';
       const bearer = auth.startsWith('Bearer ') ? auth.slice(7).trim() : '';
       if (c.env.NYYON_APPLIER_KEY && bearer) {

@@ -816,6 +816,19 @@ app.post('/api/plugins/import-url', async (c) => {
     return c.json({ ok: false, error: String(e?.message || e) }, 400);
   }
 });
+// Bundled packs (the repo's plugins/ folders) are seeded by the APPLIER on
+// boot with the install's own key — a fresh install comes up with its standard
+// modules installed, no operator import step. Same pipeline as any import.
+app.post('/api/plugins/import-bundled', async (c) => {
+  const body = await c.req.json().catch(() => ({}));
+  if (!body?.manifest) return c.json({ ok: false, error: 'manifest required' }, 400);
+  const { importPlugin } = await import('./lib/plugins.js');
+  const existing = await c.env.DB.prepare('SELECT status FROM plugins WHERE name = ?')
+    .bind(String(body.manifest?.name || '')).first().catch(() => null);
+  if (existing) return c.json({ ok: true, skipped: `already ${existing.status}` });
+  const r = await importPlugin(c.env, body.manifest, { actor: 'bundled-seed' });
+  return c.json(r);
+});
 app.post('/api/plugins/import-package', async (c) => {
   const buf = await c.req.arrayBuffer().catch(() => null);
   if (!buf || !buf.byteLength) return c.json({ ok: false, error: 'no package uploaded' }, 400);
