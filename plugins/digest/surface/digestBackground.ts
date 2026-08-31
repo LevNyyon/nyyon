@@ -26,6 +26,10 @@ import { api } from './digest-data';
 
 export type DigestGenResult = {
   generated: number;
+  // A fresh install has nothing to digest: the tool returns this instead of
+  // fabricating a brief, and the page turns it into "talk to Nyo to onboard".
+  onboarding_needed?: boolean;
+  note?: string;
   // Stale items the prune-pass archived before this run (>7d, not starred,
   // not urgency=1). Surfaced in the Brief header so the operator sees
   // "archived N stale" alongside the +N adds.
@@ -76,6 +80,8 @@ export function startDigestGeneration(): Promise<DigestGenResult> {
       const r = await api.generateDigest();
       const finished: DigestGenResult = {
         generated: r.generated,
+        onboarding_needed: r.onboarding_needed,
+        note: r.note,
         pruned: r.pruned,
         per_source: r.per_source,
         ms: Date.now() - t0,

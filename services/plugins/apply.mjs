@@ -227,12 +227,32 @@ for (;;) {
     // mishap) is healed from the DB record, which is the source of truth.
     // The aggregator counts too — a source sync overwrites it with the repo's
     // empty copy while the tool files survive.
+    // Healing an installed plugin can put a BROKEN page back on disk (its
+    // pack may simply not compile). Without a gate here the app enters a
+    // restart loop serving nothing — the failure mode this pass exists to
+    // prevent. So: heal, and if any WEB file moved, prove the build before
+    // handing the app back; otherwise roll that plugin's page out again.
+    const healedWeb = new Set();
     for (const p of work.installed || []) {
       for (const f of p.files) {
         const abs = resolve(REPO, f.path);
         let current = null;
         try { current = readFileSync(abs, 'utf8'); } catch { /* missing */ }
-        if (current !== f.content) { safeWrite(f.path, f.content); changed = true; }
+        if (current !== f.content) {
+          safeWrite(f.path, f.content);
+          changed = true;
+          if (f.path.startsWith('web/')) healedWeb.add(p.name);
+        }
+      }
+    }
+    if (healedWeb.size && work.web_index_file) {
+      safeWrite(work.web_index_file.path, work.web_index_file.content);
+      for (const name of healedWeb) {
+        const b = tryBuildOrRollback(name, work.web_index_file.content);
+        if (!b.ok) {
+          console.error(`[plugin-apply] ${name}: healed page does not build — rolled back, reporting the plugin`);
+          await report('/api/plugins/applied', { name, ok: false, error: b.error }, key);
+        }
       }
     }
     for (const idx of [work.index_file, work.web_index_file].filter(Boolean)) {
