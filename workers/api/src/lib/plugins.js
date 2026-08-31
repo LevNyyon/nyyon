@@ -171,7 +171,7 @@ function checkDdl(ddl, pluginName) {
   return { errors, stmts, creates };
 }
 
-export async function validateManifest(env, m) {
+export async function validateManifest(env, m, { prematerialized = false } = {}) {
   const errors = [];
   if (!m || !FORMAT_VERSIONS.includes(m.nyyon_plugin)) errors.push(`nyyon_plugin must be one of ${FORMAT_VERSIONS.join(', ')}`);
   if (!NAME_RE.test(m?.name || '')) errors.push('name: kebab-case slug required');
@@ -351,6 +351,10 @@ export async function validateManifest(env, m) {
   try {
     const { visibleToolDefs } = await import('../tools/index.js');
     const names = new Set((await visibleToolDefs(env)).map((d) => d.name));
+    // A PREMATERIALIZED pack's tools are already in the live pool because its
+    // code was baked into this deployed bundle at build time — colliding with
+    // itself is the expected state, not a conflict.
+    if (prematerialized) for (const t of tools) names.delete(t?.name);
     const prevRow = env?.DB
       ? await env.DB.prepare('SELECT manifest_json FROM plugins WHERE name = ?').bind(m.name).first().catch(() => null)
       : null;
@@ -427,7 +431,7 @@ export async function bindGateways(env, m) {
 
 // ─── the import pipeline ─────────────────────────────────────────
 
-export async function importPlugin(env, manifest, { actor = 'operator' } = {}) {
+export async function importPlugin(env, manifest, { actor = 'operator', prematerialized = false } = {}) {
   const name = manifest?.name;
   // Refuse an unusable name BEFORE any write: the name becomes a directory path
   // for the applier, so "../.." must never reach a stored row.
@@ -460,7 +464,7 @@ export async function importPlugin(env, manifest, { actor = 'operator' } = {}) {
     return { ok: false, status: 'blocked', errors: errs };
   };
 
-  const v = await validateManifest(env, manifest);
+  const v = await validateManifest(env, manifest, { prematerialized });
   if (!v.ok) return reject('validate', v.errors);
 
   const b = await bindGateways(env, manifest);
@@ -532,13 +536,20 @@ export async function importPlugin(env, manifest, { actor = 'operator' } = {}) {
     return { ok: false, status: 'blocked', errors: warnings };
   }
 
+  // `prematerialized` is the CLOUD path: a Worker cannot write its own source,
+  // so bundled packs are baked into the deployed bundle at build time
+  // (scripts/materialize-bundled.mjs). Their code is already live — there is no
+  // applier to wait for, so the row goes straight to active. Validation and
+  // gateway binding above ran exactly as for any other import; only the
+  // materialization step is skipped, because it already happened.
   const hasCode = arr(manifest.provides?.tools).length || arr(manifest.provides?.gateways).length;
-  await save(hasCode ? 'bound' : 'active', {
+  const status = (!hasCode || prematerialized) ? 'active' : 'bound';
+  await save(status, {
     binding: b.binding,
-    report: { step: hasCode ? 'awaiting-applier' : 'done', ...(warnings.length ? { warnings } : {}) },
+    report: { step: prematerialized ? 'bundled' : (hasCode ? 'awaiting-applier' : 'done'), ...(warnings.length ? { warnings } : {}) },
   });
-  await logEvent(env, { kind: 'plugin_imported', actor, payload: { name, version: manifest.version, binding: b.binding, needs_materialization: !!hasCode, warnings } });
-  return { ok: true, status: hasCode ? 'bound' : 'active', binding: b.binding, warnings };
+  await logEvent(env, { kind: 'plugin_imported', actor, payload: { name, version: manifest.version, binding: b.binding, needs_materialization: hasCode && !prematerialized, warnings } });
+  return { ok: true, status, binding: b.binding, warnings };
 }
 
 // ─── materialization (consumed by the applier) ───────────────────

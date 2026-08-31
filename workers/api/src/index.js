@@ -832,7 +832,7 @@ app.post('/api/plugins/import-bundled', async (c) => {
       && String(existing.version) === String(body.manifest?.version || '')) {
     return c.json({ ok: true, skipped: `already ${existing.status} at ${existing.version}` });
   }
-  const r = await importPlugin(c.env, body.manifest, { actor: 'bundled-seed' });
+  const r = await importPlugin(c.env, body.manifest, { actor: 'bundled-seed', prematerialized: !!body.prematerialized });
   return c.json(r);
 });
 app.post('/api/plugins/import-package', async (c) => {

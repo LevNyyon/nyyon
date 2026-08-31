@@ -209,4 +209,10 @@ DELETE FROM workflows WHERE slug='signal-to-blog' AND source='system';
 -- the host.
 UPDATE knowledge_docs SET parent_slug = 'knowledge-root' WHERE slug IN ('article-playbook', 'kpi-outreach');
 DELETE FROM knowledge_docs WHERE slug = 'outreach-queue-cadence';
+-- knowledge_docs.parent_slug is a SELF-referencing foreign key, so a node
+-- cannot be deleted while ANY doc still points at it. Re-home every child
+-- first (the two named docs above are the ones we keep on purpose; this
+-- catches everything else on any install), then drop the emptied nodes.
+UPDATE knowledge_docs SET parent_slug = 'knowledge-root'
+WHERE parent_slug IN ('module-aeo','module-blog','module-calendar','module-channels','module-digest','module-gtm','module-hot-takes','module-osint','module-outbox','module-outreach','module-workflows');
 DELETE FROM knowledge_docs WHERE slug IN ('module-aeo','module-blog','module-calendar','module-channels','module-digest','module-gtm','module-hot-takes','module-osint','module-outbox','module-outreach','module-workflows');
