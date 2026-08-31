@@ -825,7 +825,9 @@ app.post('/api/plugins/import-bundled', async (c) => {
   const { importPlugin } = await import('./lib/plugins.js');
   const existing = await c.env.DB.prepare('SELECT status FROM plugins WHERE name = ?')
     .bind(String(body.manifest?.name || '')).first().catch(() => null);
-  if (existing) return c.json({ ok: true, skipped: `already ${existing.status}` });
+  // A blocked row may retry — the block may have been environmental (stale
+  // checkout state since healed). Any other status is settled.
+  if (existing && existing.status !== 'blocked') return c.json({ ok: true, skipped: `already ${existing.status}` });
   const r = await importPlugin(c.env, body.manifest, { actor: 'bundled-seed' });
   return c.json(r);
 });
