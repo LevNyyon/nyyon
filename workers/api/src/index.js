@@ -823,11 +823,15 @@ app.post('/api/plugins/import-bundled', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   if (!body?.manifest) return c.json({ ok: false, error: 'manifest required' }, 400);
   const { importPlugin } = await import('./lib/plugins.js');
-  const existing = await c.env.DB.prepare('SELECT status FROM plugins WHERE name = ?')
+  const existing = await c.env.DB.prepare('SELECT status, version FROM plugins WHERE name = ?')
     .bind(String(body.manifest?.name || '')).first().catch(() => null);
-  // A blocked row may retry — the block may have been environmental (stale
-  // checkout state since healed). Any other status is settled.
-  if (existing && existing.status !== 'blocked') return c.json({ ok: true, skipped: `already ${existing.status}` });
+  // A blocked row may retry (environmental blocks heal), and a DIFFERENT
+  // shipped version re-imports — that is how bundled packs update when the
+  // install's checkout moves. Same version + settled status = nothing to do.
+  if (existing && existing.status !== 'blocked'
+      && String(existing.version) === String(body.manifest?.version || '')) {
+    return c.json({ ok: true, skipped: `already ${existing.status} at ${existing.version}` });
+  }
   const r = await importPlugin(c.env, body.manifest, { actor: 'bundled-seed' });
   return c.json(r);
 });

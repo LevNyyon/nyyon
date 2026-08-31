@@ -2,7 +2,7 @@
   "nyyon_plugin": 2,
   "name": "digest",
   "title": "Digest",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "The morning brief: scans followed WhatsApp chats, OSINT mentions and synthesized insights, content signals, the calendar mirror, LinkedIn signals and system-attention checks into one urgency-sorted feed of actionable cards. Each card drafts its own WhatsApp reply (group-vs-private routed, quote-replies in thread), schedules through slot picks, saves interesting people to Contacts, and learns continuously: dismissals tune the interest filter, score feedback grows taste rules, draft edits teach the operator's voice, and lead heat stays stamped on every signal.",
   "origin": {
     "system": "cmd.nyyon.com",
