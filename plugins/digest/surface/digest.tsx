@@ -457,6 +457,15 @@ function BriefPane() {
                 <span className="h-1.5 w-1.5 rounded-full bg-ink animate-pulse" />
                 Scanning enabled channels{genStartedAt ? <span className="text-mute mono"> · {Math.max(0, Math.floor((Date.now() - genStartedAt) / 1000))}s</span> : null}
               </span>
+            ) : lastGen?.onboarding_needed ? (
+              <span className="text-ink">
+                Nothing to digest yet — this install isn't onboarded. {' '}
+                <button
+                  className="underline underline-offset-2 hover:opacity-80"
+                  onClick={() => window.dispatchEvent(new CustomEvent('nyyon:nav-to', { detail: { target: 'nyo' } }))}
+                >Talk to Nyo to onboard</button>
+                {' '}— connect WhatsApp, pick your sources, and the brief fills on its own.
+              </span>
             ) : lastGen ? (
               <>
                 <span className={lastGen.error ? 'text-rose-700' : lastGen.generated > 0 ? 'text-emerald-700' : 'text-mute'}>

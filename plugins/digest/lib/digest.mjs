@@ -1772,11 +1772,35 @@ export async function pruneStaleDigestItems(api, { staleAfterMs = null } = {}) {
   return { pruned, deleted, cutoff };
 }
 
+// A digest has nothing to say before the install is onboarded: no WhatsApp
+// gateway, no signals, no articles, no prior items. Running the pulls anyway
+// produced day-zero noise ("0 articles scheduled" alarms about work that was
+// never configured). Generation therefore starts with a fresh-install check
+// and, instead of items, points the operator at Nyo to onboard.
+async function isFreshUnonboarded(api) {
+  const anyItem = await api.db.prepare('SELECT id FROM plugin_digest_items LIMIT 1').first().catch(() => null);
+  if (anyItem) return false;
+  const receipt = await api.gateway('setup', 'read', { module: 'digest' }).catch(() => null);
+  if (receipt) return false;
+  const anySignal = await api.db.prepare('SELECT id FROM plugin_editorial_osint_signals LIMIT 1').first().catch(() => null);
+  const anyWa = await api.db.prepare('SELECT id FROM wa_messages LIMIT 1').first().catch(() => null);
+  return !anySignal && !anyWa;
+}
+
 export async function generateDigest(api, { since_ms = 24 * 60 * 60 * 1000 } = {}) {
   const nowMs   = now();
   const sinceTs = nowMs - since_ms;
   const inserted = [];
   const perSource = {};
+
+  if (await isFreshUnonboarded(api)) {
+    return {
+      ok: true,
+      onboarding_needed: true,
+      note: 'Nothing to digest yet — this install has no sources connected. Ask Nyo to onboard: connect WhatsApp, pick heartbeat sources, and the digest starts filling on its own.',
+      inserted: 0, per_source: {}, archived: 0,
+    };
+  }
   // Step 0: archive anything that's gone stale since the last run. The
   // count flows back to the API caller so the UI can show "X archived"
   // alongside the per-source +N adds.

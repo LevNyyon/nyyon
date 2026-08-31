@@ -1,991 +1,998 @@
 {
- "nyyon_plugin": 2,
- "name": "digest",
- "title": "Digest",
- "version": "1.0.0",
- "description": "The morning brief: scans followed WhatsApp chats, OSINT mentions and synthesized insights, content signals, the calendar mirror, LinkedIn signals and system-attention checks into one urgency-sorted feed of actionable cards. Each card drafts its own WhatsApp reply (group-vs-private routed, quote-replies in thread), schedules through slot picks, saves interesting people to Contacts, and learns continuously: dismissals tune the interest filter, score feedback grows taste rules, draft edits teach the operator's voice, and lead heat stays stamped on every signal.",
- "origin": {
-  "system": "cmd.nyyon.com",
-  "exported_at": 1788182094620
- },
- "lib": [
-  {
-   "path": "digest.mjs",
-   "code_file": "lib/digest.mjs"
+  "nyyon_plugin": 2,
+  "name": "digest",
+  "title": "Digest",
+  "version": "1.0.0",
+  "description": "The morning brief: scans followed WhatsApp chats, OSINT mentions and synthesized insights, content signals, the calendar mirror, LinkedIn signals and system-attention checks into one urgency-sorted feed of actionable cards. Each card drafts its own WhatsApp reply (group-vs-private routed, quote-replies in thread), schedules through slot picks, saves interesting people to Contacts, and learns continuously: dismissals tune the interest filter, score feedback grows taste rules, draft edits teach the operator's voice, and lead heat stays stamped on every signal.",
+  "origin": {
+    "system": "cmd.nyyon.com",
+    "exported_at": 1788182094620
   },
-  {
-   "path": "digest-relevance.mjs",
-   "code_file": "lib/digest-relevance.mjs"
+  "lib": [
+    {
+      "path": "digest.mjs",
+      "code_file": "lib/digest.mjs"
+    },
+    {
+      "path": "digest-relevance.mjs",
+      "code_file": "lib/digest-relevance.mjs"
+    },
+    {
+      "path": "signal-priority.mjs",
+      "code_file": "lib/signal-priority.mjs"
+    },
+    {
+      "path": "lead-heat.mjs",
+      "code_file": "lib/lead-heat.mjs"
+    },
+    {
+      "path": "draft-voice.mjs",
+      "code_file": "lib/draft-voice.mjs"
+    },
+    {
+      "path": "wa-queue.mjs",
+      "code_file": "lib/wa-queue.mjs"
+    }
+  ],
+  "requires": {
+    "gateways": [
+      {
+        "slug": "crm",
+        "modes": [
+          "write_contact"
+        ],
+        "purpose": "the mark-person-as-interesting save: contact upserts from digest cards"
+      },
+      {
+        "slug": "llm",
+        "modes": [
+          "json",
+          "text"
+        ],
+        "purpose": "chat analysis, OSINT relevance, reply drafting + routing, signal scoring, taste/voice distillers, the dismissal learner"
+      },
+      {
+        "slug": "setup",
+        "modes": [
+          "read"
+        ],
+        "purpose": "first-run receipt \u2014 a fresh un-onboarded install gets the Nyo onboarding pointer instead of day-zero noise"
+      },
+      {
+        "slug": "whatsapp",
+        "modes": [
+          "group_info",
+          "health",
+          "reply",
+          "send",
+          "set_listening"
+        ],
+        "purpose": "digest delivery (send + in-thread quote replies), group roster name-matching, follow/unfollow chats, hold detection for the slot picker"
+      }
+    ],
+    "host_reads": [
+      {
+        "table": "wa_messages",
+        "purpose": "the WhatsApp channel scans inbound messages; thread context for the drawer"
+      },
+      {
+        "table": "wa_chats",
+        "purpose": "followed-chat roster (auto_listen) + chat names for cards and recipients"
+      },
+      {
+        "table": "contacts",
+        "purpose": "participant name resolution, recipient search, wishlist dedupe (writes go through the crm gateway)"
+      },
+      {
+        "table": "calendar_events",
+        "purpose": "the calendar channel's 7-day look-ahead cards"
+      },
+      {
+        "table": "events",
+        "purpose": "activity-bus reads: last-generated stamp, dismissal-learning marker"
+      },
+      {
+        "table": "li_signals",
+        "purpose": "the LinkedIn signals channel feed + lead-heat activity counts (optional host table \u2014 absent on stock installs, reads are tolerant)"
+      },
+      {
+        "table": "li_touches",
+        "purpose": "lead heat counts our sent LinkedIn touches (optional host table, tolerant)"
+      },
+      {
+        "table": "plugin_editorial_osint_targets",
+        "purpose": "OSINT channel: the watched-targets roster (editorial pack owns writes)"
+      },
+      {
+        "table": "plugin_editorial_osint_mentions",
+        "purpose": "OSINT channel: candidate mentions per target; the drawer's mention context"
+      },
+      {
+        "table": "plugin_editorial_osint_signals",
+        "purpose": "content-signals channel: the heartbeat's scored signals (SELECT-only; no status flips)"
+      },
+      {
+        "table": "plugin_editorial_osint_topics",
+        "purpose": "OSINT-insights channel: synthesized hot topics (SELECT-only; no status flips)"
+      },
+      {
+        "table": "plugin_editorial_hot_take_packages",
+        "purpose": "system-attention check: scheduled-article count over the coming window"
+      },
+      {
+        "table": "plugin_gtm_li_prospects",
+        "purpose": "LI signal cards join their prospect; lead heat reads relationship state; attention pool check"
+      },
+      {
+        "table": "plugin_gtm_leads",
+        "purpose": "phone matching for LI signal cards + lead heat name\u2192phone resolution"
+      },
+      {
+        "table": "plugin_gtm_scheduled_sends",
+        "purpose": "signal-priority engagement floor: a pending gtm schedule counts as already-engaged"
+      }
+    ],
+    "knowledge": [
+      {
+        "slug": "llm-models",
+        "purpose": "writer_small model id for the light dismissal-learning pass"
+      },
+      {
+        "slug": "plugin-editorial-heartbeat-priorities",
+        "purpose": "digest_min_content gate for the content-signals channel (editorial pack maintains it)"
+      },
+      {
+        "slug": "plugin-gtm-outreach-first-touch",
+        "purpose": "the canonical first-touch pitch the card composer offers (gtm pack maintains it)"
+      }
+    ],
+    "tables": [
+      {
+        "name": "plugin_digest_items",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_digest_items (id TEXT PRIMARY KEY, kind TEXT NOT NULL, ref_kind TEXT, ref_id TEXT, title TEXT NOT NULL, summary TEXT, source_label TEXT, source_url TEXT, urgency INTEGER NOT NULL DEFAULT 2, actionable INTEGER NOT NULL DEFAULT 0, suggested_action TEXT, starred INTEGER NOT NULL DEFAULT 0, read_at INTEGER, created_at INTEGER NOT NULL, meta_json TEXT); CREATE INDEX IF NOT EXISTS idx_plugin_digest_items_created_at ON plugin_digest_items (created_at); CREATE INDEX IF NOT EXISTS idx_plugin_digest_items_read_at ON plugin_digest_items (read_at)"
+      },
+      {
+        "name": "plugin_digest_channels",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_digest_channels (source TEXT PRIMARY KEY, label TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, cadence TEXT NOT NULL DEFAULT 'manual', notes TEXT, last_run_at INTEGER, last_status TEXT, last_error TEXT, total_runs INTEGER NOT NULL DEFAULT 0, total_added INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
+      },
+      {
+        "name": "plugin_digest_signal_snoozes",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_digest_signal_snoozes (key TEXT PRIMARY KEY, until INTEGER NOT NULL, label TEXT, reason TEXT, created_at INTEGER NOT NULL, engaged_count INTEGER NOT NULL DEFAULT 0, last_engaged_at INTEGER); CREATE INDEX IF NOT EXISTS idx_plugin_digest_signal_snoozes_until ON plugin_digest_signal_snoozes (until)"
+      },
+      {
+        "name": "plugin_digest_wa_queue",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_digest_wa_queue (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', not_before INTEGER, source TEXT, source_ref TEXT, created_at INTEGER NOT NULL, sent_at INTEGER, message_id TEXT, error TEXT); CREATE INDEX IF NOT EXISTS idx_plugin_digest_wa_queue_due ON plugin_digest_wa_queue (status, not_before)"
+      }
+    ]
   },
-  {
-   "path": "signal-priority.mjs",
-   "code_file": "lib/signal-priority.mjs"
-  },
-  {
-   "path": "lead-heat.mjs",
-   "code_file": "lib/lead-heat.mjs"
-  },
-  {
-   "path": "draft-voice.mjs",
-   "code_file": "lib/draft-voice.mjs"
-  },
-  {
-   "path": "wa-queue.mjs",
-   "code_file": "lib/wa-queue.mjs"
+  "provides": {
+    "tools": [
+      {
+        "name": "add_digest_item",
+        "code_file": "tools/add_digest_item.mjs",
+        "def": {
+          "name": "add_digest_item",
+          "description": "Manually drop something into the digest. Use when the operator says \"remind me about X tomorrow\" or \"add this opportunity to the brief\". Kind=opportunity for net-new chances; kind=note for free-form items.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "opportunity",
+                  "note",
+                  "osint_mention",
+                  "wa_message",
+                  "wa_group",
+                  "email"
+                ]
+              },
+              "title": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "source_label": {
+                "type": "string"
+              },
+              "source_url": {
+                "type": "string"
+              },
+              "urgency": {
+                "type": "number",
+                "description": "1 high \u00b7 2 medium \u00b7 3 low"
+              },
+              "actionable": {
+                "type": "boolean"
+              },
+              "suggested_action": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "kind",
+              "title"
+            ]
+          }
+        }
+      },
+      {
+        "name": "clear_read_digest",
+        "code_file": "tools/clear_read_digest.mjs",
+        "def": {
+          "name": "clear_read_digest",
+          "description": "Delete every already-read digest item (the archive sweep). Unread and starred items stay. Use when the operator asks to clean the brief's history.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "digest_actions",
+        "code_file": "tools/digest_actions.mjs",
+        "def": {
+          "name": "digest_actions",
+          "description": "Draft the actions an operator can take on one digest item: an LLM-drafted WhatsApp reply with a recipient picker (group vs private, routed with a default and a reason), a mark-person-as-interesting contact save, discuss, dismiss. Slow (LLM drafting) \u2014 call on demand, not in bulk.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "digest_context",
+        "code_file": "tools/digest_context.mjs",
+        "def": {
+          "name": "digest_context",
+          "description": "Source-enriched context for one digest item: the item, and for WhatsApp items the original message, the chat, the surrounding thread and contact-matched participants; for OSINT items the mention row. Use before discussing or replying to an item.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "digest_stats",
+        "code_file": "tools/digest_stats.mjs",
+        "def": {
+          "name": "digest_stats",
+          "description": "Counts: total / unread / high-urgency / actionable / starred, plus when the digest last generated. Use for quick \"how does my morning look?\" reads.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "digest_wa_manual",
+        "code_file": "tools/digest_wa_manual.mjs",
+        "def": {
+          "name": "digest_wa_manual",
+          "description": "Record that the operator sent a digest card's WhatsApp message BY HAND (opened wa.me and sent it themselves, e.g. while sending is on hold). Stamps the card, archives the person's other unread signals (one moment per person), and logs the act.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "digest_id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string",
+                "description": "the text that was sent (defaults to the saved draft)"
+              }
+            },
+            "required": [
+              "digest_id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "digest_wa_send",
+        "code_file": "tools/digest_wa_send.mjs",
+        "def": {
+          "name": "digest_wa_send",
+          "description": "Send (or schedule) the WhatsApp draft of a Digest LI-signal card to the person it targets. text defaults to the card's saved draft; send_at is a ms epoch (omit for ASAP). The card is stamped queued/scheduled and the person's other unread signals are archived (one outreach moment per person). Use the wa_send_slots tool's morning/evening times when the operator says \"morning\" or \"evening\".",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "digest_id": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string",
+                "description": "override the saved draft"
+              },
+              "send_at": {
+                "type": "number",
+                "description": "ms epoch to schedule; omit for ASAP"
+              }
+            },
+            "required": [
+              "digest_id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "digest_wa_unschedule",
+        "code_file": "tools/digest_wa_unschedule.mjs",
+        "def": {
+          "name": "digest_wa_unschedule",
+          "description": "Cancel the scheduled WhatsApp send queued on a digest card (before it fires) and clear the card's queued state so it can be sent again.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "digest_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "digest_id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "execute_digest_action",
+        "code_file": "tools/execute_digest_action.mjs",
+        "def": {
+          "name": "execute_digest_action",
+          "description": "Execute one drafted digest action on an item. type=reply_wa sends the text to the chosen recipient (send_at schedules it through the digest queue instead); type=add_to_wishlist upserts the person into Contacts (crm gateway) with the digest context as notes; type=dismiss marks the item read; type=discuss logs the handoff. draft_blog/draft_social/draft_take belong to the editorial pack and return a pointer.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "the digest item id"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "reply_wa",
+                  "add_to_wishlist",
+                  "dismiss",
+                  "discuss",
+                  "draft_blog",
+                  "draft_social",
+                  "draft_take"
+                ]
+              },
+              "text": {
+                "type": "string",
+                "description": "reply_wa: the final message text"
+              },
+              "send_at": {
+                "type": "number",
+                "description": "reply_wa: ms epoch to schedule instead of sending now"
+              },
+              "recipient": {
+                "type": "object",
+                "description": "reply_wa: the chosen recipient {kind, mode, id, name, quotedMessageId?}"
+              },
+              "metadata": {
+                "type": "object",
+                "description": "add_to_wishlist: the drafted person metadata"
+              },
+              "note": {
+                "type": "string",
+                "description": "add_to_wishlist: extra operator note"
+              }
+            },
+            "required": [
+              "id",
+              "type"
+            ]
+          }
+        }
+      },
+      {
+        "name": "generate_digest",
+        "code_file": "tools/generate_digest.mjs",
+        "def": {
+          "name": "generate_digest",
+          "description": "Scan recent activity and materialize new digest items. Prunes what has gone stale, then pulls every enabled channel (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT mentions, content signals, calendar), deduping against existing items. Run when the operator says \"give me today's brief\", \"what's new?\", or first thing each morning.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "since_ms": {
+                "type": "number",
+                "description": "lookback window in ms; default 86_400_000 (24h)"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "lead_heat",
+        "code_file": "tools/lead_heat.mjs",
+        "def": {
+          "name": "lead_heat",
+          "description": "How warm a lead is, 0-100, with the facts behind it (replies, accepted connection, WhatsApp conversation, their recent activity, our engagement; decays when quiet). Weights live in the plugin-digest-lead-heat knowledge doc. Identify the person by prospect_id, phone, or name.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "prospect_id": {
+                "type": "string"
+              },
+              "phone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "learn_dismissals",
+        "code_file": "tools/learn_dismissals.mjs",
+        "def": {
+          "name": "learn_dismissals",
+          "description": "Learn from what the operator dismissed in the digest and tune the interest filter: reads the recent dismissed-not-starred items, asks the model what to avoid, and appends the learned avoid-list to the plugin-digest-interests note. No-op unless enough new dismissals accumulated since the last pass \u2014 pass force:true to learn now regardless. Use when the operator says \"stop showing me this stuff\" or \"the digest is noisy\".",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "force": {
+                "type": "boolean",
+                "description": "learn even below the new-dismissals threshold"
+              },
+              "lookback_days": {
+                "type": "number",
+                "description": "how far back to harvest dismissals (default 21)"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_digest",
+        "code_file": "tools/list_digest.mjs",
+        "def": {
+          "name": "list_digest",
+          "description": "Read today's digest items \u2014 the actionable morning brief. Sources: WA groups + DMs, OSINT mentions, content signals, calendar, LinkedIn signals, system attention. Default returns UNREAD items, urgency-sorted (high first). Set unread_only=false to see everything.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "unread_only": {
+                "type": "boolean",
+                "description": "default true"
+              },
+              "starred_only": {
+                "type": "boolean"
+              },
+              "limit": {
+                "type": "number",
+                "description": "default 200"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_digest_channels",
+        "code_file": "tools/list_digest_channels.mjs",
+        "def": {
+          "name": "list_digest_channels",
+          "description": "List the data sources feeding the digest (attention, li_signals, osint_insights, whatsapp, osint, heartbeat, calendar, email) with their enabled state, cadence, last-run, and lifetime totals. Use to answer \"where does my brief pull from?\" or before flipping a channel on/off.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_watched_chats",
+        "code_file": "tools/list_watched_chats.mjs",
+        "def": {
+          "name": "list_watched_chats",
+          "description": "List WhatsApp chats with their follow state (auto_listen) and last activity \u2014 the digest only pulls from followed chats. Use to answer \"which chats feed my brief?\" before following/unfollowing one.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "limit": {
+                "type": "number",
+                "description": "default 500"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_watched_targets",
+        "code_file": "tools/list_watched_targets.mjs",
+        "def": {
+          "name": "list_watched_targets",
+          "description": "List the OSINT targets the editorial pack watches (name, domain, mention count, last hit) \u2014 the feed behind the digest's OSINT channel. Read-only: manage targets from the editorial pack (or ask Nyo to use its osint tools).",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "mark_digest_read",
+        "code_file": "tools/mark_digest_read.mjs",
+        "def": {
+          "name": "mark_digest_read",
+          "description": "Mark a digest item as read (dismisses it from the unread list). Use after Nyo has acted on or answered an item for the operator.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "read": {
+                "type": "boolean",
+                "description": "default true; pass false to mark unread again"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "prioritize_signals",
+        "code_file": "tools/prioritize_signals.mjs",
+        "def": {
+          "name": "prioritize_signals",
+          "description": "Score every unread, unscored digest LI signal (bounded batch) so the brief reads super-relevant first and general activity last. Safe to run repeatedly; scored items are skipped. Rubric and thresholds live in the plugin-digest-signal-priority knowledge doc.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "limit": {
+                "type": "number",
+                "description": "max signals this run (default from the doc)"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "run_digest",
+        "code_file": "tools/run_digest.mjs",
+        "def": {
+          "name": "run_digest",
+          "description": "Run the digest tick the cron runs at :30: prune what has gone stale, pull every enabled channel, dedupe against what is already there, then deliver any due scheduled WhatsApp sends from the digest queue. Safe to run by hand to refresh the morning digest now.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "since_ms": {
+                "type": "number",
+                "description": "lookback window in ms (default 24h)"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "save_digest_draft",
+        "code_file": "tools/save_digest_draft.mjs",
+        "def": {
+          "name": "save_digest_draft",
+          "description": "Save the operator's edited WhatsApp draft on a digest card (auto-save). The first edit snapshots the AI's original so a later send can diff the two and learn the operator's voice.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "draft": {
+                "type": "string",
+                "description": "the current draft text (max 2000 chars kept)"
+              }
+            },
+            "required": [
+              "id",
+              "draft"
+            ]
+          }
+        }
+      },
+      {
+        "name": "score_signal",
+        "code_file": "tools/score_signal.mjs",
+        "def": {
+          "name": "score_signal",
+          "description": "Score ONE digest LI signal for outreach relevance (0-100 + a one-line reason) against the plugin-digest-signal-priority rubric. Mechanical floors apply first: someone with a message already queued, or messaged recently, sinks regardless of content. The score remaps the card into the brief's high/mid/low groups.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "digest_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "digest_id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "search_digest_contacts",
+        "code_file": "tools/search_digest_contacts.mjs",
+        "def": {
+          "name": "search_digest_contacts",
+          "description": "Search the CRM contacts by name, email, or phone for the digest composer's recipient picker. Returns id, full_name, phone, email, linkedin_url (max `limit`, default 15).",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "search": {
+                "type": "string"
+              },
+              "limit": {
+                "type": "number",
+                "description": "default 15"
+              }
+            },
+            "required": [
+              "search"
+            ]
+          }
+        }
+      },
+      {
+        "name": "signal_acted",
+        "code_file": "tools/signal_acted.mjs",
+        "def": {
+          "name": "signal_acted",
+          "description": "Record that the operator ENGAGED with a signal (liked/commented on LinkedIn himself, or handled it another way): counts toward that person's lead heat and clears this one card. Their other and future signals keep flowing \u2014 engaging is a reason to keep watching them.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "digest_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "digest_id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "signal_feedback",
+        "code_file": "tools/signal_feedback.mjs",
+        "def": {
+          "name": "signal_feedback",
+          "description": "Teach the signal scorer the operator's taste: pass his comment on a signal's priority verdict. The comment distills into durable taste rules in the plugin-digest-signal-priority knowledge doc (bounded) and the signal is immediately rescored under the updated rubric.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "digest_id": {
+                "type": "string"
+              },
+              "comment": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "digest_id",
+              "comment"
+            ]
+          }
+        }
+      },
+      {
+        "name": "signal_snooze",
+        "code_file": "tools/signal_snooze.mjs",
+        "def": {
+          "name": "signal_snooze",
+          "description": "Snooze a person for a while (snooze_days in the plugin-digest-signal-priority doc, default 7): archives their open signals and keeps new ones out of the brief until it expires. Distinct from engaging (signal_acted), which keeps them flowing.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "digest_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "digest_id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "signal_unsnooze",
+        "code_file": "tools/signal_unsnooze.mjs",
+        "def": {
+          "name": "signal_unsnooze",
+          "description": "Wake a muted person's signals again (undo a snooze). Identify them by prospect_id, phone, or name.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "prospect_id": {
+                "type": "string"
+              },
+              "phone": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      },
+      {
+        "name": "star_digest_item",
+        "code_file": "tools/star_digest_item.mjs",
+        "def": {
+          "name": "star_digest_item",
+          "description": "Pin a digest item by starring it. Stays visible across day rolls. Use when the operator wants to come back to something.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "starred": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "toggle_digest_channel",
+        "code_file": "tools/toggle_digest_channel.mjs",
+        "def": {
+          "name": "toggle_digest_channel",
+          "description": "Enable, disable, or re-cadence one of the digest data channels. Use when the operator says \"stop reading calendar into the brief\", \"turn on LinkedIn signals\", or \"switch whatsapp to daily\".",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "attention",
+                  "li_signals",
+                  "osint_insights",
+                  "whatsapp",
+                  "calendar",
+                  "osint",
+                  "heartbeat",
+                  "email"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "cadence": {
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "daily",
+                  "hourly"
+                ]
+              },
+              "notes": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source"
+            ]
+          }
+        }
+      },
+      {
+        "name": "wa_pitches",
+        "code_file": "tools/wa_pitches.mjs",
+        "def": {
+          "name": "wa_pitches",
+          "description": "List the canned WhatsApp openers the digest composer offers: the canonical first-touch pitch (from the gtm pack's outreach-first-touch doc when installed) plus the extras in the plugin-digest-wa-pitches doc. Placeholders: {first_name}/{name}, {company}, {role}.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "wa_send_slots",
+        "code_file": "tools/wa_send_slots.mjs",
+        "def": {
+          "name": "wa_send_slots",
+          "description": "Read the WhatsApp send-slot config (morning/evening wall-clock times, days ahead, timezone, per-recipient tz prefixes, hold flag) from the plugin-digest-wa-send-slots knowledge doc, for proposing schedule times.",
+          "input_schema": {
+            "type": "object",
+            "properties": {}
+          }
+        }
+      },
+      {
+        "name": "watch_wa_chat",
+        "code_file": "tools/watch_wa_chat.mjs",
+        "def": {
+          "name": "watch_wa_chat",
+          "description": "Follow or unfollow one WhatsApp chat for the digest (auto_listen). Followed chats are what the WhatsApp channel scans. Pass the chat id (preferred) or a name_match.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "chat_id": {
+                "type": "string",
+                "description": "the stable chat id (\u2026@g.us / \u2026@c.us)"
+              },
+              "name_match": {
+                "type": "string",
+                "description": "fallback: match the chat by name"
+              },
+              "listening": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "listening"
+            ]
+          }
+        }
+      }
+    ],
+    "workflows": [
+      {
+        "slug": "digest-generate",
+        "name": "Digest \u00b7 generate + prioritize",
+        "goal": "The digest tick as one named chain: prune stale items, pull every enabled channel (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT, content signals, calendar), deliver due scheduled WhatsApp sends, then score fresh LI signals so the brief reads most-relevant first. Same pass the :30 cron runs; also runnable manually or by Nyo via run_workflow.",
+        "steps": [
+          {
+            "tool": "run_digest"
+          },
+          {
+            "tool": "prioritize_signals",
+            "optional": true
+          }
+        ]
+      },
+      {
+        "slug": "prioritize-signals",
+        "name": "Digest \u00b7 prioritize signals",
+        "goal": "Score every pending LI signal for outreach relevance (0-100 + reason, plugin-digest-signal-priority rubric): super-relevant signals rise to high urgency, general activity sinks; contacted chips and heat bars refresh alongside. Fires after digest generation; also runnable manually or by Nyo via run_workflow.",
+        "steps": [
+          {
+            "tool": "prioritize_signals"
+          }
+        ]
+      },
+      {
+        "slug": "digest-learn",
+        "name": "Digest \u00b7 learn from dismissals",
+        "goal": "The consideration layer's learn pass: harvest recently dismissed-not-starred items, distill avoid-patterns through the llm gateway, and append them to the plugin-digest-interests note the generator reads. No-op below the new-dismissals threshold, so it is safe on every cron tick.",
+        "steps": [
+          {
+            "tool": "learn_dismissals"
+          }
+        ]
+      }
+    ],
+    "knowledge": [
+      {
+        "slug": "plugin-digest-attention",
+        "title": "Digest \u00b7 system attention thresholds",
+        "body_file": "knowledge/plugin-digest-attention.md"
+      },
+      {
+        "slug": "plugin-digest-interests",
+        "title": "What counts as 'of interest' for the digest",
+        "body_file": "knowledge/plugin-digest-interests.md"
+      },
+      {
+        "slug": "plugin-digest-lead-heat",
+        "title": "Lead heat",
+        "body_file": "knowledge/plugin-digest-lead-heat.md"
+      },
+      {
+        "slug": "plugin-digest-li-signals",
+        "title": "Digest \u00b7 LinkedIn signals channel",
+        "body_file": "knowledge/plugin-digest-li-signals.md"
+      },
+      {
+        "slug": "plugin-digest-policy",
+        "title": "Digest policy \u2014 scan windows + caps",
+        "body_file": "knowledge/plugin-digest-policy.md"
+      },
+      {
+        "slug": "plugin-digest-prompt-wa-delivery",
+        "title": "Digest \u00b7 WhatsApp group-vs-private routing prompt",
+        "body_file": "knowledge/plugin-digest-prompt-wa-delivery.md"
+      },
+      {
+        "slug": "plugin-digest-prompt-wa-reply",
+        "title": "Digest \u00b7 WhatsApp reply voice prompt",
+        "body_file": "knowledge/plugin-digest-prompt-wa-reply.md"
+      },
+      {
+        "slug": "plugin-digest-signal-priority",
+        "title": "Signal priority",
+        "body_file": "knowledge/plugin-digest-signal-priority.md"
+      },
+      {
+        "slug": "plugin-digest-wa-draft-voice",
+        "title": "WhatsApp draft voice",
+        "body_file": "knowledge/plugin-digest-wa-draft-voice.md"
+      },
+      {
+        "slug": "plugin-digest-wa-pitches",
+        "title": "WhatsApp pitches",
+        "body_file": "knowledge/plugin-digest-wa-pitches.md"
+      },
+      {
+        "slug": "plugin-digest-wa-send-slots",
+        "title": "WhatsApp send slots",
+        "body_file": "knowledge/plugin-digest-wa-send-slots.md"
+      }
+    ],
+    "surfaces": [
+      {
+        "slug": "digest",
+        "title": "Digest",
+        "icon": "Activity",
+        "page_file": "surface/digest.tsx",
+        "files": [
+          {
+            "path": "DigestItemDrawer.tsx",
+            "code_file": "surface/DigestItemDrawer.tsx"
+          },
+          {
+            "path": "HeatBar.tsx",
+            "code_file": "surface/HeatBar.tsx"
+          },
+          {
+            "path": "LiPostMockup.tsx",
+            "code_file": "surface/LiPostMockup.tsx"
+          },
+          {
+            "path": "LinkedInText.tsx",
+            "code_file": "surface/LinkedInText.tsx"
+          },
+          {
+            "path": "WaSlotPicker.tsx",
+            "code_file": "surface/WaSlotPicker.tsx"
+          },
+          {
+            "path": "digest-data.ts",
+            "code_file": "surface/digest-data.ts"
+          },
+          {
+            "path": "digestBackground.ts",
+            "code_file": "surface/digestBackground.ts"
+          },
+          {
+            "path": "wa-time.ts",
+            "code_file": "surface/wa-time.ts"
+          }
+        ]
+      }
+    ]
   }
- ],
- "requires": {
-  "gateways": [
-   {
-    "slug": "crm",
-    "modes": [
-     "write_contact"
-    ],
-    "purpose": "the mark-person-as-interesting save: contact upserts from digest cards"
-   },
-   {
-    "slug": "llm",
-    "modes": [
-     "json",
-     "text"
-    ],
-    "purpose": "chat analysis, OSINT relevance, reply drafting + routing, signal scoring, taste/voice distillers, the dismissal learner"
-   },
-   {
-    "slug": "whatsapp",
-    "modes": [
-     "group_info",
-     "health",
-     "reply",
-     "send",
-     "set_listening"
-    ],
-    "purpose": "digest delivery (send + in-thread quote replies), group roster name-matching, follow/unfollow chats, hold detection for the slot picker"
-   }
-  ],
-  "host_reads": [
-   {
-    "table": "wa_messages",
-    "purpose": "the WhatsApp channel scans inbound messages; thread context for the drawer"
-   },
-   {
-    "table": "wa_chats",
-    "purpose": "followed-chat roster (auto_listen) + chat names for cards and recipients"
-   },
-   {
-    "table": "contacts",
-    "purpose": "participant name resolution, recipient search, wishlist dedupe (writes go through the crm gateway)"
-   },
-   {
-    "table": "calendar_events",
-    "purpose": "the calendar channel's 7-day look-ahead cards"
-   },
-   {
-    "table": "events",
-    "purpose": "activity-bus reads: last-generated stamp, dismissal-learning marker"
-   },
-   {
-    "table": "li_signals",
-    "purpose": "the LinkedIn signals channel feed + lead-heat activity counts (optional host table — absent on stock installs, reads are tolerant)"
-   },
-   {
-    "table": "li_touches",
-    "purpose": "lead heat counts our sent LinkedIn touches (optional host table, tolerant)"
-   },
-   {
-    "table": "plugin_editorial_osint_targets",
-    "purpose": "OSINT channel: the watched-targets roster (editorial pack owns writes)"
-   },
-   {
-    "table": "plugin_editorial_osint_mentions",
-    "purpose": "OSINT channel: candidate mentions per target; the drawer's mention context"
-   },
-   {
-    "table": "plugin_editorial_osint_signals",
-    "purpose": "content-signals channel: the heartbeat's scored signals (SELECT-only; no status flips)"
-   },
-   {
-    "table": "plugin_editorial_osint_topics",
-    "purpose": "OSINT-insights channel: synthesized hot topics (SELECT-only; no status flips)"
-   },
-   {
-    "table": "plugin_editorial_hot_take_packages",
-    "purpose": "system-attention check: scheduled-article count over the coming window"
-   },
-   {
-    "table": "plugin_gtm_li_prospects",
-    "purpose": "LI signal cards join their prospect; lead heat reads relationship state; attention pool check"
-   },
-   {
-    "table": "plugin_gtm_leads",
-    "purpose": "phone matching for LI signal cards + lead heat name→phone resolution"
-   },
-   {
-    "table": "plugin_gtm_scheduled_sends",
-    "purpose": "signal-priority engagement floor: a pending gtm schedule counts as already-engaged"
-   }
-  ],
-  "knowledge": [
-   {
-    "slug": "llm-models",
-    "purpose": "writer_small model id for the light dismissal-learning pass"
-   },
-   {
-    "slug": "plugin-editorial-heartbeat-priorities",
-    "purpose": "digest_min_content gate for the content-signals channel (editorial pack maintains it)"
-   },
-   {
-    "slug": "plugin-gtm-outreach-first-touch",
-    "purpose": "the canonical first-touch pitch the card composer offers (gtm pack maintains it)"
-   }
-  ],
-  "tables": [
-   {
-    "name": "plugin_digest_items",
-    "ddl": "CREATE TABLE IF NOT EXISTS plugin_digest_items (id TEXT PRIMARY KEY, kind TEXT NOT NULL, ref_kind TEXT, ref_id TEXT, title TEXT NOT NULL, summary TEXT, source_label TEXT, source_url TEXT, urgency INTEGER NOT NULL DEFAULT 2, actionable INTEGER NOT NULL DEFAULT 0, suggested_action TEXT, starred INTEGER NOT NULL DEFAULT 0, read_at INTEGER, created_at INTEGER NOT NULL, meta_json TEXT); CREATE INDEX IF NOT EXISTS idx_plugin_digest_items_created_at ON plugin_digest_items (created_at); CREATE INDEX IF NOT EXISTS idx_plugin_digest_items_read_at ON plugin_digest_items (read_at)"
-   },
-   {
-    "name": "plugin_digest_channels",
-    "ddl": "CREATE TABLE IF NOT EXISTS plugin_digest_channels (source TEXT PRIMARY KEY, label TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, cadence TEXT NOT NULL DEFAULT 'manual', notes TEXT, last_run_at INTEGER, last_status TEXT, last_error TEXT, total_runs INTEGER NOT NULL DEFAULT 0, total_added INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
-   },
-   {
-    "name": "plugin_digest_signal_snoozes",
-    "ddl": "CREATE TABLE IF NOT EXISTS plugin_digest_signal_snoozes (key TEXT PRIMARY KEY, until INTEGER NOT NULL, label TEXT, reason TEXT, created_at INTEGER NOT NULL, engaged_count INTEGER NOT NULL DEFAULT 0, last_engaged_at INTEGER); CREATE INDEX IF NOT EXISTS idx_plugin_digest_signal_snoozes_until ON plugin_digest_signal_snoozes (until)"
-   },
-   {
-    "name": "plugin_digest_wa_queue",
-    "ddl": "CREATE TABLE IF NOT EXISTS plugin_digest_wa_queue (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', not_before INTEGER, source TEXT, source_ref TEXT, created_at INTEGER NOT NULL, sent_at INTEGER, message_id TEXT, error TEXT); CREATE INDEX IF NOT EXISTS idx_plugin_digest_wa_queue_due ON plugin_digest_wa_queue (status, not_before)"
-   }
-  ]
- },
- "provides": {
-  "tools": [
-   {
-    "name": "add_digest_item",
-    "code_file": "tools/add_digest_item.mjs",
-    "def": {
-     "name": "add_digest_item",
-     "description": "Manually drop something into the digest. Use when the operator says \"remind me about X tomorrow\" or \"add this opportunity to the brief\". Kind=opportunity for net-new chances; kind=note for free-form items.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "kind": {
-        "type": "string",
-        "enum": [
-         "opportunity",
-         "note",
-         "osint_mention",
-         "wa_message",
-         "wa_group",
-         "email"
-        ]
-       },
-       "title": {
-        "type": "string"
-       },
-       "summary": {
-        "type": "string"
-       },
-       "source_label": {
-        "type": "string"
-       },
-       "source_url": {
-        "type": "string"
-       },
-       "urgency": {
-        "type": "number",
-        "description": "1 high · 2 medium · 3 low"
-       },
-       "actionable": {
-        "type": "boolean"
-       },
-       "suggested_action": {
-        "type": "string"
-       }
-      },
-      "required": [
-       "kind",
-       "title"
-      ]
-     }
-    }
-   },
-   {
-    "name": "clear_read_digest",
-    "code_file": "tools/clear_read_digest.mjs",
-    "def": {
-     "name": "clear_read_digest",
-     "description": "Delete every already-read digest item (the archive sweep). Unread and starred items stay. Use when the operator asks to clean the brief's history.",
-     "input_schema": {
-      "type": "object",
-      "properties": {},
-      "required": []
-     }
-    }
-   },
-   {
-    "name": "digest_actions",
-    "code_file": "tools/digest_actions.mjs",
-    "def": {
-     "name": "digest_actions",
-     "description": "Draft the actions an operator can take on one digest item: an LLM-drafted WhatsApp reply with a recipient picker (group vs private, routed with a default and a reason), a mark-person-as-interesting contact save, discuss, dismiss. Slow (LLM drafting) — call on demand, not in bulk.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "id": {
-        "type": "string"
-       }
-      },
-      "required": [
-       "id"
-      ]
-     }
-    }
-   },
-   {
-    "name": "digest_context",
-    "code_file": "tools/digest_context.mjs",
-    "def": {
-     "name": "digest_context",
-     "description": "Source-enriched context for one digest item: the item, and for WhatsApp items the original message, the chat, the surrounding thread and contact-matched participants; for OSINT items the mention row. Use before discussing or replying to an item.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "id": {
-        "type": "string"
-       }
-      },
-      "required": [
-       "id"
-      ]
-     }
-    }
-   },
-   {
-    "name": "digest_stats",
-    "code_file": "tools/digest_stats.mjs",
-    "def": {
-     "name": "digest_stats",
-     "description": "Counts: total / unread / high-urgency / actionable / starred, plus when the digest last generated. Use for quick \"how does my morning look?\" reads.",
-     "input_schema": {
-      "type": "object",
-      "properties": {},
-      "required": []
-     }
-    }
-   },
-   {
-    "name": "digest_wa_manual",
-    "code_file": "tools/digest_wa_manual.mjs",
-    "def": {
-     "name": "digest_wa_manual",
-     "description": "Record that the operator sent a digest card's WhatsApp message BY HAND (opened wa.me and sent it themselves, e.g. while sending is on hold). Stamps the card, archives the person's other unread signals (one moment per person), and logs the act.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "digest_id": {
-        "type": "string"
-       },
-       "text": {
-        "type": "string",
-        "description": "the text that was sent (defaults to the saved draft)"
-       }
-      },
-      "required": [
-       "digest_id"
-      ]
-     }
-    }
-   },
-   {
-    "name": "digest_wa_send",
-    "code_file": "tools/digest_wa_send.mjs",
-    "def": {
-     "name": "digest_wa_send",
-     "description": "Send (or schedule) the WhatsApp draft of a Digest LI-signal card to the person it targets. text defaults to the card's saved draft; send_at is a ms epoch (omit for ASAP). The card is stamped queued/scheduled and the person's other unread signals are archived (one outreach moment per person). Use the wa_send_slots tool's morning/evening times when the operator says \"morning\" or \"evening\".",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "digest_id": {
-        "type": "string"
-       },
-       "text": {
-        "type": "string",
-        "description": "override the saved draft"
-       },
-       "send_at": {
-        "type": "number",
-        "description": "ms epoch to schedule; omit for ASAP"
-       }
-      },
-      "required": [
-       "digest_id"
-      ]
-     }
-    }
-   },
-   {
-    "name": "digest_wa_unschedule",
-    "code_file": "tools/digest_wa_unschedule.mjs",
-    "def": {
-     "name": "digest_wa_unschedule",
-     "description": "Cancel the scheduled WhatsApp send queued on a digest card (before it fires) and clear the card's queued state so it can be sent again.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "digest_id": {
-        "type": "string"
-       }
-      },
-      "required": [
-       "digest_id"
-      ]
-     }
-    }
-   },
-   {
-    "name": "execute_digest_action",
-    "code_file": "tools/execute_digest_action.mjs",
-    "def": {
-     "name": "execute_digest_action",
-     "description": "Execute one drafted digest action on an item. type=reply_wa sends the text to the chosen recipient (send_at schedules it through the digest queue instead); type=add_to_wishlist upserts the person into Contacts (crm gateway) with the digest context as notes; type=dismiss marks the item read; type=discuss logs the handoff. draft_blog/draft_social/draft_take belong to the editorial pack and return a pointer.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "id": {
-        "type": "string",
-        "description": "the digest item id"
-       },
-       "type": {
-        "type": "string",
-        "enum": [
-         "reply_wa",
-         "add_to_wishlist",
-         "dismiss",
-         "discuss",
-         "draft_blog",
-         "draft_social",
-         "draft_take"
-        ]
-       },
-       "text": {
-        "type": "string",
-        "description": "reply_wa: the final message text"
-       },
-       "send_at": {
-        "type": "number",
-        "description": "reply_wa: ms epoch to schedule instead of sending now"
-       },
-       "recipient": {
-        "type": "object",
-        "description": "reply_wa: the chosen recipient {kind, mode, id, name, quotedMessageId?}"
-       },
-       "metadata": {
-        "type": "object",
-        "description": "add_to_wishlist: the drafted person metadata"
-       },
-       "note": {
-        "type": "string",
-        "description": "add_to_wishlist: extra operator note"
-       }
-      },
-      "required": [
-       "id",
-       "type"
-      ]
-     }
-    }
-   },
-   {
-    "name": "generate_digest",
-    "code_file": "tools/generate_digest.mjs",
-    "def": {
-     "name": "generate_digest",
-     "description": "Scan recent activity and materialize new digest items. Prunes what has gone stale, then pulls every enabled channel (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT mentions, content signals, calendar), deduping against existing items. Run when the operator says \"give me today's brief\", \"what's new?\", or first thing each morning.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "since_ms": {
-        "type": "number",
-        "description": "lookback window in ms; default 86_400_000 (24h)"
-       }
-      },
-      "required": []
-     }
-    }
-   },
-   {
-    "name": "lead_heat",
-    "code_file": "tools/lead_heat.mjs",
-    "def": {
-     "name": "lead_heat",
-     "description": "How warm a lead is, 0-100, with the facts behind it (replies, accepted connection, WhatsApp conversation, their recent activity, our engagement; decays when quiet). Weights live in the plugin-digest-lead-heat knowledge doc. Identify the person by prospect_id, phone, or name.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "prospect_id": {
-        "type": "string"
-       },
-       "phone": {
-        "type": "string"
-       },
-       "name": {
-        "type": "string"
-       }
-      }
-     }
-    }
-   },
-   {
-    "name": "learn_dismissals",
-    "code_file": "tools/learn_dismissals.mjs",
-    "def": {
-     "name": "learn_dismissals",
-     "description": "Learn from what the operator dismissed in the digest and tune the interest filter: reads the recent dismissed-not-starred items, asks the model what to avoid, and appends the learned avoid-list to the plugin-digest-interests note. No-op unless enough new dismissals accumulated since the last pass — pass force:true to learn now regardless. Use when the operator says \"stop showing me this stuff\" or \"the digest is noisy\".",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "force": {
-        "type": "boolean",
-        "description": "learn even below the new-dismissals threshold"
-       },
-       "lookback_days": {
-        "type": "number",
-        "description": "how far back to harvest dismissals (default 21)"
-       }
-      },
-      "required": []
-     }
-    }
-   },
-   {
-    "name": "list_digest",
-    "code_file": "tools/list_digest.mjs",
-    "def": {
-     "name": "list_digest",
-     "description": "Read today's digest items — the actionable morning brief. Sources: WA groups + DMs, OSINT mentions, content signals, calendar, LinkedIn signals, system attention. Default returns UNREAD items, urgency-sorted (high first). Set unread_only=false to see everything.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "unread_only": {
-        "type": "boolean",
-        "description": "default true"
-       },
-       "starred_only": {
-        "type": "boolean"
-       },
-       "limit": {
-        "type": "number",
-        "description": "default 200"
-       }
-      },
-      "required": []
-     }
-    }
-   },
-   {
-    "name": "list_digest_channels",
-    "code_file": "tools/list_digest_channels.mjs",
-    "def": {
-     "name": "list_digest_channels",
-     "description": "List the data sources feeding the digest (attention, li_signals, osint_insights, whatsapp, osint, heartbeat, calendar, email) with their enabled state, cadence, last-run, and lifetime totals. Use to answer \"where does my brief pull from?\" or before flipping a channel on/off.",
-     "input_schema": {
-      "type": "object",
-      "properties": {},
-      "required": []
-     }
-    }
-   },
-   {
-    "name": "list_watched_chats",
-    "code_file": "tools/list_watched_chats.mjs",
-    "def": {
-     "name": "list_watched_chats",
-     "description": "List WhatsApp chats with their follow state (auto_listen) and last activity — the digest only pulls from followed chats. Use to answer \"which chats feed my brief?\" before following/unfollowing one.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "limit": {
-        "type": "number",
-        "description": "default 500"
-       }
-      },
-      "required": []
-     }
-    }
-   },
-   {
-    "name": "list_watched_targets",
-    "code_file": "tools/list_watched_targets.mjs",
-    "def": {
-     "name": "list_watched_targets",
-     "description": "List the OSINT targets the editorial pack watches (name, domain, mention count, last hit) — the feed behind the digest's OSINT channel. Read-only: manage targets from the editorial pack (or ask Nyo to use its osint tools).",
-     "input_schema": {
-      "type": "object",
-      "properties": {},
-      "required": []
-     }
-    }
-   },
-   {
-    "name": "mark_digest_read",
-    "code_file": "tools/mark_digest_read.mjs",
-    "def": {
-     "name": "mark_digest_read",
-     "description": "Mark a digest item as read (dismisses it from the unread list). Use after Nyo has acted on or answered an item for the operator.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "id": {
-        "type": "string"
-       },
-       "read": {
-        "type": "boolean",
-        "description": "default true; pass false to mark unread again"
-       }
-      },
-      "required": [
-       "id"
-      ]
-     }
-    }
-   },
-   {
-    "name": "prioritize_signals",
-    "code_file": "tools/prioritize_signals.mjs",
-    "def": {
-     "name": "prioritize_signals",
-     "description": "Score every unread, unscored digest LI signal (bounded batch) so the brief reads super-relevant first and general activity last. Safe to run repeatedly; scored items are skipped. Rubric and thresholds live in the plugin-digest-signal-priority knowledge doc.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "limit": {
-        "type": "number",
-        "description": "max signals this run (default from the doc)"
-       }
-      }
-     }
-    }
-   },
-   {
-    "name": "run_digest",
-    "code_file": "tools/run_digest.mjs",
-    "def": {
-     "name": "run_digest",
-     "description": "Run the digest tick the cron runs at :30: prune what has gone stale, pull every enabled channel, dedupe against what is already there, then deliver any due scheduled WhatsApp sends from the digest queue. Safe to run by hand to refresh the morning digest now.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "since_ms": {
-        "type": "number",
-        "description": "lookback window in ms (default 24h)"
-       }
-      },
-      "required": []
-     }
-    }
-   },
-   {
-    "name": "save_digest_draft",
-    "code_file": "tools/save_digest_draft.mjs",
-    "def": {
-     "name": "save_digest_draft",
-     "description": "Save the operator's edited WhatsApp draft on a digest card (auto-save). The first edit snapshots the AI's original so a later send can diff the two and learn the operator's voice.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "id": {
-        "type": "string"
-       },
-       "draft": {
-        "type": "string",
-        "description": "the current draft text (max 2000 chars kept)"
-       }
-      },
-      "required": [
-       "id",
-       "draft"
-      ]
-     }
-    }
-   },
-   {
-    "name": "score_signal",
-    "code_file": "tools/score_signal.mjs",
-    "def": {
-     "name": "score_signal",
-     "description": "Score ONE digest LI signal for outreach relevance (0-100 + a one-line reason) against the plugin-digest-signal-priority rubric. Mechanical floors apply first: someone with a message already queued, or messaged recently, sinks regardless of content. The score remaps the card into the brief's high/mid/low groups.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "digest_id": {
-        "type": "string"
-       }
-      },
-      "required": [
-       "digest_id"
-      ]
-     }
-    }
-   },
-   {
-    "name": "search_digest_contacts",
-    "code_file": "tools/search_digest_contacts.mjs",
-    "def": {
-     "name": "search_digest_contacts",
-     "description": "Search the CRM contacts by name, email, or phone for the digest composer's recipient picker. Returns id, full_name, phone, email, linkedin_url (max `limit`, default 15).",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "search": {
-        "type": "string"
-       },
-       "limit": {
-        "type": "number",
-        "description": "default 15"
-       }
-      },
-      "required": [
-       "search"
-      ]
-     }
-    }
-   },
-   {
-    "name": "signal_acted",
-    "code_file": "tools/signal_acted.mjs",
-    "def": {
-     "name": "signal_acted",
-     "description": "Record that the operator ENGAGED with a signal (liked/commented on LinkedIn himself, or handled it another way): counts toward that person's lead heat and clears this one card. Their other and future signals keep flowing — engaging is a reason to keep watching them.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "digest_id": {
-        "type": "string"
-       }
-      },
-      "required": [
-       "digest_id"
-      ]
-     }
-    }
-   },
-   {
-    "name": "signal_feedback",
-    "code_file": "tools/signal_feedback.mjs",
-    "def": {
-     "name": "signal_feedback",
-     "description": "Teach the signal scorer the operator's taste: pass his comment on a signal's priority verdict. The comment distills into durable taste rules in the plugin-digest-signal-priority knowledge doc (bounded) and the signal is immediately rescored under the updated rubric.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "digest_id": {
-        "type": "string"
-       },
-       "comment": {
-        "type": "string"
-       }
-      },
-      "required": [
-       "digest_id",
-       "comment"
-      ]
-     }
-    }
-   },
-   {
-    "name": "signal_snooze",
-    "code_file": "tools/signal_snooze.mjs",
-    "def": {
-     "name": "signal_snooze",
-     "description": "Snooze a person for a while (snooze_days in the plugin-digest-signal-priority doc, default 7): archives their open signals and keeps new ones out of the brief until it expires. Distinct from engaging (signal_acted), which keeps them flowing.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "digest_id": {
-        "type": "string"
-       }
-      },
-      "required": [
-       "digest_id"
-      ]
-     }
-    }
-   },
-   {
-    "name": "signal_unsnooze",
-    "code_file": "tools/signal_unsnooze.mjs",
-    "def": {
-     "name": "signal_unsnooze",
-     "description": "Wake a muted person's signals again (undo a snooze). Identify them by prospect_id, phone, or name.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "prospect_id": {
-        "type": "string"
-       },
-       "phone": {
-        "type": "string"
-       },
-       "name": {
-        "type": "string"
-       }
-      }
-     }
-    }
-   },
-   {
-    "name": "star_digest_item",
-    "code_file": "tools/star_digest_item.mjs",
-    "def": {
-     "name": "star_digest_item",
-     "description": "Pin a digest item by starring it. Stays visible across day rolls. Use when the operator wants to come back to something.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "id": {
-        "type": "string"
-       },
-       "starred": {
-        "type": "boolean"
-       }
-      },
-      "required": [
-       "id"
-      ]
-     }
-    }
-   },
-   {
-    "name": "toggle_digest_channel",
-    "code_file": "tools/toggle_digest_channel.mjs",
-    "def": {
-     "name": "toggle_digest_channel",
-     "description": "Enable, disable, or re-cadence one of the digest data channels. Use when the operator says \"stop reading calendar into the brief\", \"turn on LinkedIn signals\", or \"switch whatsapp to daily\".",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "source": {
-        "type": "string",
-        "enum": [
-         "attention",
-         "li_signals",
-         "osint_insights",
-         "whatsapp",
-         "calendar",
-         "osint",
-         "heartbeat",
-         "email"
-        ]
-       },
-       "enabled": {
-        "type": "boolean"
-       },
-       "cadence": {
-        "type": "string",
-        "enum": [
-         "manual",
-         "daily",
-         "hourly"
-        ]
-       },
-       "notes": {
-        "type": "string"
-       }
-      },
-      "required": [
-       "source"
-      ]
-     }
-    }
-   },
-   {
-    "name": "wa_pitches",
-    "code_file": "tools/wa_pitches.mjs",
-    "def": {
-     "name": "wa_pitches",
-     "description": "List the canned WhatsApp openers the digest composer offers: the canonical first-touch pitch (from the gtm pack's outreach-first-touch doc when installed) plus the extras in the plugin-digest-wa-pitches doc. Placeholders: {first_name}/{name}, {company}, {role}.",
-     "input_schema": {
-      "type": "object",
-      "properties": {},
-      "required": []
-     }
-    }
-   },
-   {
-    "name": "wa_send_slots",
-    "code_file": "tools/wa_send_slots.mjs",
-    "def": {
-     "name": "wa_send_slots",
-     "description": "Read the WhatsApp send-slot config (morning/evening wall-clock times, days ahead, timezone, per-recipient tz prefixes, hold flag) from the plugin-digest-wa-send-slots knowledge doc, for proposing schedule times.",
-     "input_schema": {
-      "type": "object",
-      "properties": {}
-     }
-    }
-   },
-   {
-    "name": "watch_wa_chat",
-    "code_file": "tools/watch_wa_chat.mjs",
-    "def": {
-     "name": "watch_wa_chat",
-     "description": "Follow or unfollow one WhatsApp chat for the digest (auto_listen). Followed chats are what the WhatsApp channel scans. Pass the chat id (preferred) or a name_match.",
-     "input_schema": {
-      "type": "object",
-      "properties": {
-       "chat_id": {
-        "type": "string",
-        "description": "the stable chat id (…@g.us / …@c.us)"
-       },
-       "name_match": {
-        "type": "string",
-        "description": "fallback: match the chat by name"
-       },
-       "listening": {
-        "type": "boolean"
-       }
-      },
-      "required": [
-       "listening"
-      ]
-     }
-    }
-   }
-  ],
-  "workflows": [
-   {
-    "slug": "digest-generate",
-    "name": "Digest · generate + prioritize",
-    "goal": "The digest tick as one named chain: prune stale items, pull every enabled channel (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT, content signals, calendar), deliver due scheduled WhatsApp sends, then score fresh LI signals so the brief reads most-relevant first. Same pass the :30 cron runs; also runnable manually or by Nyo via run_workflow.",
-    "steps": [
-     {
-      "tool": "run_digest"
-     },
-     {
-      "tool": "prioritize_signals",
-      "optional": true
-     }
-    ]
-   },
-   {
-    "slug": "prioritize-signals",
-    "name": "Digest · prioritize signals",
-    "goal": "Score every pending LI signal for outreach relevance (0-100 + reason, plugin-digest-signal-priority rubric): super-relevant signals rise to high urgency, general activity sinks; contacted chips and heat bars refresh alongside. Fires after digest generation; also runnable manually or by Nyo via run_workflow.",
-    "steps": [
-     {
-      "tool": "prioritize_signals"
-     }
-    ]
-   },
-   {
-    "slug": "digest-learn",
-    "name": "Digest · learn from dismissals",
-    "goal": "The consideration layer's learn pass: harvest recently dismissed-not-starred items, distill avoid-patterns through the llm gateway, and append them to the plugin-digest-interests note the generator reads. No-op below the new-dismissals threshold, so it is safe on every cron tick.",
-    "steps": [
-     {
-      "tool": "learn_dismissals"
-     }
-    ]
-   }
-  ],
-  "knowledge": [
-   {
-    "slug": "plugin-digest-attention",
-    "title": "Digest · system attention thresholds",
-    "body_file": "knowledge/plugin-digest-attention.md"
-   },
-   {
-    "slug": "plugin-digest-interests",
-    "title": "What counts as 'of interest' for the digest",
-    "body_file": "knowledge/plugin-digest-interests.md"
-   },
-   {
-    "slug": "plugin-digest-lead-heat",
-    "title": "Lead heat",
-    "body_file": "knowledge/plugin-digest-lead-heat.md"
-   },
-   {
-    "slug": "plugin-digest-li-signals",
-    "title": "Digest · LinkedIn signals channel",
-    "body_file": "knowledge/plugin-digest-li-signals.md"
-   },
-   {
-    "slug": "plugin-digest-policy",
-    "title": "Digest policy — scan windows + caps",
-    "body_file": "knowledge/plugin-digest-policy.md"
-   },
-   {
-    "slug": "plugin-digest-prompt-wa-delivery",
-    "title": "Digest · WhatsApp group-vs-private routing prompt",
-    "body_file": "knowledge/plugin-digest-prompt-wa-delivery.md"
-   },
-   {
-    "slug": "plugin-digest-prompt-wa-reply",
-    "title": "Digest · WhatsApp reply voice prompt",
-    "body_file": "knowledge/plugin-digest-prompt-wa-reply.md"
-   },
-   {
-    "slug": "plugin-digest-signal-priority",
-    "title": "Signal priority",
-    "body_file": "knowledge/plugin-digest-signal-priority.md"
-   },
-   {
-    "slug": "plugin-digest-wa-draft-voice",
-    "title": "WhatsApp draft voice",
-    "body_file": "knowledge/plugin-digest-wa-draft-voice.md"
-   },
-   {
-    "slug": "plugin-digest-wa-pitches",
-    "title": "WhatsApp pitches",
-    "body_file": "knowledge/plugin-digest-wa-pitches.md"
-   },
-   {
-    "slug": "plugin-digest-wa-send-slots",
-    "title": "WhatsApp send slots",
-    "body_file": "knowledge/plugin-digest-wa-send-slots.md"
-   }
-  ],
-  "surfaces": [
-   {
-    "slug": "digest",
-    "title": "Digest",
-    "icon": "Activity",
-    "page_file": "surface/digest.tsx",
-    "files": [
-     {
-      "path": "DigestItemDrawer.tsx",
-      "code_file": "surface/DigestItemDrawer.tsx"
-     },
-     {
-      "path": "HeatBar.tsx",
-      "code_file": "surface/HeatBar.tsx"
-     },
-     {
-      "path": "LiPostMockup.tsx",
-      "code_file": "surface/LiPostMockup.tsx"
-     },
-     {
-      "path": "LinkedInText.tsx",
-      "code_file": "surface/LinkedInText.tsx"
-     },
-     {
-      "path": "WaSlotPicker.tsx",
-      "code_file": "surface/WaSlotPicker.tsx"
-     },
-     {
-      "path": "digest-data.ts",
-      "code_file": "surface/digest-data.ts"
-     },
-     {
-      "path": "digestBackground.ts",
-      "code_file": "surface/digestBackground.ts"
-     },
-     {
-      "path": "wa-time.ts",
-      "code_file": "surface/wa-time.ts"
-     }
-    ]
-   }
-  ]
- }
 }

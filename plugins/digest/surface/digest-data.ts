@@ -161,6 +161,8 @@ export type WaSlots = {
 
 export type GenerateResult = {
   generated: number;
+  onboarding_needed?: boolean;
+  note?: string;
   pruned?: number;
   since_ms?: number;
   per_source?: Record<string, { count: number; error: string | null; skipped?: string }>;
