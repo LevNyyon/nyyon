@@ -194,8 +194,31 @@ for (;;) {
   const key = applierKey();
   if (!key) { await sleep(60_000); continue; }
   try {
-    await seedBundledPacks(key);
     const work = await call('/api/plugins/pending', null, key);
+    // Orphan materialized dirs (present on disk, unknown to the DB) poison the
+    // tool pool the import validator checks — a fresh checkout that shipped
+    // stale state would make the bundled seed collide with "itself". Clean
+    // them first; only seed on a pass that needed no cleanup, so the seed
+    // validates against an honest pool.
+    let cleanedOrphans = false;
+    {
+      const known = new Set([...(work.installed || []).map((p) => p.name), ...(work.pending || []).map((p) => p.name), ...(work.remove || [])]);
+      for (const root of [PLUGIN_ROOT, WEB_PLUGIN_ROOT]) {
+        let entries = [];
+        try { entries = readdirSync(root, { withFileTypes: true }); } catch { continue; }
+        for (const e of entries) {
+          if (!e.isDirectory() || known.has(e.name) || !NAME_RE.test(e.name)) continue;
+          try { safeRemoveDir(e.name); cleanedOrphans = true; console.log(`[plugin-apply] orphan dir removed: ${e.name}/ (no DB row)`); }
+          catch (err) { console.error('[plugin-apply] orphan cleanup:', err?.message || err); }
+        }
+      }
+      if (cleanedOrphans) {
+        for (const idx of [work.index_file, work.web_index_file].filter(Boolean)) safeWrite(idx.path, idx.content);
+        restart();
+        await waitForWorker();
+      }
+    }
+    if (!cleanedOrphans) await seedBundledPacks(key);
     const pending = work.pending || [];
     const removals = work.remove || [];
     let changed = false;
