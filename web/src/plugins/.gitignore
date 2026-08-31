@@ -1,3 +1,0 @@
-# Materialized plugin pages are runtime state, healed from the DB record.
-# Only the generated (seeded) index is tracked.
-*/

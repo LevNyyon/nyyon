@@ -3,7 +3,8 @@
 /* Materialized plugin pages are gitignored (runtime state, healed from the DB),
    and Tailwind v4's auto-detection HONORS .gitignore — so without this, every
    utility class unique to a plugin page silently drops out of the built CSS. */
-@source "./plugins";
+@source "./plugins/**/*.tsx";
+@source "./plugins/**/*.ts";
 
 @custom-variant dark (&:where(.dark, .dark *));
 
