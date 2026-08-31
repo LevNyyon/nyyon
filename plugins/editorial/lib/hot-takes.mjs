@@ -478,7 +478,8 @@ export async function pipelineView(api) {
 
 // ── inlined feed reads (contract: no lib-to-lib imports) ────────────────────
 // These three duplicate the read paths of lib/heartbeat.mjs (topHotTopics,
-// topSignals) and lib/digest.mjs (listDigestItems) over the SAME pack tables —
+// topSignals); digest items come from the DIGEST pack's table via a declared
+// SELECT-only cross-pack read (the digest pack is the sole writer) —
 // keep them in sync with those ports.
 async function topHotTopicsInline(api, { limit = 6, days = 3, q = '' } = {}) {
   const since = now() - days * 86400000;
@@ -522,7 +523,7 @@ async function topSignalsInline(api, { days = 7, minContent = 55, limit = 12, q 
 
 async function listDigestItemsInline(api, { limit = 200 } = {}) {
   const r = await api.db.prepare(
-    `SELECT * FROM plugin_editorial_digest_items ORDER BY urgency ASC, created_at DESC LIMIT ?`,
+    `SELECT * FROM plugin_digest_items ORDER BY urgency ASC, created_at DESC LIMIT ?`,
   ).bind(limit).all();
   return (r.results || []).map((x) => ({ ...x, meta: safeJSON(x.meta_json) }));
 }

@@ -1,0 +1,27 @@
+[
+  {
+    "slug": "digest-generate",
+    "name": "Digest · generate + prioritize",
+    "goal": "The digest tick as one named chain: prune stale items, pull every enabled channel (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT, content signals, calendar), deliver due scheduled WhatsApp sends, then score fresh LI signals so the brief reads most-relevant first. Same pass the :30 cron runs; also runnable manually or by Nyo via run_workflow.",
+    "steps": [
+      { "tool": "run_digest" },
+      { "tool": "prioritize_signals", "optional": true }
+    ]
+  },
+  {
+    "slug": "prioritize-signals",
+    "name": "Digest · prioritize signals",
+    "goal": "Score every pending LI signal for outreach relevance (0-100 + reason, plugin-digest-signal-priority rubric): super-relevant signals rise to high urgency, general activity sinks; contacted chips and heat bars refresh alongside. Fires after digest generation; also runnable manually or by Nyo via run_workflow.",
+    "steps": [
+      { "tool": "prioritize_signals" }
+    ]
+  },
+  {
+    "slug": "digest-learn",
+    "name": "Digest · learn from dismissals",
+    "goal": "The consideration layer's learn pass: harvest recently dismissed-not-starred items, distill avoid-patterns through the llm gateway, and append them to the plugin-digest-interests note the generator reads. No-op below the new-dismissals threshold, so it is safe on every cron tick.",
+    "steps": [
+      { "tool": "learn_dismissals" }
+    ]
+  }
+]

@@ -1,36 +1,43 @@
-// Editorial plugin — Digest (morning brief) lib. Ported from
-// workers/api/src/lib/digest.js under the plugin capability contract:
-// every function that needs the outside world takes `api` as its FIRST
-// argument (api.db / api.gateway / api.knowledge / api.saveKnowledge /
-// api.log). This file imports NOTHING.
+// Digest plugin — the morning brief. Ported from cmd's
+// workers/api/src/lib/digest.js (the richer source) under the plugin
+// capability contract: every function that needs the outside world takes
+// `api` as its FIRST argument (api.db / api.gateway / api.knowledge /
+// api.saveKnowledge / api.log). This file imports NOTHING.
 //
 // Scans recent WhatsApp group activity + OSINT mentions/signals/topics +
-// the calendar mirror, materializes "actionable items" into the
-// plugin_editorial_digest_items table. UI reads from that table. Operator
-// marks read/starred to dismiss or pin.
+// the calendar mirror + LinkedIn signals + system-attention checks, and
+// materializes "actionable items" into plugin_digest_items. The UI reads
+// from that table. Operator marks read/starred to dismiss or pin.
 //
 // Tables written (plugin-owned):
-//   plugin_editorial_digest_items, plugin_editorial_digest_channels,
-//   plugin_editorial_osint_signals, plugin_editorial_osint_topics
-// Tables read (plugin-owned):
-//   plugin_editorial_osint_mentions, plugin_editorial_osint_targets
+//   plugin_digest_items, plugin_digest_channels
 // Host tables (SELECT-only, declared in requires.host_reads):
-//   wa_messages, wa_chats, contacts, calendar_events, events
-// Gateways: llm(text), whatsapp(send, reply, group_info), crm(write_contact),
-//   web(text)
-// Knowledge (own docs): plugin-editorial-prompt-wa-reply,
-//   plugin-editorial-prompt-wa-delivery, plugin-editorial-digest-policy
-//   (seeded on first read), plugin-editorial-digest-interests,
-//   plugin-editorial-heartbeat-priorities
+//   wa_messages, wa_chats, contacts, calendar_events, events, li_signals,
+//   plugin_editorial_osint_{targets,mentions,signals,topics},
+//   plugin_editorial_hot_take_packages, plugin_gtm_li_prospects,
+//   plugin_gtm_leads
+// Gateways: llm(text), whatsapp(send, reply, group_info, health),
+//   crm(write_contact)
+// Knowledge (own docs, seeded on first read): plugin-digest-policy,
+//   plugin-digest-interests, plugin-digest-prompt-wa-reply,
+//   plugin-digest-prompt-wa-delivery, plugin-digest-wa-send-slots,
+//   plugin-digest-wa-pitches, plugin-digest-attention,
+//   plugin-digest-li-signals. Declared host-doc reads:
+//   plugin-editorial-heartbeat-priorities, plugin-gtm-outreach-first-touch.
 //
-// Cross-lib seam (lib files may not import each other): the draft_blog /
-// draft_social digest actions reuse the blog + social pipelines. The tool
-// that calls executeDigestAction / draftBlogFromDigestItem /
-// draftSocialFromDigestItem must import './aeo-writer.mjs' and
-// './social-posts.mjs' itself and pass
-//   { composeAndSavePost, generateSocialPostsForDigestItem }
-// as the trailing `deps` argument. Without deps those two action types
-// throw a clear error instead of silently no-oping.
+// Cross-lib seam (lib files may not import each other): digestWaSend /
+// digestWaUnschedule ride the pack's own send queue (./wa-queue.mjs); the
+// calling tool imports that lib and passes { enqueueWaSend } /
+// { cancelWaQueueItem } as the trailing `deps` argument.
+//
+// DEVIATIONS from cmd (cross-pack boundaries on this host):
+// - draft_blog / draft_social / draft_take actions are NOT offered: the
+//   blog + social + hot-takes pipelines belong to the editorial pack and a
+//   plugin cannot call another pack's code. The executor answers those
+//   types with a clear pointer instead of a stack trace.
+// - pullHeartbeat / pullOsintInsights no longer flip the editorial rows'
+//   status (surfaced/actioned) — those are SELECT-only host reads here.
+//   Dedupe still holds via the deterministic hb_/oi_ digest ids.
 
 const now = () => Date.now();
 const uid = () => crypto.randomUUID();
@@ -45,9 +52,11 @@ export async function listDigestItems(api, { unread_only = false, starred_only =
   if (unread_only)  where.push('read_at IS NULL');
   if (starred_only) where.push('starred = 1');
   const sql = `
-    SELECT * FROM plugin_editorial_digest_items
+    SELECT * FROM plugin_digest_items
     ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-    ORDER BY urgency ASC, created_at DESC
+    -- LinkedIn signals lead the brief (operator priority, 2026-08-20);
+    -- inside a tier the newest card wins as before.
+    ORDER BY urgency ASC, (kind = 'li_signal') DESC, created_at DESC
     LIMIT ?
   `;
   const r = await api.db.prepare(sql).bind(limit).all();
@@ -55,7 +64,7 @@ export async function listDigestItems(api, { unread_only = false, starred_only =
 }
 
 export async function readDigestItem(api, id) {
-  const r = await api.db.prepare('SELECT * FROM plugin_editorial_digest_items WHERE id = ?').bind(id).first();
+  const r = await api.db.prepare('SELECT * FROM plugin_digest_items WHERE id = ?').bind(id).first();
   return r ? { ...r, meta: safeJSON(r.meta_json) } : null;
 }
 
@@ -72,9 +81,20 @@ export async function patchDigestItem(api, id, patch) {
     fields.push('starred = ?');
     args.push(patch.starred ? 1 : 0);
   }
+  // Draft auto-save: the card's editable WA draft lives in meta_json. The
+  // FIRST edit snapshots the AI's original (draft_original) so the learning
+  // pass can diff the final send against what the AI wrote.
+  if (typeof patch.draft === 'string') {
+    const meta = existing.meta || {};
+    if (meta.draft_original === undefined) meta.draft_original = meta.draft ?? null;
+    meta.draft = patch.draft.slice(0, 2000);
+    meta.draft_edited_at = now();
+    fields.push('meta_json = ?');
+    args.push(JSON.stringify(meta));
+  }
   if (fields.length === 0) return existing;
   args.push(id);
-  await api.db.prepare(`UPDATE plugin_editorial_digest_items SET ${fields.join(', ')} WHERE id = ?`).bind(...args).run();
+  await api.db.prepare(`UPDATE plugin_digest_items SET ${fields.join(', ')} WHERE id = ?`).bind(...args).run();
   return readDigestItem(api, id);
 }
 
@@ -187,7 +207,7 @@ export async function insertDigestItem(api, item, { refresh = false } = {}) {
   //    pullCalendar uses this so an approaching meeting's urgency + "when" text
   //    track the clock instead of freezing at first insert.
   const sql = refresh
-    ? `INSERT INTO plugin_editorial_digest_items ${cols} ${vals}
+    ? `INSERT INTO plugin_digest_items ${cols} ${vals}
        ON CONFLICT(id) DO UPDATE SET
          title            = excluded.title,
          summary          = excluded.summary,
@@ -195,7 +215,7 @@ export async function insertDigestItem(api, item, { refresh = false } = {}) {
          suggested_action = excluded.suggested_action,
          urgency          = excluded.urgency,
          actionable       = excluded.actionable`
-    : `INSERT OR IGNORE INTO plugin_editorial_digest_items ${cols} ${vals}`;
+    : `INSERT OR IGNORE INTO plugin_digest_items ${cols} ${vals}`;
   await api.db.prepare(sql).bind(
     id,
     item.kind,
@@ -226,9 +246,9 @@ export async function insertDigestItem(api, item, { refresh = false } = {}) {
 // draft: pre-filled body the operator can edit before approving
 // recipient: { kind: 'wa_chat', id, name } for reply_wa
 // Default WA reply system prompt — fallback when the editable knowledge doc
-// `plugin-editorial-prompt-wa-reply` is absent. To customize for an operator,
+// `plugin-digest-prompt-wa-reply` is absent. To customize for an operator,
 // edit the doc in the ops Knowledge surface; this default is the "factory" voice.
-const WA_REPLY_SYSTEM_DEFAULT = `You are drafting a WhatsApp reply on the operator's behalf, in the voice of their company. (Edit the 'plugin-editorial-prompt-wa-reply' knowledge doc to teach it the operator's actual company, audience, and voice.)
+const WA_REPLY_SYSTEM_DEFAULT = `You are drafting a WhatsApp reply on the operator's behalf, in the voice of their company. (Edit the 'plugin-digest-prompt-wa-reply' knowledge doc to teach it the operator's actual company, audience, and voice.)
 
 Voice rules:
 - Direct, warm, knowledgeable. No fluff.
@@ -246,12 +266,12 @@ Punctuation rules (strict — this is a tell that an LLM wrote it):
 Output ONLY the reply text. No quotes around it, no preamble, no "Sure, here's a draft:" header.`;
 
 // Reads the live system prompt from knowledge (slug
-// 'plugin-editorial-prompt-wa-reply'), falling back to the default. Letting
+// 'plugin-digest-prompt-wa-reply'), falling back to the default. Letting
 // operators edit the prompt from the Knowledge UI means we don't need a
 // redeploy to re-tune voice / ban new tells.
 async function getWaReplySystem(api) {
   try {
-    const row = await api.knowledge('plugin-editorial-prompt-wa-reply');
+    const row = await api.knowledge('plugin-digest-prompt-wa-reply');
     if (row?.body && String(row.body).trim().length > 50) return String(row.body);
   } catch { /* doc missing or other transient — fall through */ }
   return WA_REPLY_SYSTEM_DEFAULT;
@@ -648,22 +668,11 @@ export async function draftDigestActions(api, id) {
     }
   }
 
-  // News/signal/insight cards ("Draft a take") — turn the item itself into
-  // a real blog draft or social reaction, reusing the exact pipelines a
-  // manually-written post goes through. Generation happens on click (see
-  // executeDigestAction), not here, so opening the drawer stays instant.
-  if (item.kind === 'content_opportunity' || item.kind === 'osint_insight' || item.kind === 'osint_mention') {
-    actions.push({
-      type: 'draft_blog',
-      label: 'Draft a blog post',
-      description: 'Write this up through the normal article pipeline (house style, diagrams, cover). Lands as a draft in the Blog module for review.',
-    });
-    actions.push({
-      type: 'draft_social',
-      label: 'Draft a social commentary',
-      description: 'Draft LinkedIn/Facebook reaction posts in your company\'s voice. Lands as drafts in the Social module for review + send.',
-    });
-  }
+  // DEVIATION from cmd: the draft_blog / draft_social / draft_take actions
+  // are not offered here. Those pipelines (article writer, social drafter,
+  // hot-takes chain) live in the editorial pack on this host, and one pack
+  // cannot call another pack's code. Turn a news card into content from the
+  // editorial pack's own surfaces (Blog / Social / Hot Takes) instead.
 
   actions.push({
     type: 'discuss',
@@ -680,119 +689,10 @@ export async function draftDigestActions(api, id) {
   return { item, context: ctx, actions };
 }
 
-// ─── inlined signal-content read (was heartbeat.js readSignalContent) ───────
-// Lib files may not import each other, so the one heartbeat helper the blog
-// drafter needs is duplicated here (contract-sanctioned duplication). Reads
-// one signal's full article on demand and caches it on the plugin row.
-function stripHtmlToText(html) {
-  const cleaned = String(html || '')
-    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
-    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
-    .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
-    .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
-    .replace(/<header[\s\S]*?<\/header>/gi, ' ')
-    .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
-    .replace(/<aside[\s\S]*?<\/aside>/gi, ' ');
-  const main = cleaned.match(/<article[\s\S]*?<\/article>/i) || cleaned.match(/<main[\s\S]*?<\/main>/i);
-  const scope = main ? main[0] : cleaned;
-  return String(scope)
-    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-    .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&nbsp;/g, ' ')
-    .replace(/&#(\d+);/g, (m, dec) => {
-      const code = Number(dec);
-      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
-    })
-    .replace(/&#x([0-9a-f]+);/gi, (m, hex) => {
-      const code = parseInt(hex, 16);
-      return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : m;
-    })
-    .replace(/&amp;/g, '&')
-    .replace(/\s+/g, ' ').trim();
-}
-
-async function readSignalContentLocal(api, signalId) {
-  const sig = await api.db.prepare('SELECT * FROM plugin_editorial_osint_signals WHERE id=?').bind(signalId).first();
-  if (!sig) return null;
-  if (sig.full_text) return sig;
-  let text = '';
-  try {
-    const r = await api.gateway('web', 'text', {
-      url: sig.url, timeout_ms: 12000, max_bytes: Infinity,
-      headers: { 'user-agent': 'Mozilla/5.0 (compatible; heartbeat-rss/1.0)' },
-    });
-    if (r?.ok) {
-      const ct = r.content_type || '';
-      if (ct.includes('html') || ct.includes('text')) {
-        const t = stripHtmlToText(r.text);
-        if (t.length > 200) text = t.slice(0, 8000);
-      }
-    }
-  } catch { /* falls back to summary */ }
-  if (text) {
-    await api.db.prepare(`UPDATE plugin_editorial_osint_signals SET full_text=?, content_fetched_at=? WHERE id=?`).bind(text, now(), signalId).run();
-    sig.full_text = text;
-  }
-  return sig;
-}
-
-// Turn a Digest item's own content into a real blog draft. Reuses
-// composeAndSavePost — the same house-style rewrite + diagrams + cover
-// pipeline every Nyo-written post goes through. When the item is
-// heartbeat-backed (osint_signals) we pull the full source article first,
-// so the pipeline reshapes real substance rather than just a headline.
-// `deps.composeAndSavePost` must be supplied by the calling tool (import
-// './aeo-writer.mjs' there — lib files may not import each other).
-export async function draftBlogFromDigestItem(api, item, deps = {}) {
-  if (typeof deps.composeAndSavePost !== 'function') {
-    throw new Error('draft_blog needs deps.composeAndSavePost (from ./aeo-writer.mjs) — wire it in the calling tool');
-  }
-  let body = item.summary || item.title || '';
-  if (item.ref_kind === 'osint_signals' && item.ref_id) {
-    try {
-      const sig = await readSignalContentLocal(api, item.ref_id);
-      if (sig?.full_text) body = sig.full_text.slice(0, 6000);
-    } catch { /* fall back to the digest summary */ }
-  }
-  const parts = [body];
-  if (item.suggested_action) parts.push(`Angle: ${item.suggested_action}`);
-  if (item.source_url) parts.push(`Source: ${item.source_url}`);
-
-  const result = await deps.composeAndSavePost(api, {
-    title: item.title,
-    body:  parts.filter(Boolean).join('\n\n'),
-    actor: 'digest',
-  });
-  await markDigestSourceActioned(api, item);
-  return result;
-}
-
-// Draft (not send) a reaction post per social channel — same drafting +
-// Social-module review flow published articles get (see social-posts.mjs).
-// `deps.generateSocialPostsForDigestItem` must be supplied by the calling
-// tool (import './social-posts.mjs' there).
-export async function draftSocialFromDigestItem(api, item, deps = {}) {
-  if (typeof deps.generateSocialPostsForDigestItem !== 'function') {
-    throw new Error('draft_social needs deps.generateSocialPostsForDigestItem (from ./social-posts.mjs) — wire it in the calling tool');
-  }
-  const result = await deps.generateSocialPostsForDigestItem(api, item);
-  await markDigestSourceActioned(api, item);
-  return result;
-}
-
-// Flip the underlying heartbeat row so an actioned signal/topic doesn't
-// keep resurfacing in future digests as still fresh. Best-effort — a
-// failure here shouldn't sink the draft that already succeeded.
-async function markDigestSourceActioned(api, item) {
-  try {
-    if (item.ref_kind === 'osint_signals' && item.ref_id) {
-      await api.db.prepare(`UPDATE plugin_editorial_osint_signals SET status='actioned' WHERE id=?`).bind(item.ref_id).run();
-    } else if (item.ref_kind === 'osint_topics' && item.ref_id) {
-      await api.db.prepare(`UPDATE plugin_editorial_osint_topics SET status='actioned' WHERE id=?`).bind(item.ref_id).run();
-    }
-  } catch { /* best effort */ }
-}
+// The cmd draft-blog/draft-social bridge (composeAndSavePost /
+// generateSocialPostsForDigestItem + the osint_signals full-text cache) did
+// NOT port: it belongs to the editorial pack's pipelines and its tables.
+// executeDigestAction answers those action types with a pointer instead.
 
 // ─── OSINT share / reply-to-ask drafter ───────────────────────
 // Builds a reply_wa-shaped action whose recipients are EITHER:
@@ -812,7 +712,7 @@ async function draftOsintShareAction(api, item, ctx) {
     SELECT di.id AS digest_id, di.title, di.summary, di.suggested_action,
            di.meta_json, di.ref_id AS msg_id, m.chat_id, m.id AS message_id,
            c.id AS chat_full_id, c.name AS chat_name
-      FROM plugin_editorial_digest_items di
+      FROM plugin_digest_items di
       LEFT JOIN wa_messages m ON m.id = di.ref_id
       LEFT JOIN wa_chats    c ON c.id = m.chat_id
      WHERE di.kind        = 'wa_group'
@@ -1027,11 +927,26 @@ export async function executeDigestAction(api, id, action, deps = {}) {
     // anything. (Previously a cross-chat "about <topic>…" opener was added;
     // it leaked an embarrassing preamble into real messages. Gone.)
     const text = draftText;
+    // A scheduled reply rides the pack's own send queue, plain (quoting
+    // cannot wait); send_at is a ms epoch from the slot picker. The calling
+    // tool passes deps.enqueueWaSend from ./wa-queue.mjs.
+    const sendAt = Number(action.send_at) || null;
+    if (sendAt && typeof deps.enqueueWaSend === 'function') {
+      const q = await deps.enqueueWaSend(api, { chatId, text, send_at: sendAt, source: 'digest', source_ref: id });
+      const item0 = await readDigestItem(api, id);
+      const meta = item0?.meta && typeof item0.meta === 'object' ? item0.meta : {};
+      meta.wa_queue_id = q.queue_id || null;
+      meta.wa_queued_at = now();
+      meta.wa_scheduled_for = sendAt;
+      await api.db.prepare('UPDATE plugin_digest_items SET meta_json = ? WHERE id = ?').bind(JSON.stringify(meta), id).run();
+      await api.log('digest_action', { id, type: 'reply_wa', chatId, scheduled_for: sendAt, queue_id: q.queue_id || null });
+      return { ok: true, sent: q, quoted: false, scheduled_for: sendAt };
+    }
     const res = canQuoteReply
       ? await api.gateway('whatsapp', 'reply', { chatId, quotedMessageId, text })
       : await api.gateway('whatsapp', 'send', { chatId, text });
-    // Do NOT archive on reply — the operator may also want to draft a blog/social
-    // take from the same item. Only an explicit dismiss (✕) archives.
+    // Do NOT archive on reply — the operator may also want to act again on
+    // the same item. Only an explicit dismiss (✕) archives.
     await api.log('digest_action', { id, type: 'reply_wa', chatId, quotedMessageId: canQuoteReply ? quotedMessageId : null, messageId: res.messageId });
     return { ok: true, sent: res, quoted: canQuoteReply };
   }
@@ -1106,18 +1021,11 @@ export async function executeDigestAction(api, id, action, deps = {}) {
     return { ok: true };
   }
 
-  if (action.type === 'draft_blog') {
-    const result = await draftBlogFromDigestItem(api, ctx.item, deps);
-    // Drafting a blog does NOT archive — the operator may still want to reply or
-    // draft social from the same item. Only an explicit dismiss archives.
-    if (result.ok) await api.log('digest_action', { id, type: 'draft_blog', slug: result.slug });
-    return result;
-  }
-
-  if (action.type === 'draft_social') {
-    const result = await draftSocialFromDigestItem(api, ctx.item, deps);
-    if (result.ok) await api.log('digest_action', { id, type: 'draft_social', slug: result.slug, drafted: result.drafted });
-    return result;
+  if (action.type === 'draft_blog' || action.type === 'draft_social' || action.type === 'draft_take') {
+    // DEVIATION from cmd: content drafting belongs to the editorial pack on
+    // this host (article/social/hot-takes pipelines + their tables). A pack
+    // cannot run another pack's code, so the digest answers with a pointer.
+    return { ok: false, error: `${action.type} lives in the editorial pack on this install — open its Blog / Social / Hot Takes surface (or ask Nyo to use its tools) with this item's link.` };
   }
 
   // 'discuss' is handled entirely client-side (it nav's to Nyo). It does NOT
@@ -1131,7 +1039,7 @@ export async function executeDigestAction(api, id, action, deps = {}) {
 }
 
 export async function clearReadDigestItems(api) {
-  const r = await api.db.prepare('DELETE FROM plugin_editorial_digest_items WHERE read_at IS NOT NULL').run();
+  const r = await api.db.prepare('DELETE FROM plugin_digest_items WHERE read_at IS NOT NULL').run();
   const cleared = r.meta?.changes ?? 0;
   if (cleared > 0) await api.log('digest_cleared', { cleared });
   return { cleared };
@@ -1159,18 +1067,18 @@ function actionableOf(text) {
 
 // ─── channels (the data sources feeding the digest) ─────────
 export async function listDigestChannels(api) {
-  const r = await api.db.prepare('SELECT * FROM plugin_editorial_digest_channels ORDER BY enabled DESC, source ASC').all();
+  const r = await api.db.prepare('SELECT * FROM plugin_digest_channels ORDER BY enabled DESC, source ASC').all();
   return r.results || [];
 }
 export async function readDigestChannel(api, source) {
-  return api.db.prepare('SELECT * FROM plugin_editorial_digest_channels WHERE source = ?').bind(source).first();
+  return api.db.prepare('SELECT * FROM plugin_digest_channels WHERE source = ?').bind(source).first();
 }
 export async function patchDigestChannel(api, source, patch) {
   const existing = await readDigestChannel(api, source);
   if (!existing) throw new Error(`unknown digest channel ${source}`);
   const t = now();
   await api.db.prepare(`
-    UPDATE plugin_editorial_digest_channels
+    UPDATE plugin_digest_channels
        SET enabled = ?, cadence = ?, notes = ?, updated_at = ?
      WHERE source = ?
   `).bind(
@@ -1186,7 +1094,7 @@ export async function patchDigestChannel(api, source, patch) {
 async function recordChannelRun(api, source, { ok, added, error }) {
   const t = now();
   await api.db.prepare(`
-    UPDATE plugin_editorial_digest_channels
+    UPDATE plugin_digest_channels
        SET last_run_at = ?, last_status = ?, last_error = ?,
            total_runs  = total_runs + 1,
            total_added = total_added + ?,
@@ -1214,7 +1122,7 @@ async function isChannelEnabled(api, source) {
 const WA_DIGEST_LOOKBACK_MS = 5 * 24 * 60 * 60 * 1000;
 
 // ─── digest policy (knowledge-backed) ────────────────────────
-// The tunable digest thresholds live in the `plugin-editorial-digest-policy`
+// The tunable digest thresholds live in the `plugin-digest-policy`
 // knowledge doc as JSON (wake-up-policy pattern): the operator edits the doc,
 // no deploy. The constants above/below stay as the seeded defaults; a missing
 // or broken doc falls back to them.
@@ -1232,9 +1140,9 @@ function polNum(v, fallback) {
 }
 async function loadDigestPolicy(api) {
   try {
-    const row = await api.knowledge('plugin-editorial-digest-policy');
+    const row = await api.knowledge('plugin-digest-policy');
     if (!row?.body) {
-      await api.saveKnowledge('plugin-editorial-digest-policy', {
+      await api.saveKnowledge('plugin-digest-policy', {
         title: 'Digest policy — scan windows + caps',
         body: JSON.stringify(DIGEST_POLICY_DEFAULTS, null, 2),
       }).catch(() => {});
@@ -1317,12 +1225,12 @@ If a chat has only chit-chat with zero asks/opportunities, an empty array is fin
 // Quick LLM call to decide if the drafted reply should land in the group or
 // land as a private DM. Defaults are baked into the prompt — the user can
 // always flip the choice in the drawer.
-// Doc override (plugin-editorial-prompt-wa-delivery), mirroring
+// Doc override (plugin-digest-prompt-wa-delivery), mirroring
 // getWaReplySystem — the routing policy (group-vs-private bias, tie-breakers)
 // is operator policy, not code.
 async function getWaDeliverySystem(api) {
   try {
-    const row = await api.knowledge('plugin-editorial-prompt-wa-delivery');
+    const row = await api.knowledge('plugin-digest-prompt-wa-delivery');
     if (row?.body && String(row.body).trim().length > 50) return String(row.body);
   } catch { /* fall through */ }
   return DELIVERY_SYSTEM;
@@ -1402,12 +1310,12 @@ async function analyzeChatWithLLM(api, chat, messages) {
     return `[${m.id} | ${t} | ${w}] ${b}`;
   }).join('\n');
   // Operator's editable interest profile steers what counts as "actionable".
-  // Slug re-homed to plugin-editorial-digest-interests (the learner in
+  // Slug re-homed to plugin-digest-interests (the learner in
   // digest-relevance.mjs auto-tunes the same doc).
   let interests = '';
   try {
-    const doc = await api.knowledge('plugin-editorial-digest-interests');
-    if (doc?.body) interests = `\n\nOPERATOR'S INTEREST PROFILE (editable knowledge doc plugin-editorial-digest-interests — weigh items against this):\n${doc.body}`;
+    const doc = await api.knowledge('plugin-digest-interests');
+    if (doc?.body) interests = `\n\nOPERATOR'S INTEREST PROFILE (editable knowledge doc plugin-digest-interests — weigh items against this):\n${doc.body}`;
   } catch { /* doc unreadable — prompt works without it */ }
   const user = `Group: ${chat.name || chat.id}\nWindow: last 7 days\nMessages (${ordered.length}, oldest first):\n\n${lines}\n\nNow extract every actionable item per the rules.`;
   const result = await callLLMJson(api, WA_DIGEST_SYSTEM + interests, user);
@@ -1661,7 +1569,7 @@ const HB_GATE_DEFAULTS = Object.freeze({
 });
 async function hbGates(api) {
   try {
-    const doc = await api.knowledge('plugin-editorial-heartbeat-priorities');
+    const doc = await api.knowledge('plugin-editorial-heartbeat-priorities' /* declared host-doc read */);
     const m = String(doc?.body || '').match(/```json\s*([\s\S]*?)```/);
     const src = m ? JSON.parse(m[1]) : {};
     const out = {};
@@ -1724,10 +1632,10 @@ async function pullHeartbeat(api) {
       actionable:   1,
       suggested_action: action,
     });
-    if (r) {
-      inserted.push(r.id);
-      await api.db.prepare(`UPDATE plugin_editorial_osint_signals SET status='surfaced' WHERE id=? AND status='scored'`).bind(s.id).run();
-    }
+    if (r) inserted.push(r.id);
+    // DEVIATION from cmd/editorial: no status flip on the source row —
+    // plugin_editorial_osint_signals is a SELECT-only host read here. The
+    // hb_<id> digest id keeps re-runs idempotent regardless.
   }
   return inserted;
 }
@@ -1758,10 +1666,8 @@ async function pullOsintInsights(api) {
       actionable:   1,
       suggested_action: String(t.format).includes('social') ? 'Draft a social post on this' : 'Draft a blog post on this',
     });
-    if (r) {
-      inserted.push(r.id);
-      await api.db.prepare(`UPDATE plugin_editorial_osint_topics SET status='surfaced' WHERE id=? AND status='new'`).bind(t.id).run();
-    }
+    if (r) inserted.push(r.id);
+    // DEVIATION: no status flip (SELECT-only host read); oi_<id> dedupes.
   }
   return inserted;
 }
@@ -1841,7 +1747,7 @@ export async function pruneStaleDigestItems(api, { staleAfterMs = null } = {}) {
   const policy = await loadDigestPolicy(api);
   const cutoff = now() - (staleAfterMs ?? policy.stale_after_days * 24 * 60 * 60 * 1000);
   const r = await api.db.prepare(
-    `UPDATE plugin_editorial_digest_items
+    `UPDATE plugin_digest_items
         SET read_at = ?
       WHERE read_at IS NULL
         AND starred = 0
@@ -1852,7 +1758,7 @@ export async function pruneStaleDigestItems(api, { staleAfterMs = null } = {}) {
 
   const delCutoff = now() - policy.delete_after_days * 24 * 60 * 60 * 1000;
   const d = await api.db.prepare(
-    `DELETE FROM plugin_editorial_digest_items
+    `DELETE FROM plugin_digest_items
       WHERE read_at IS NOT NULL
         AND starred = 0
         AND urgency != 1
@@ -1903,6 +1809,8 @@ export async function generateDigest(api, { since_ms = 24 * 60 * 60 * 1000 } = {
     try { await recordChannelRun(api, source, { ok: !hardErr, added, error }); } catch {}
   }
 
+  await maybeRun('attention', () => pullAttention(api));
+  await maybeRun('li_signals', () => pullLiSignals(api));
   await maybeRun('osint_insights', () => pullOsintInsights(api));
   await maybeRun('whatsapp',  () => pullWhatsApp(api, sinceTs));
   await maybeRun('osint',     () => pullOsint(api, sinceTs));
@@ -1921,20 +1829,449 @@ export async function digestStats(api) {
       SUM(CASE WHEN read_at IS NULL AND urgency = 1 THEN 1 ELSE 0 END) AS high,
       SUM(CASE WHEN read_at IS NULL AND actionable = 1 THEN 1 ELSE 0 END) AS action_count,
       SUM(CASE WHEN starred = 1 THEN 1 ELSE 0 END)            AS starred
-    FROM plugin_editorial_digest_items
+    FROM plugin_digest_items
   `).first();
   // Pull the timestamp of the most recent generate() run from the events
-  // log (declared host_read). api.log prefixes kinds with plugin_editorial_,
+  // log (declared host_read). api.log prefixes kinds with plugin_digest_,
   // so the generate event this plugin writes lands as
-  // 'plugin_editorial_digest_generated'. This lets the UI render "last
+  // 'plugin_digest_digest_generated'. This lets the UI render "last
   // updated N min ago" without keeping any extra state — the events row that
   // generate() already writes is the single source of truth for "did we run,
   // and when".
   const last = await api.db.prepare(
-    `SELECT created_at FROM events WHERE kind = 'plugin_editorial_digest_generated' ORDER BY created_at DESC LIMIT 1`
+    `SELECT created_at FROM events WHERE kind = 'plugin_digest_digest_generated' ORDER BY created_at DESC LIMIT 1`
   ).first();
   return {
     ...(r || { total: 0, unread: 0, high: 0, action_count: 0, starred: 0 }),
     last_generated_at: last?.created_at || null,
   };
+}
+
+// ═══ cmd-only digest surface: send slots, pitches, the one-moment rule, ═════
+// ═══ the card composer's send paths, and the two newest channels.       ═════
+
+// ── send-slot config (knowledge): the card's ASAP / morning / evening ──
+const SLOTS_SLUG = 'plugin-digest-wa-send-slots';
+const SLOTS_DEFAULTS = {
+  days_ahead: 7, morning: '09:30', evening: '19:30', timezone: 'Asia/Jerusalem',
+  // the slot clock follows the RECIPIENT: longest phone-prefix match wins,
+  // no match falls back to `timezone`
+  tz_by_prefix: { '1': 'America/New_York', '972': 'Asia/Jerusalem', '44': 'Europe/London' },
+  // hold=true freezes queued sending: every surface falls back to manual
+  // wa.me links. (cmd read this from the wa-sender doc; here it lives in
+  // the same slots doc — one place to pause the lane.)
+  hold: false,
+};
+const SLOTS_SEED = `# WhatsApp send slots
+
+The scheduling choices a Digest card offers next to ASAP: one morning and
+one evening slot per day, for the next days_ahead days, in the configured
+timezone. Times are wall-clock HH:MM. hold=true pauses queued sending
+(cards fall back to manual wa.me links).
+
+\`\`\`json
+${JSON.stringify(SLOTS_DEFAULTS, null, 2)}
+\`\`\`
+`;
+
+export async function waSendSlots(api) {
+  let doc = null;
+  try { doc = await api.knowledge(SLOTS_SLUG); } catch { doc = null; }
+  if (!doc) {
+    await api.saveKnowledge(SLOTS_SLUG, { title: 'WhatsApp send slots', body: SLOTS_SEED }).catch(() => {});
+    doc = { body: SLOTS_SEED };
+  }
+  let out = SLOTS_DEFAULTS;
+  try {
+    const m = String(doc.body || '').match(/```json\s*([\s\S]*?)```/);
+    const parsed = m ? JSON.parse(m[1]) : null;
+    if (parsed && typeof parsed === 'object') out = { ...SLOTS_DEFAULTS, ...parsed };
+  } catch { /* malformed doc edit falls back to defaults */ }
+  // The HOLD: doc flag wins; otherwise an unconfigured/unhealthy WhatsApp
+  // gateway holds the lane too — nothing queues into a dead pipe.
+  if (out.hold !== true) {
+    try {
+      const h = await api.gateway('whatsapp', 'health', {});
+      const healthy = h && (h.ok === true || h.healthy === true || h.configured === true || h.status === 'ok');
+      out = { ...out, hold: !healthy };
+    } catch { out = { ...out, hold: true }; }
+  }
+  return out;
+}
+
+// ── pitch templates: canned openers for the card composer ──────
+// The BASIC pitch is the operator's real first-touch message and lives in
+// the gtm pack's plugin-gtm-outreach-first-touch doc (single source of
+// truth, declared host-doc read). plugin-digest-wa-pitches holds EXTRA
+// pitches only.
+const PITCHES_SLUG = 'plugin-digest-wa-pitches';
+const PITCHES_SEED = `# WhatsApp pitches
+
+EXTRA canned openers for the Digest card's WhatsApp composer. The basic
+pitch is NOT here: it is sourced live from the gtm pack's
+plugin-gtm-outreach-first-touch doc, the one canonical first-touch
+message. Placeholders: {first_name} / {name}, {company}, {role}.
+
+\`\`\`json
+{ "pitches": [] }
+\`\`\`
+`;
+
+export async function waPitches(api) {
+  const out = [];
+  // the canonical first-touch message: everything after the '---' line
+  try {
+    const ft = await api.knowledge('plugin-gtm-outreach-first-touch');
+    const ftBody = String(ft?.body || '');
+    const cut = ftBody.indexOf('\n---\n');
+    const basic = cut >= 0 ? ftBody.slice(cut + 5).trim() : '';
+    if (basic) out.push({ key: 'basic', label: 'הפיץ׳ הבסיסי', text: basic });
+  } catch { /* gtm pack absent — extras still serve */ }
+
+  let doc = null;
+  try { doc = await api.knowledge(PITCHES_SLUG); } catch { doc = null; }
+  if (!doc) {
+    await api.saveKnowledge(PITCHES_SLUG, { title: 'WhatsApp pitches', body: PITCHES_SEED }).catch(() => {});
+    doc = { body: PITCHES_SEED };
+  }
+  try {
+    const m = String(doc.body || '').match(/```json\s*([\s\S]*?)```/);
+    const parsed = m ? JSON.parse(m[1]) : null;
+    if (parsed && Array.isArray(parsed.pitches)) {
+      for (const x of parsed.pitches) if (x && typeof x.text === 'string') out.push(x);
+    }
+  } catch { /* malformed doc edit: the basic pitch still serves */ }
+  return { pitches: out };
+}
+
+// ── one outreach moment per person, from EVERY surface ──────────
+// Scheduling or sending to a person consumes their other unread signals:
+// they existed to create the moment, the moment is used. Matched by
+// prospect_id, canonical phone digits, or exact name.
+export async function consumeSignalsForPerson(api, { phone = null, name = null, prospect_id = null, except_id = null } = {}) {
+  const digits = String(phone || '').replace(/\D/g, '');
+  const nm = String(name || '').trim().toLowerCase();
+  if (!digits && !nm && !prospect_id) return 0;
+  const sibs = (await api.db.prepare(
+    "SELECT id, meta_json FROM plugin_digest_items WHERE kind = 'li_signal' AND read_at IS NULL",
+  ).all()).results || [];
+  let archived = 0;
+  for (const sib of sibs) {
+    if (except_id && sib.id === except_id) continue;
+    let m = null;
+    try { m = JSON.parse(sib.meta_json || '{}'); } catch { continue; }
+    const hit = (prospect_id && m.prospect_id === prospect_id)
+      || (digits && String(m.phone || '').replace(/\D/g, '') === digits)
+      || (nm && String(m.name || '').trim().toLowerCase() === nm);
+    if (!hit) continue;
+    await api.db.prepare('UPDATE plugin_digest_items SET read_at = ? WHERE id = ?').bind(now(), sib.id).run();
+    archived++;
+  }
+  if (archived) {
+    await api.log('digest_signals_consumed', { archived, prospect_id: prospect_id || null, name: name || null, phone_digits: digits || null });
+  }
+  return archived;
+}
+
+// ── manual send: the operator opened wa.me and sent it by hand ──
+// Hold mode has no queue row to count, so the click IS the outreach act:
+// it stamps the card, consumes the person's other signals (one moment per
+// person, same rule as a queued send), and logs the event.
+export async function digestWaManual(api, id, { text } = {}) {
+  const item = await readDigestItem(api, id);
+  if (!item) throw new Error(`digest item ${id} not found`);
+  const meta = item.meta && typeof item.meta === 'object' ? item.meta : {};
+  const phone = meta.phone || null;
+  meta.wa_manual_at = now();
+  meta.wa_manual_text = String(text || meta.draft || '').slice(0, 2000);
+  await api.db.prepare('UPDATE plugin_digest_items SET meta_json = ? WHERE id = ?')
+    .bind(JSON.stringify(meta), id).run();
+  const archived = await consumeSignalsForPerson(api, {
+    phone, name: meta.name || null, prospect_id: meta.prospect_id || null, except_id: id,
+  });
+  await api.log('wa_manual_sent', { id, phone, name: meta.name || null, chars: String(text || '').length });
+  return { ok: true, manual: true, archived_signals: archived };
+}
+
+// ── the card's unschedule: cancel the queued send, free the card ──
+// deps.cancelWaQueueItem comes from ./wa-queue.mjs (lib files may not
+// import each other — the calling tool wires it).
+export async function digestWaUnschedule(api, id, deps = {}) {
+  if (typeof deps.cancelWaQueueItem !== 'function') {
+    throw new Error('digestWaUnschedule needs deps.cancelWaQueueItem (from ./wa-queue.mjs) — wire it in the calling tool');
+  }
+  const item = await readDigestItem(api, id);
+  if (!item) throw new Error(`digest item ${id} not found`);
+  const meta = item.meta && typeof item.meta === 'object' ? item.meta : {};
+  if (!meta.wa_queue_id) throw new Error('nothing queued on this card');
+  const r = await deps.cancelWaQueueItem(api, meta.wa_queue_id);
+  delete meta.wa_queue_id;
+  delete meta.wa_queued_at;
+  delete meta.wa_scheduled_for;
+  await api.db.prepare('UPDATE plugin_digest_items SET meta_json = ? WHERE id = ?')
+    .bind(JSON.stringify(meta), id).run();
+  await api.log('digest_wa_unscheduled', { id, queue_id: r.id || null });
+  return { ok: true, cancelled: r };
+}
+
+// ── the card's send: ASAP or a picked slot, always through the queue ──
+// Returns {queued..., learn: {before, after} | null}; the calling tool runs
+// the voice distiller on `learn` AFTER responding. deps.enqueueWaSend comes
+// from ./wa-queue.mjs.
+export async function digestWaSend(api, id, { text, send_at } = {}, deps = {}) {
+  if (typeof deps.enqueueWaSend !== 'function') {
+    throw new Error('digestWaSend needs deps.enqueueWaSend (from ./wa-queue.mjs) — wire it in the calling tool');
+  }
+  const item = await readDigestItem(api, id);
+  if (!item) throw new Error(`digest item ${id} not found`);
+  const meta = item.meta && typeof item.meta === 'object' ? item.meta : {};
+  const phone = meta.phone;
+  if (!phone) throw new Error('this card has no WhatsApp phone attached');
+  const body = String(text || '').trim();
+  if (!body) throw new Error('text required');
+
+  const res = await deps.enqueueWaSend(api, {
+    chatId: phone, text: body,
+    send_at: Number(send_at) || null,
+    source: 'digest-li', source_ref: id,
+  });
+
+  meta.wa_queue_id = res.queue_id || null;
+  meta.wa_queued_at = now();
+  meta.wa_scheduled_for = Number(send_at) || null;
+  await api.db.prepare('UPDATE plugin_digest_items SET meta_json = ? WHERE id = ?')
+    .bind(JSON.stringify(meta), id).run();
+
+  await api.log('digest_wa_send', { id, queue_id: res.queue_id || null, scheduled_for: Number(send_at) || null, phone });
+
+  // ONE outreach moment per person: queueing this send consumes their other
+  // signals (shared rule; the sent card itself stays visible with its queued
+  // state so unschedule remains reachable).
+  const archivedSignals = await consumeSignalsForPerson(api, {
+    phone, name: meta.name || null, prospect_id: meta.prospect_id || null, except_id: id,
+  });
+
+  const original = meta.draft_original ?? meta.draft ?? null;
+  const learn = (original && String(original).trim() !== body) ? { before: original, after: body } : null;
+  return { ...res, scheduled_for: Number(send_at) || null, archived_signals: archivedSignals, learn };
+}
+
+// ─── system attention channel ────────────────────────────────────
+// Cards that say the SYSTEM needs the operator: the outreach pool ran dry,
+// the publishing pipeline is thin. One card per check per day while the
+// condition holds (id carries the date; INSERT OR IGNORE dedups). Thresholds
+// live in the editable plugin-digest-attention note, seeded on first read.
+//
+// DEVIATION from cmd: pool_min_queued defaults to 0 (check OFF). cmd counted
+// li_prospects.status='queued'; this host's pool is plugin_gtm_li_prospects,
+// whose statuses do not use 'queued' — a default-on check would false-alarm
+// daily. Raise pool_min_queued in the note to arm it on a host where the
+// queued semantic exists.
+async function attentionCfg(api) {
+  const DEFAULTS = { pool_min_queued: 0, articles_min: 2, articles_window_days: 5 };
+  try {
+    let doc = null;
+    try { doc = await api.knowledge('plugin-digest-attention'); } catch { doc = null; }
+    if (!doc) {
+      await api.saveKnowledge('plugin-digest-attention', {
+        title: 'Digest · system attention thresholds',
+        body: `When the Digest raises a "system needs you" card. Edit the JSON, no deploy.\n- pool_min_queued: alert when fewer LI prospects are queued for connects (0 = check off).\n- articles_min / articles_window_days: alert when fewer articles are scheduled inside the window.\n\n\u0060\u0060\u0060json\n${JSON.stringify(DEFAULTS, null, 2)}\n\u0060\u0060\u0060`,
+      }).catch(() => {});
+      return DEFAULTS;
+    }
+    const m = String(doc.body || '').match(/```json\s*([\s\S]*?)```/);
+    return { ...DEFAULTS, ...(m ? JSON.parse(m[1]) : {}) };
+  } catch { return { pool_min_queued: 0, articles_min: 2, articles_window_days: 5 }; }
+}
+
+async function pullAttention(api) {
+  const inserted = [];
+  const cfg = await attentionCfg(api);
+  const day = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const checks = [];
+  if (Number(cfg.pool_min_queued) > 0) {
+    try {
+      const pool = await api.db.prepare(`SELECT COUNT(*) n FROM plugin_gtm_li_prospects WHERE status='queued'`).first();
+      if ((pool?.n ?? 0) < cfg.pool_min_queued) {
+        checks.push({
+          key: 'li_pool',
+          title: `LinkedIn outreach pool is empty (${pool?.n ?? 0} queued)`,
+          summary: 'The connect engine has nobody left to work. Add prospects in the outreach pack.',
+          action: 'Add prospects',
+        });
+      }
+    } catch { /* gtm pack absent — check silently skips */ }
+  }
+  const t = now();
+  try {
+    const art = await api.db.prepare(`SELECT COUNT(*) n FROM plugin_editorial_hot_take_packages WHERE scheduled_at > ? AND scheduled_at < ?`)
+      .bind(t, t + cfg.articles_window_days * 24 * 60 * 60 * 1000).first();
+    if ((art?.n ?? 0) < cfg.articles_min) {
+      const n = art?.n ?? 0;
+      checks.push({
+        key: 'articles',
+        title: `Publishing pipeline thin: ${n} article${n === 1 ? '' : 's'} scheduled in the next ${cfg.articles_window_days} days`,
+        summary: `Below the ${cfg.articles_min}-article floor. Approve a draft in Hot Takes and schedule it.`,
+        action: 'Schedule articles',
+      });
+    }
+  } catch { /* editorial pack absent — check silently skips */ }
+  for (const c of checks) {
+    const digId = `att_${c.key}_${day}`;
+    const exists = await api.db.prepare(`SELECT id FROM plugin_digest_items WHERE id=?`).bind(digId).first();
+    if (exists) continue;
+    const r = await insertDigestItem(api, {
+      id: digId, kind: 'attention', ref_kind: 'system', ref_id: c.key,
+      title: c.title, summary: c.summary, source_label: 'System',
+      urgency: 1, actionable: 1, suggested_action: c.action,
+    });
+    if (r) inserted.push(r.id);
+  }
+  return inserted;
+}
+
+// ─── LI signals channel ─────────────────────────────────────
+// Mirrors NEW LinkedIn signals (host li_signals table, written by an LI
+// scan when the host has one) into the digest feed as actionable cards.
+// Idempotent: the digest id is derived from the signal id, so INSERT OR
+// IGNORE makes re-runs no-ops and a dismissed card never resurrects.
+// Urgency/action wording lives in the editable plugin-digest-li-signals
+// knowledge note, seeded below on first read.
+//
+// DORMANT on stock nyyon-app installs: there is no li_signals table (the
+// cmd LI daemon writes it). The channel row ships DISABLED; the read is
+// tolerant, so enabling it without the table just notes a soft error.
+async function liSignalDigestCfg(api) {
+  const DEFAULTS = {
+    lookback_days: 3,
+    max_per_run: 20,
+    urgency: { open_role: 1, job_change: 2, post: 2, news: 3 },
+    actions: {
+      with_phone: 'Message them on WhatsApp',
+      open_role: 'Reach out about the role',
+      job_change: 'Congratulate and open the door',
+      post: 'Reply to their post',
+      news: 'Open with the news',
+    },
+    kind_labels: { open_role: 'hiring', job_change: 'job change', post: 'post', news: 'news' },
+  };
+  try {
+    let doc = null;
+    try { doc = await api.knowledge('plugin-digest-li-signals'); } catch { doc = null; }
+    if (!doc) {
+      await api.saveKnowledge('plugin-digest-li-signals', {
+        title: 'Digest · LinkedIn signals channel',
+        body: `How LinkedIn signals surface in the Digest feed. The sync reads the JSON below at run time — edit here, no deploy. urgency: 1 high / 2 medium / 3 low per signal kind. actions: the suggested-action wording (with_phone wins when the person has a known WhatsApp number).\n\n\u0060\u0060\u0060json\n${JSON.stringify(DEFAULTS, null, 2)}\n\u0060\u0060\u0060`,
+      }).catch(() => {});
+      return DEFAULTS;
+    }
+    const m = String(doc.body || '').match(/```json\s*([\s\S]*?)```/);
+    const cfg = m ? JSON.parse(m[1]) : {};
+    return {
+      ...DEFAULTS, ...cfg,
+      urgency: { ...DEFAULTS.urgency, ...(cfg.urgency || {}) },
+      actions: { ...DEFAULTS.actions, ...(cfg.actions || {}) },
+      kind_labels: { ...DEFAULTS.kind_labels, ...(cfg.kind_labels || {}) },
+    };
+  } catch { return DEFAULTS; }
+}
+
+async function pullLiSignals(api) {
+  const inserted = [];
+  const cfg = await liSignalDigestCfg(api);
+  let rows = [];
+  try {
+    rows = (await api.db.prepare(
+      `SELECT s.id, s.kind, s.title, s.detail, s.draft, s.detected_at,
+              p.id AS prospect_id, p.name, p.company, p.role, p.public_id
+       FROM li_signals s JOIN plugin_gtm_li_prospects p ON p.id = s.prospect_id
+       WHERE s.status = 'new' AND s.detected_at > ?
+       ORDER BY s.detected_at DESC LIMIT ?`,
+    ).bind(now() - cfg.lookback_days * 24 * 60 * 60 * 1000, cfg.max_per_run).all()).results || [];
+  } catch {
+    // li_signals feed absent on this host — dormant channel, soft note.
+    return { ids: inserted, error: 'no li_signals feed on this install (channel dormant) — enable it on a host with an LI signal scanner' };
+  }
+  for (const s of rows) {
+    const digId = 'dig_li_' + s.id;
+    // count only genuinely-new cards; INSERT OR IGNORE would re-read old ones
+    const exists = await api.db.prepare(`SELECT id FROM plugin_digest_items WHERE id=?`).bind(digId).first();
+    if (exists) continue;
+    const raw = safeJSON(s.detail);
+    const detail = raw && typeof raw === 'object' ? raw : {};
+    // Best-effort WhatsApp match: CRM contacts first, then the GTM lead pool.
+    let phone = null;
+    try {
+      const c = await api.db.prepare(
+        `SELECT phone FROM contacts WHERE phone IS NOT NULL AND TRIM(phone) != '' AND LOWER(TRIM(full_name)) = LOWER(TRIM(?)) LIMIT 1`,
+      ).bind(s.name).first();
+      phone = c?.phone || null;
+      if (!phone) {
+        const g = await api.db.prepare(
+          `SELECT COALESCE(NULLIF(TRIM(normalized_phone), ''), phone) AS phone FROM plugin_gtm_leads
+           WHERE phone IS NOT NULL AND LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1`,
+        ).bind(s.name).first();
+        phone = g?.phone || null;
+      }
+    } catch { /* no match — the card still ships, just without the WA action */ }
+    // Acted-on people are muted: their new signals do not enter the brief
+    // until the snooze expires. Inline check against the pack's snooze table
+    // (lib files may not import each other — same keys signal-priority uses).
+    try {
+      const keys = [];
+      if (s.prospect_id) keys.push('prospect:' + s.prospect_id);
+      const dg = String(phone || '').replace(/\D/g, '');
+      if (dg) keys.push('phone:' + dg);
+      const nm = String(s.name || '').trim().toLowerCase();
+      if (nm) keys.push('name:' + nm);
+      if (keys.length) {
+        const snoozed = await api.db.prepare(
+          `SELECT key FROM plugin_digest_signal_snoozes WHERE until > ? AND key IN (${keys.map(() => '?').join(',')}) LIMIT 1`,
+        ).bind(now(), ...keys).first();
+        if (snoozed) continue;
+      }
+    } catch { /* snooze check must never block the brief */ }
+
+    const waDigits = phone ? String(phone).replace(/[^0-9]/g, '') : null;
+    // Where this person comes from: the Prospecting pool (gtm leads) or pure
+    // LI outreach. Drives the digest's source filters.
+    let origin = 'li-outreach';
+    try {
+      const pub = String(s.public_id || '').toLowerCase();
+      const gl = await api.db.prepare(
+        `SELECT 1 FROM plugin_gtm_leads WHERE LOWER(TRIM(name)) = LOWER(TRIM(?))
+           OR (? != '' AND LOWER(COALESCE(linkedin, '')) LIKE '%/in/' || ? || '%') LIMIT 1`,
+      ).bind(s.name, pub, pub).first();
+      if (gl) origin = 'prospecting';
+    } catch { /* origin stays li-outreach */ }
+    const permalink = s.kind === 'post' && typeof detail.urn === 'string'
+      ? `https://www.linkedin.com/feed/update/${detail.urn}/`
+      : (typeof detail.link === 'string' ? detail.link : (typeof detail.url === 'string' ? detail.url : null));
+    const r = await insertDigestItem(api, {
+      id: digId,
+      kind: 'li_signal',
+      ref_kind: 'li_signals',
+      ref_id: s.id,
+      // the kind chip + source label already say it's a post — 'posted:' in the
+      // title reads as a stutter
+      title: `${s.name}${s.company ? ' · ' + s.company : ''}: ${String(s.title).replace(/^posted:\s*/i, '')}`.slice(0, 160),
+      summary: String(detail.text || detail.snippet || detail.new || s.draft || '').slice(0, 280),
+      source_label: `LI · ${cfg.kind_labels[s.kind] || s.kind}`,
+      source_url: permalink,
+      urgency: cfg.urgency[s.kind] ?? 2,
+      actionable: 1,
+      suggested_action: waDigits ? cfg.actions.with_phone : (cfg.actions[s.kind] || 'Message them'),
+      meta: {
+        signal_id: s.id, prospect_id: s.prospect_id, signal_kind: s.kind,
+        name: s.name, role: s.role || null, company: s.company || null,
+        detail, // the drawer renders the post mockup from this
+        profile_url: s.public_id ? `https://www.linkedin.com/in/${s.public_id}/` : null,
+        draft: s.draft || null, phone: phone || null,
+        wa_url: waDigits ? `https://wa.me/${waDigits}` : null,
+        origin,
+      },
+    });
+    if (r) inserted.push(r.id);
+  }
+  return inserted;
 }

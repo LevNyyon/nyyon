@@ -1,11 +1,11 @@
-// Editorial plugin — Digest consideration layer. Ported from
+// Digest plugin — the consideration layer. Ported from
 // workers/api/src/lib/digest-relevance.js under the plugin capability
 // contract: every function takes `api` first; this file imports NOTHING.
 //
 // Learns from what the operator DISMISSES and feeds it back into the digest's
 // interest filter, so the same uninteresting items stop showing up.
 //
-// The digest generator already weighs the `plugin-editorial-digest-interests`
+// The digest generator already weighs the `plugin-digest-interests`
 // knowledge doc when deciding which items to surface vs drop (see digest.mjs).
 // The gap was that the doc was static. This closes the loop: it reads
 // recently-dismissed items, distills the patterns behind them through the
@@ -20,16 +20,16 @@
 // feature_flags table. feature_flags is host-owned and SELECT-only for
 // plugins, so the marker now lives on the activity bus instead: every
 // completed learn pass logs `digest_learn_pass` (which api.log lands as kind
-// 'plugin_editorial_digest_learn_pass'), and the next run reads the newest
+// 'plugin_digest_digest_learn_pass'), and the next run reads the newest
 // such row from the declared `events` host_read. Same semantics, no host
 // table write.
 
 const now = () => Date.now();
 
-const DOC_SLUG = 'plugin-editorial-digest-interests';
+const DOC_SLUG = 'plugin-digest-interests';
 const LEARN_MARK = '\n\n## Learned — auto-tuned from your dismissals\n';
-// api.log prefixes with plugin_editorial_ — this is the stored `kind`.
-const LEARN_PASS_EVENT_KIND = 'plugin_editorial_digest_learn_pass';
+// api.log prefixes with plugin_digest_ — this is the stored `kind`.
+const LEARN_PASS_EVENT_KIND = 'plugin_digest_digest_learn_pass';
 
 const LEARN_SYSTEM = `You maintain the "avoid" rules for an operator's morning digest.
 
@@ -85,7 +85,7 @@ export async function learnFromDismissals(api, { force = false, lookbackDays = 2
   let dismissed = [];
   try {
     dismissed = (await api.db.prepare(
-      `SELECT kind, title, summary, read_at FROM plugin_editorial_digest_items
+      `SELECT kind, title, summary, read_at FROM plugin_digest_items
        WHERE read_at IS NOT NULL AND starred = 0 AND created_at >= ?
        ORDER BY read_at DESC LIMIT 80`,
     ).bind(since).all()).results || [];

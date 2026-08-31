@@ -2,7 +2,7 @@
   "nyyon_plugin": 2,
   "name": "editorial",
   "title": "Editorial",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "The editorial organism whole: Hot Takes (signals, topics, packages, releases), Blog/AEO (questions, writer, figures, publish) and Social (drafts, cards, gated pushes) as one plugin \u2014 15 shared libs, the full tool set, the cron entry tools, 20 workflows, every editable rule as plugin knowledge, and the three real pages.",
   "origin": {
     "system": "nyyon-app"
@@ -35,14 +35,6 @@
     {
       "path": "cards-figures.mjs",
       "code_file": "lib/cards-figures.mjs"
-    },
-    {
-      "path": "digest-relevance.mjs",
-      "code_file": "lib/digest-relevance.mjs"
-    },
-    {
-      "path": "digest.mjs",
-      "code_file": "lib/digest.mjs"
     },
     {
       "path": "heartbeat.mjs",
@@ -177,6 +169,10 @@
       {
         "table": "web_events",
         "purpose": "blog analytics: pageviews per post from the public site ingest"
+      },
+      {
+        "table": "plugin_digest_items",
+        "purpose": "the topic feed merges the digest pack's actionable items (SELECT-only; digest is the sole writer)"
       }
     ],
     "knowledge": [
@@ -245,14 +241,6 @@
       {
         "name": "plugin_editorial_osint_listeners",
         "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_osint_listeners (source TEXT PRIMARY KEY, label TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, cadence TEXT NOT NULL DEFAULT 'manual', notes TEXT, last_run_at INTEGER, last_status TEXT, last_error TEXT, total_runs INTEGER NOT NULL DEFAULT 0, total_added INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
-      },
-      {
-        "name": "plugin_editorial_digest_items",
-        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_digest_items (id TEXT PRIMARY KEY, kind TEXT NOT NULL, ref_kind TEXT, ref_id TEXT, title TEXT NOT NULL, summary TEXT, source_label TEXT, source_url TEXT, urgency INTEGER NOT NULL DEFAULT 2, actionable INTEGER NOT NULL DEFAULT 0, suggested_action TEXT, starred INTEGER NOT NULL DEFAULT 0, read_at INTEGER, created_at INTEGER NOT NULL, meta_json TEXT); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_digest_items_created_at ON plugin_editorial_digest_items (created_at); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_digest_items_read_at ON plugin_editorial_digest_items (read_at)"
-      },
-      {
-        "name": "plugin_editorial_digest_channels",
-        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_digest_channels (source TEXT PRIMARY KEY, label TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, cadence TEXT NOT NULL DEFAULT 'manual', notes TEXT, last_run_at INTEGER, last_status TEXT, last_error TEXT, total_runs INTEGER NOT NULL DEFAULT 0, total_added INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
       },
       {
         "name": "plugin_editorial_blog_posts",
@@ -1142,24 +1130,6 @@
         }
       },
       {
-        "name": "generate_digest",
-        "code_file": "tools/generate_digest.mjs",
-        "def": {
-          "name": "generate_digest",
-          "description": "Regenerate the morning digest from every enabled channel: prune what has gone stale, pull each channel, dedupe against what is already there. A step in the hourly awareness sweep \u2014 read the result with the digest listing tools.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "since_ms": {
-                "type": "number",
-                "description": "lookback window in ms (default 24h)"
-              }
-            },
-            "required": []
-          }
-        }
-      },
-      {
         "name": "generate_social_posts",
         "code_file": "tools/generate_social_posts.mjs",
         "def": {
@@ -1217,28 +1187,6 @@
             "required": [
               "candidates"
             ]
-          }
-        }
-      },
-      {
-        "name": "learn_dismissals",
-        "code_file": "tools/learn_dismissals.mjs",
-        "def": {
-          "name": "learn_dismissals",
-          "description": "Learn from what the operator dismissed in the digest and tune the interest filter: reads the recent dismissed-not-starred items, asks the model what to avoid, and appends the learned avoid-list to the digest policy note. No-op unless enough new dismissals accumulated since the last pass \u2014 pass force:true to learn now regardless.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "force": {
-                "type": "boolean",
-                "description": "learn even below the new-dismissals threshold"
-              },
-              "lookback_days": {
-                "type": "number",
-                "description": "how far back to harvest dismissals (default 21)"
-              }
-            },
-            "required": []
           }
         }
       },
@@ -2170,24 +2118,6 @@
               "ready_only": {
                 "type": "boolean",
                 "description": "only claim questions whose interview is answered (default false)"
-              }
-            },
-            "required": []
-          }
-        }
-      },
-      {
-        "name": "run_digest",
-        "code_file": "tools/run_digest.mjs",
-        "def": {
-          "name": "run_digest",
-          "description": "Run the digest regenerate pass the cron runs at :30: prune what has gone stale, pull every enabled channel, dedupe against what is already there. Returns the lib's raw result. Safe to run by hand to refresh the morning digest now.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "since_ms": {
-                "type": "number",
-                "description": "lookback window in ms (default 24h)"
               }
             },
             "required": []
@@ -3786,16 +3716,6 @@
         "body_file": "knowledge/plugin-editorial-brain-archive.md"
       },
       {
-        "slug": "plugin-editorial-digest-interests",
-        "title": "What we care about",
-        "body_file": "knowledge/plugin-editorial-digest-interests.md"
-      },
-      {
-        "slug": "plugin-editorial-digest-policy",
-        "title": "plugin-editorial-digest-policy",
-        "body_file": "knowledge/plugin-editorial-digest-policy.md"
-      },
-      {
         "slug": "plugin-editorial-editorial-taste",
         "title": "Editorial taste",
         "body_file": "knowledge/plugin-editorial-editorial-taste.md"
@@ -3859,16 +3779,6 @@
         "slug": "plugin-editorial-industry-pulse",
         "title": "plugin-editorial-industry-pulse",
         "body_file": "knowledge/plugin-editorial-industry-pulse.md"
-      },
-      {
-        "slug": "plugin-editorial-prompt-wa-delivery",
-        "title": "plugin-editorial-prompt-wa-delivery",
-        "body_file": "knowledge/plugin-editorial-prompt-wa-delivery.md"
-      },
-      {
-        "slug": "plugin-editorial-prompt-wa-reply",
-        "title": "plugin-editorial-prompt-wa-reply",
-        "body_file": "knowledge/plugin-editorial-prompt-wa-reply.md"
       },
       {
         "slug": "plugin-editorial-publish-config",
