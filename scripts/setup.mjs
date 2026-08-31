@@ -13,7 +13,7 @@
 // rather than starting a second one.
 
 import { execFileSync, execSync } from 'node:child_process';
-import { appendFileSync, existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -149,18 +149,6 @@ if (priorKey && existsSync(waEnv)) {
 // clean clone it does not exist and wrangler refuses to start at all. Building
 // once here fixes that AND proves the build works before the operator ever
 // runs it. Vite serves the live SPA in dev; this bundle is what deploys.
-// Materialized plugin pages are runtime state and must stay out of git, but a
-// .gitignore FILE would also hide them from Tailwind v4's class scanner (it
-// honors ignore files even against an explicit @source) — the operator's first
-// symptom is plugin pages rendering with broken layout. .git/info/exclude
-// gives git the same answer while staying invisible to Tailwind.
-try {
-  const ex = join(repo, '.git', 'info', 'exclude');
-  const cur = existsSync(ex) ? readFileSync(ex, 'utf8') : '';
-  if (!cur.includes('web/src/plugins/*/')) appendFileSync(ex, 'web/src/plugins/*/\n');
-  say('materialized plugin pages excluded from git (tailwind-safe)');
-} catch { /* not a git checkout — nothing to exclude */ }
-
 head('Building the web app');
 try { run('npm', ['run', 'build'], web); say('web/dist built'); }
 catch (e) { die('the web build failed.', String(e.stdout || e.stderr || e.message).slice(-500)); }
