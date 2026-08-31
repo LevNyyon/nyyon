@@ -249,9 +249,15 @@ export async function validateManifest(env, m) {
   for (const hr of arr(m.requires?.host_reads)) {
     const t = String((typeof hr === 'string' ? hr : hr?.table) || '').toLowerCase();
     if (!/^[a-z][a-z0-9_]{1,60}$/.test(t)) errors.push(`requires.host_reads: bad table name ${JSON.stringify(t)}`);
-    else if (HOST_READ_DENY.has(t) || t.startsWith('gate_') || t.startsWith('plugin')) {
+    else if (HOST_READ_DENY.has(t) || t.startsWith('gate_') || t === 'plugins') {
       errors.push(`requires.host_reads: "${t}" is never grantable`);
+    } else if (t.startsWith(tableNamespace(m.name))) {
+      errors.push(`requires.host_reads: "${t}" is this plugin's own table — no grant needed`);
     }
+    // A plugin_-prefixed table belonging to ANOTHER pack is grantable
+    // SELECT-only, same trust shape as a host-table read: declared, visible at
+    // import, and the runtime holds any write verb to the plugin's own set.
+    // The writer pack remains the only writer.
   }
 
   // Knowledge READ grants: host docs the plugin's tools may read at runtime
