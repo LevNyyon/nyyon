@@ -40,7 +40,7 @@ const SLUG_RE = /^[a-z][a-z0-9-]{1,60}$/;
 // The view kinds the host knows how to render. A surface is a DESCRIPTION,
 // so the renderer is the only thing that ever executes.
 const SURFACE_VIEWS = new Set(['list', 'form', 'markdown']);
-const HOST_READ_DENY = new Set(['gateway_config', 'plugins', 'sync_state', 'knowledge_docs', 'workflows']);
+const HOST_READ_DENY = new Set(['gateway_config', 'plugins', 'sync_state', 'knowledge_docs', 'workflows', 'sessions', 'scheduled_sends']);
 
 // Anything that brings another module into a plugin's scope. v2 code imports
 // NOTHING — it is handed everything it may use — so the rule is simply "none",
