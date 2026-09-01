@@ -78,11 +78,17 @@ const child = spawn('npx',
 // `bound`, and stays there — the Plugins module looks broken for a reason
 // nothing on screen explains. It is idle (one poll every 20s) until there is
 // work, and it no-ops when no applier key exists yet.
+// On a host where the plugins were BAKED IN at build time there is nothing for
+// the applier to materialize, and the filesystem is rebuilt on every deploy
+// anyway — running it just costs memory. Same for the Telegram poller with no
+// bot token: it would sit in a sleep loop holding ~40MB.
+const wantApplier = process.env.NYYON_SKIP_APPLIER !== '1';
+const wantTelegram = !!process.env.TELEGRAM_BOT_TOKEN || process.env.NYYON_SKIP_APPLIER !== '1';
 const sidecars = [
-  ['plugin applier', join(repo, 'services', 'plugins', 'apply.mjs')],
+  ...(wantApplier ? [['plugin applier', join(repo, 'services', 'plugins', 'apply.mjs')]] : []),
   // The Telegram line's only inbound path — a Worker cannot hold a long poll
   // open. It sleeps until a bot token exists, so it costs nothing when unused.
-  ['telegram poll', join(repo, 'services', 'telegram', 'poll.mjs')],
+  ...(wantTelegram ? [['telegram poll', join(repo, 'services', 'telegram', 'poll.mjs')]] : []),
 ].map(([label, script]) => {
   const p = spawn(process.execPath, [script], {
     cwd: repo,

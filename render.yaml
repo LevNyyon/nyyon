@@ -30,6 +30,10 @@ services:
         value: 0.0.0.0
       - key: NYYON_INTERNAL_CRON  # scheduled work runs inside this instance
         value: "1"
+      - key: NYYON_SKIP_APPLIER   # packs are baked at build time here
+        value: "1"
+      - key: NODE_OPTIONS         # keep the parent process lean
+        value: --max-old-space-size=256
       - key: NODE_VERSION
         value: "22"
       - key: GATE_SECRET          # session signing key, generated per install
