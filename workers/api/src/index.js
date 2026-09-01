@@ -99,7 +99,26 @@ async function hasSetupAccess(c) {
     session: await hasGateSession(c),
   }).catch(() => false);
 }
+// An install whose database will be erased on the next restart must never take
+// an operator through setup. Someone spends an hour on their voice, their
+// sources, their plan — and it is gone with no warning. That is the single
+// worst thing this product could do to a person, so account creation is
+// refused outright and the reason is stated where they will read it.
+// NYYON_ALLOW_EPHEMERAL=1 is the deliberate opt-out for a throwaway demo.
+function ephemeralBlock(c) {
+  if (c.env.NYYON_STORAGE !== 'ephemeral') return null;
+  if (c.env.NYYON_ALLOW_EPHEMERAL === '1') return null;
+  return c.json({
+    ok: false,
+    error: 'This instance has no permanent storage, so anything you set up here would be erased the next time it restarts. Setup is blocked on purpose.',
+    fix: 'Attach a disk and point NYYON_STATE_DIR at it. On Render: switch to the Starter plan, add a 1GB disk mounted at /var/data, set NYYON_STATE_DIR=/var/data/wrangler, then redeploy.',
+    detail: c.env.NYYON_STORAGE_WHY || null,
+    storage: 'ephemeral',
+  }, 409);
+}
+
 async function requireSetupAccess(c) {
+  const blocked = ephemeralBlock(c); if (blocked) return blocked;
   const st = await readInstallState(c.env).catch(() => null);
   if (!st || st.setup_complete) return c.json({ error: 'not found' }, 404);
   if (!(await hasSetupAccess(c))) {
@@ -117,9 +136,14 @@ async function requireSetupAccess(c) {
 // interview's CONTENTS (company, audience, which gateways are wired) need
 // setup access, because on a publicly reachable fresh deploy this endpoint is
 // world-readable.
-app.get('/api/onboarding/state', async (c) => c.json(
-  await onboardingState(c.env, { detail: await hasSetupAccess(c) }),
-));
+app.get('/api/onboarding/state', async (c) => c.json({
+  ...(await onboardingState(c.env, { detail: await hasSetupAccess(c) })),
+  // The boot screen needs to KNOW when this install cannot keep data, so it can
+  // say so instead of cheerfully asking for an account it will forget.
+  storage: c.env.NYYON_STORAGE === 'ephemeral'
+    ? { persistent: false, allowed: c.env.NYYON_ALLOW_EPHEMERAL === '1', why: c.env.NYYON_STORAGE_WHY || null }
+    : { persistent: true },
+}));
 
 // STEP ONE, and the reason the whole sequence was reordered: the account, as a
 // plain form, with no model and no interview in front of it. It creates the

@@ -289,6 +289,9 @@ export type GatewayStatus = {
 // rest is what the interview has actually produced so far — the page reports
 // those, it does not compute them.
 export type OnboardingState = {
+  /** Can this install keep data? A container without a mounted disk cannot,
+   *  and the boot screen must say so rather than take someone through setup. */
+  storage?: { persistent: boolean; allowed?: boolean; why?: string | null };
   /** false = no model key yet, so the interview cannot run at all */
   llm_ready?: boolean;
   /** boot should land on the setup surface (not finished, not postponed) */

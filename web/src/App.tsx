@@ -63,7 +63,7 @@ const navTitle = (n: Nav) => NAV_TITLES[n] ?? n.charAt(0).toUpperCase() + n.slic
 //
 // `account` stays first because it is the only step that has to happen outside
 // the app: it creates the login. Everything after it runs signed in.
-type Boot = 'checking' | 'account' | 'llm-key' | 'app';
+type Boot = 'checking' | 'account' | 'llm-key' | 'app' | 'no-storage';
 
 export default function App() {
   // Auth gate: any 401 from the API layer flips this on. Rendering the sign-in
@@ -80,6 +80,7 @@ export default function App() {
   const [boot, setBoot] = useState<Boot>('checking');
   const [editAccount, setEditAccount] = useState(false);
   const [bootStep, setBootStep] = useState<string | null>(null);
+  const [storageWhy, setStorageWhy] = useState<string | null>(null);
   // They postponed the interview and are running on the shipped default voice
   // documents. Not an error state and not a nag — it is what the banner offers
   // to fix, and only the server's word decides it. Deliberately NOT raised for
@@ -100,6 +101,14 @@ export default function App() {
       const s = await onboarding.state();
       setBootStep(s?.step ?? null);
       setSetupDeferred(s?.setup_deferred === true);
+      // An install that cannot keep data must not walk anyone through setup:
+      // an hour of work would vanish at the next restart with no warning. Say
+      // so instead, before a single field is filled.
+      if (s?.storage && s.storage.persistent === false && s.storage.allowed !== true) {
+        setStorageWhy(s.storage.why || null);
+        setBoot('no-storage');
+        return;
+      }
       // `needed: false` = finished, or postponed. Either way: the app.
       if (s?.needed !== true)      { setBoot('app'); return; }
       if (s?.has_admin !== true)   { setBoot('account'); return; }
@@ -222,6 +231,33 @@ export default function App() {
   // Step 1. The only screen that runs before there is an account, and the only
   // one nobody can skip: it creates the login and signs them in. Everything
   // after it happens inside their own install.
+  // The stop screen. No form, no way past it — fixing it is a hosting change,
+  // and the exact change is spelled out rather than hinted at.
+  if (boot === 'no-storage') return (
+    <div className="h-full bg-paper grid place-items-center p-6">
+      <div className="max-w-lg space-y-4">
+        <div className="mono text-[10px] uppercase tracking-[0.2em] text-mute">nyyon · setup stopped</div>
+        <h1 className="text-lg font-semibold">This instance would forget everything</h1>
+        <p className="text-[13px] leading-relaxed">
+          It has no permanent storage attached, so the database lives on a filesystem that is
+          erased every time the instance restarts or redeploys. Setup is blocked on purpose:
+          an hour of work here would disappear without warning.
+        </p>
+        <div className="hairline rounded-sm p-3 bg-card text-[12px] leading-relaxed">
+          <div className="font-semibold mb-1">To fix it</div>
+          Attach a disk and point <span className="mono">NYYON_STATE_DIR</span> at it. On Render:
+          switch to the Starter plan, add a 1GB disk mounted at <span className="mono">/var/data</span>,
+          set <span className="mono">NYYON_STATE_DIR=/var/data/wrangler</span>, then redeploy.
+        </div>
+        {storageWhy && <p className="text-[11px] text-mute mono">{storageWhy}</p>}
+        <p className="text-[11px] text-mute">
+          Only running a throwaway demo? Set <span className="mono">NYYON_ALLOW_EPHEMERAL=1</span> and
+          this screen steps aside — the data still will not survive.
+        </p>
+      </div>
+    </div>
+  );
+
   if (boot === 'account') return <OnboardingAccount onDone={() => void checkBoot()} />;
 
   // Step 2, and the last one. Everything this install writes runs on a model,

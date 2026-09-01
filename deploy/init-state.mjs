@@ -25,6 +25,18 @@ const dbFile = existing.length
   ? join(D1DIR, existing.sort((a, b) => readFileSync(join(D1DIR, b)).length - readFileSync(join(D1DIR, a)).length)[0])
   : join(D1DIR, `${idFor('LOCAL')}.sqlite`);
 
+// Does this instance have durable storage? The worker needs to know, because
+// an install that cannot remember must not invite anyone to set it up.
+const { storageReport } = await import('./check-persistence.mjs');
+const storage = storageReport();
+console.log(`[init] storage: ${storage.persistent ? 'PERSISTENT' : 'EPHEMERAL'} — ${storage.why}`);
+if (!storage.persistent && process.env.NYYON_ALLOW_EPHEMERAL !== '1') {
+  console.error('[init] Refusing to present a setup screen for data that would be erased.');
+  console.error('[init] Attach a disk and point NYYON_STATE_DIR at it (Render: Starter plan,');
+  console.error('[init] a 1GB disk at /var/data, NYYON_STATE_DIR=/var/data/wrangler).');
+  console.error('[init] To run a deliberately throwaway demo: NYYON_ALLOW_EPHEMERAL=1');
+}
+
 // The worker reads its secrets from workers/api/.dev.vars (wrangler's local
 // convention). A container has environment variables instead, so write the
 // file from them — generating the ones that must simply exist and be stable
@@ -36,6 +48,10 @@ const dbFile = existing.length
     const vars = {
       GATE_SECRET: process.env.GATE_SECRET || gen(),
       NYYON_APPLIER_KEY: process.env.NYYON_APPLIER_KEY || gen(),
+      // The gate reads this and blocks account creation on throwaway storage.
+      NYYON_STORAGE: storage.persistent ? 'persistent' : 'ephemeral',
+      NYYON_STORAGE_WHY: storage.why,
+      ...(process.env.NYYON_ALLOW_EPHEMERAL === '1' ? { NYYON_ALLOW_EPHEMERAL: '1' } : {}),
     };
     // Anything else the operator configured on the platform travels through
     // untouched (model keys, gateway credentials).
