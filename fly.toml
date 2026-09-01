@@ -1,0 +1,35 @@
+# One machine, one volume: the whole install lives here.
+app = "nyyon"
+primary_region = "fra"
+
+[build]
+
+[env]
+  NYYON_PREBUILT = "1"
+  NYYON_SKIP_APPLIER = "1"
+  NYYON_INTERNAL_CRON = "1"
+  NYYON_BIND_IP = "0.0.0.0"
+  NYYON_STATE_DIR = "/data/wrangler"
+  PORT = "8080"
+
+# The database lives on this volume, so it survives deploys and restarts.
+[mounts]
+  source = "nyyon_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"   # idle machines suspend, state kept on the volume
+  auto_start_machines = true
+  min_machines_running = 0
+  [[http_service.checks]]
+    path = "/__up"                 # unauthenticated liveness probe
+    method = "GET"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "60s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"                   # measured: ~180MB at rest, headroom for spikes
