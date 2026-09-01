@@ -25,6 +25,29 @@ const dbFile = existing.length
   ? join(D1DIR, existing.sort((a, b) => readFileSync(join(D1DIR, b)).length - readFileSync(join(D1DIR, a)).length)[0])
   : join(D1DIR, `${idFor('LOCAL')}.sqlite`);
 
+// The worker reads its secrets from workers/api/.dev.vars (wrangler's local
+// convention). A container has environment variables instead, so write the
+// file from them — generating the ones that must simply exist and be stable
+// for the life of this instance. Never overwrite an existing file.
+{
+  const varsPath = join(REPO, 'workers', 'api', '.dev.vars');
+  if (!existsSync(varsPath)) {
+    const gen = () => createHash('sha256').update(`${Math.random()}${Date.now()}${process.pid}`).digest('hex');
+    const vars = {
+      GATE_SECRET: process.env.GATE_SECRET || gen(),
+      NYYON_APPLIER_KEY: process.env.NYYON_APPLIER_KEY || gen(),
+    };
+    // Anything else the operator configured on the platform travels through
+    // untouched (model keys, gateway credentials).
+    for (const [k, v] of Object.entries(process.env)) {
+      if (!v) continue;
+      if (/^(ANTHROPIC|OPENAI|NYYON_GW_|WA_|LI_|UNIPILE|TELEGRAM|SERP|PDL|TWILIO|THEORG|DEV_API_KEY)/.test(k)) vars[k] = v;
+    }
+    writeFileSync(varsPath, Object.entries(vars).map(([k, v]) => `${k}="${String(v).replace(/"/g, '\\"')}"`).join('\n') + '\n');
+    console.log(`[init] wrote .dev.vars (${Object.keys(vars).length} keys) from the environment`);
+  }
+}
+
 const db = new DatabaseSync(dbFile);
 db.exec('PRAGMA foreign_keys=ON');
 const already = () => {
