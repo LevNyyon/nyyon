@@ -80,7 +80,6 @@ export default function App() {
   const [boot, setBoot] = useState<Boot>('checking');
   const [editAccount, setEditAccount] = useState(false);
   const [bootStep, setBootStep] = useState<string | null>(null);
-  const [storageWhy, setStorageWhy] = useState<string | null>(null);
   const [storageSettingsUrl, setStorageSettingsUrl] = useState<string | null>(null);
   const [storageHost, setStorageHost] = useState<string | null>(null);
   // They postponed the interview and are running on the shipped default voice
@@ -107,7 +106,6 @@ export default function App() {
       // an hour of work would vanish at the next restart with no warning. Say
       // so instead, before a single field is filled.
       if (s?.storage && s.storage.persistent === false && s.storage.allowed !== true) {
-        setStorageWhy(s.storage.why || null);
         setStorageSettingsUrl(s.storage.settings_url || null);
         setStorageHost(s.storage.host || null);
         setBoot('no-storage');
@@ -235,52 +233,50 @@ export default function App() {
   // Step 1. The only screen that runs before there is an account, and the only
   // one nobody can skip: it creates the login and signs them in. Everything
   // after it happens inside their own install.
-  // Not a dead end: an invitation. The instance is built and running — it just
-  // needs somewhere to keep things. So: name the one setting, link straight to
-  // the page that sets it, and offer a "check again" so fixing it continues the
-  // install instead of restarting it. Looking around without keeping anything
-  // stays available, as an informed choice rather than an accident.
+  // The most common mistake a new install will make: deploying on the free
+  // plan, where the filesystem is wiped on every restart. So this reads as a
+  // setup step, not a failure — the ask, the reason in one short paragraph, and
+  // a button straight to the page that fixes it.
   if (boot === 'no-storage') return (
     <div className="h-full bg-paper grid place-items-center p-6">
-      <div className="max-w-lg space-y-5">
-        <div className="mono text-[10px] uppercase tracking-[0.2em] text-mute">nyyon · one step left</div>
-        <h1 className="text-lg font-semibold">Give your install somewhere to remember</h1>
+      <div className="max-w-md space-y-4">
+        <div className="mono text-[10px] uppercase tracking-[0.2em] text-mute">nyyon · setup</div>
+
+        <h1 className="text-lg font-semibold leading-snug">
+          You need persistent storage, for that you need a Starter account
+        </h1>
+
         <p className="text-[13px] leading-relaxed">
-          Everything works — it just has no disk attached yet, so anything you set up now
-          would be gone the next time it restarts. Add storage and it keeps your account,
-          your voice and your plans for good.
+          Your install keeps everything in its own database on this machine — your login, your
+          voice, your plans, your leads. On the free plan the machine is wiped every time it
+          restarts, so none of it would still be here tomorrow. A Starter plan lets you attach a
+          small disk, and then the install remembers.
         </p>
 
-        <div className="hairline rounded-sm p-3.5 bg-card text-[12px] leading-relaxed space-y-2">
-          <div className="font-semibold">Two settings, once</div>
-          <ol className="list-decimal ml-4 space-y-1">
-            <li>Add a <strong>1GB disk</strong> mounted at <span className="mono">/var/data</span> (needs the Starter plan).</li>
-            <li>Set <span className="mono">NYYON_STATE_DIR</span> to <span className="mono">/var/data/wrangler</span>, then redeploy.</li>
-          </ol>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          {storageSettingsUrl && (
-            <a href={storageSettingsUrl} target="_blank" rel="noreferrer"
-               className="text-[12px] px-3 py-2 rounded-sm bg-ink text-paper">
-              Open {storageHost || 'the host'} settings →
-            </a>
-          )}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <a
+            href={storageSettingsUrl || 'https://dashboard.render.com'}
+            target="_blank" rel="noreferrer"
+            className="text-[12px] px-3.5 py-2 rounded-sm bg-ink text-paper"
+          >Add storage on {storageHost || 'Render'} →</a>
           <button onClick={() => void checkBoot()}
                   className="text-[12px] px-3 py-2 rounded-sm hairline bg-card hover:bg-card/70">
             I added it — check again
           </button>
         </div>
 
-        <div className="pt-1 border-t border-line/60">
+        <p className="text-[11px] text-mute leading-relaxed pt-1">
+          A 1GB disk mounted at <span className="mono">/var/data</span>, then set{' '}
+          <span className="mono">NYYON_STATE_DIR</span> to <span className="mono">/var/data/wrangler</span>{' '}
+          and redeploy.
+        </p>
+
+        <div className="pt-2 border-t border-line/60">
           <button
-            onClick={async () => { try { await onboarding.allowEphemeral(); } catch { /* re-check tells the truth */ } void checkBoot(); }}
+            onClick={async () => { try { await onboarding.allowEphemeral(); } catch { /* the re-check tells the truth */ } void checkBoot(); }}
             className="text-[11px] text-mute hover:text-ink underline underline-offset-2"
           >Just looking — continue without keeping anything</button>
-          <p className="text-[11px] text-mute mt-1">Nothing you do will survive a restart. Fine for a look, not for real work.</p>
         </div>
-
-        {storageWhy && <p className="text-[10px] text-mute mono pt-1">{storageWhy}</p>}
       </div>
     </div>
   );
