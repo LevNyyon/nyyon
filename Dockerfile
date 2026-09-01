@@ -21,7 +21,8 @@ COPY . .
 
 # Bake the bundled plugins into the tree (the applier's build-time twin), then
 # build the SPA. A pack the validator refuses fails the image, not the user.
-RUN node scripts/materialize-bundled.mjs \
+RUN node scripts/bundle-schema.mjs \
+ && node scripts/materialize-bundled.mjs \
  && (cd web && npm run build)
 
 FROM node:22-slim

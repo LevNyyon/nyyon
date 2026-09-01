@@ -69,6 +69,43 @@ app.use('*', async (c, next) => { await next(); c.header('X-Nyyon-Build', BUILD)
 // Auth gate — must run before every route. Unauthenticated requests get the
 // login page (navigations) or 401 (/api). The single credential + rate limit
 // live in gate.js; the password is a Cloudflare secret, not in this repo.
+// Before anything else, on the FIRST request only: if this deploy arrived
+// with an empty database (the one-click path runs no migrations), build it.
+// Runs ahead of the gate so the very first visitor is not met with a 500.
+// A deploy can arrive with an EMPTY database (the one-click path runs no
+// migrations). The worker builds its own — in the BACKGROUND, because the
+// schema is far too large to finish inside one request, and answering "please
+// wait" beats a timeout. Once built, this is a single cheap query per isolate.
+app.use('*', async (c, next) => {
+  let building = false;
+  try {
+    const { needsInit, selfInit } = await import('./lib/self-init.js');
+    if (await needsInit(c.env)) {
+      building = true;
+      c.executionCtx?.waitUntil?.(selfInit(c.env));
+    }
+  } catch { /* a normal install is already built; never block a request on this */ }
+  if (!building) return next();
+
+  // Still coming up. APIs get JSON, browsers get a page that refreshes itself.
+  if (c.req.path.startsWith('/api/') || c.req.path.startsWith('/__')) {
+    return c.json({ ok: false, status: 'initializing', note: 'This install is building its database. Retry in a few seconds.' }, 503);
+  }
+  return c.html(
+    `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="5">
+     <title>nyyon · setting up</title>
+     <style>body{font:14px/1.6 system-ui,sans-serif;background:#FAFAF9;color:#0A0A0A;display:grid;place-items:center;height:100vh;margin:0}
+     div{max-width:24rem;padding:1.5rem}p{color:#78716C}
+     .e{font:10px/1 ui-monospace,monospace;letter-spacing:.2em;text-transform:uppercase;color:#78716C;margin-bottom:1rem}</style>
+     <div><div class="e">nyyon · setting up</div>
+     <h1 style="font-size:1.05rem;margin:.2rem 0 .6rem">Preparing your install</h1>
+     <p>Building your database and installing the modules. This takes under a minute, and
+     this page refreshes itself — nothing for you to do.</p></div>`,
+    503,
+    { 'Retry-After': '5' },
+  );
+});
+
 app.use('*', gate());
 app.post('/__gate/login', handleGateLogin);
 app.post('/__gate/logout', handleGateLogout);

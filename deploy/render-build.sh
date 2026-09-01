@@ -11,6 +11,7 @@ echo "== bake the bundled plugins into the source tree =="
 # A container's filesystem is rebuilt on every deploy, so the applier's
 # runtime materialization cannot be the only path — the packs are baked in
 # at BUILD time, exactly as they are for any non-writable host.
+node scripts/bundle-schema.mjs
 node scripts/materialize-bundled.mjs
 
 echo "== build the app =="

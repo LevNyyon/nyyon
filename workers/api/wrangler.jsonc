@@ -20,7 +20,10 @@
   // bundled as raw data from src/assets/fonts/.
   "rules": [
     { "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true },
-    { "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true }
+    { "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true },
+    // The schema travels INSIDE the bundle, so a worker deployed by a button
+    // (nothing runs migrations in that flow) can build its own database.
+    { "type": "Text", "globs": ["**/*.sql"], "fallthrough": true }
   ],
 
   "dev": {
