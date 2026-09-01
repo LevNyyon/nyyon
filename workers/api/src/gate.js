@@ -140,6 +140,12 @@ export function gate() {
     const path = c.req.path;
     if (path === '/__gate/login' || path === '/__gate/logout') return next();
 
+    // Liveness probe. Container hosts restart an instance whose health check
+    // does not return 2xx, so this must answer BEFORE the cookie check — a
+    // gated probe reads as "unhealthy" forever. It reveals nothing: a fixed
+    // string, no state, no data.
+    if (path === '/__up') return c.text('ok');
+
     // Public brand/favicon assets — served without auth so the Nyyon icon renders
     // on the login page and in the browser tab before sign-in. Not sensitive.
     if (path === '/favicon.ico' ||

@@ -16,7 +16,7 @@ services:
     branch: main
     buildCommand: bash ./deploy/render-build.sh
     startCommand: bash ./deploy/render-start.sh
-    healthCheckPath: /api/health
+    healthCheckPath: /__up
     autoDeploy: false
     disk:
       name: nyyon-data
