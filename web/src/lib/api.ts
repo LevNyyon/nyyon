@@ -291,7 +291,14 @@ export type GatewayStatus = {
 export type OnboardingState = {
   /** Can this install keep data? A container without a mounted disk cannot,
    *  and the boot screen must say so rather than take someone through setup. */
-  storage?: { persistent: boolean; allowed?: boolean; why?: string | null };
+  storage?: {
+    persistent: boolean;
+    allowed?: boolean;
+    why?: string | null;
+    host?: string | null;
+    /** the host's settings page for this instance, when we can name it */
+    settings_url?: string | null;
+  };
   /** false = no model key yet, so the interview cannot run at all */
   llm_ready?: boolean;
   /** boot should land on the setup surface (not finished, not postponed) */
@@ -392,6 +399,9 @@ async function ob<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const onboarding = {
   state: () => ob<OnboardingState>('/api/onboarding/state'),
+  // "I know this instance will not keep anything — let me look around." Recorded
+  // server-side in the temporary database it concerns, so a restart re-asks.
+  allowEphemeral: () => ob<{ ok: boolean; error?: string }>('/api/onboarding/allow-ephemeral', { method: 'POST' }),
   // STEP ONE: the account. A form, no model, no conversation. `signed_in`
   // means the worker already issued the session cookie, so the app carries
   // straight on into step two instead of stopping at a login box for a

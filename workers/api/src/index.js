@@ -105,6 +105,22 @@ async function hasSetupAccess(c) {
 // worst thing this product could do to a person, so account creation is
 // refused outright and the reason is stated where they will read it.
 // NYYON_ALLOW_EPHEMERAL=1 is the deliberate opt-out for a throwaway demo.
+async function ephemeralAcked(env) {
+  // The acknowledgement lives in the SAME temporary database it is about, so
+  // it disappears with the data — a restart re-asks, which is correct.
+  try {
+    const r = await env.DB.prepare("SELECT value FROM sync_state WHERE key = 'ephemeral_ack'").first();
+    return r?.value === '1';
+  } catch { return false; }
+}
+
+async function ephemeralBlockAsync(c) {
+  if (c.env.NYYON_STORAGE !== 'ephemeral') return null;
+  if (c.env.NYYON_ALLOW_EPHEMERAL === '1') return null;
+  if (await ephemeralAcked(c.env)) return null;
+  return ephemeralBlock(c);
+}
+
 function ephemeralBlock(c) {
   if (c.env.NYYON_STORAGE !== 'ephemeral') return null;
   if (c.env.NYYON_ALLOW_EPHEMERAL === '1') return null;
@@ -118,7 +134,7 @@ function ephemeralBlock(c) {
 }
 
 async function requireSetupAccess(c) {
-  const blocked = ephemeralBlock(c); if (blocked) return blocked;
+  const blocked = await ephemeralBlockAsync(c); if (blocked) return blocked;
   const st = await readInstallState(c.env).catch(() => null);
   if (!st || st.setup_complete) return c.json({ error: 'not found' }, 404);
   if (!(await hasSetupAccess(c))) {
@@ -141,9 +157,34 @@ app.get('/api/onboarding/state', async (c) => c.json({
   // The boot screen needs to KNOW when this install cannot keep data, so it can
   // say so instead of cheerfully asking for an account it will forget.
   storage: c.env.NYYON_STORAGE === 'ephemeral'
-    ? { persistent: false, allowed: c.env.NYYON_ALLOW_EPHEMERAL === '1', why: c.env.NYYON_STORAGE_WHY || null }
+    ? {
+        persistent: false,
+        allowed: c.env.NYYON_ALLOW_EPHEMERAL === '1' || (await ephemeralAcked(c.env)),
+        why: c.env.NYYON_STORAGE_WHY || null,
+        host: c.env.NYYON_HOST || null,
+        // Deep link straight to the settings page that fixes it.
+        settings_url: c.env.NYYON_HOST_SERVICE_ID
+          ? `https://dashboard.render.com/web/${c.env.NYYON_HOST_SERVICE_ID}`
+          : (c.env.NYYON_HOST_APP ? `https://fly.io/apps/${c.env.NYYON_HOST_APP}` : null),
+      }
     : { persistent: true },
 }));
+
+// "I know it will not be kept — let me look around anyway." An informed choice,
+// recorded in the temporary database it concerns, so a restart asks again.
+app.post('/api/onboarding/allow-ephemeral', async (c) => {
+  if (c.env.NYYON_STORAGE !== 'ephemeral') return c.json({ ok: true, note: 'storage is persistent' });
+  const st = await readInstallState(c.env).catch(() => null);
+  // Only before this install belongs to anyone: afterwards it is not the
+  // visitor's call to make.
+  if (st?.has_admin) return c.json({ ok: false, error: 'this install already has an operator' }, 403);
+  await c.env.DB.prepare(
+    `INSERT INTO sync_state (key, value, updated_at) VALUES ('ephemeral_ack', '1', ?)
+     ON CONFLICT(key) DO UPDATE SET value = '1', updated_at = excluded.updated_at`,
+  ).bind(Date.now()).run();
+  await logEvent(c.env, { kind: 'ephemeral_acknowledged', actor: 'operator', payload: {} });
+  return c.json({ ok: true });
+});
 
 // STEP ONE, and the reason the whole sequence was reordered: the account, as a
 // plain form, with no model and no interview in front of it. It creates the

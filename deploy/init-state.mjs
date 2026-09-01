@@ -51,6 +51,10 @@ if (!storage.persistent && process.env.NYYON_ALLOW_EPHEMERAL !== '1') {
       // The gate reads this and blocks account creation on throwaway storage.
       NYYON_STORAGE: storage.persistent ? 'persistent' : 'ephemeral',
       NYYON_STORAGE_WHY: storage.why,
+      // Enough to send the operator straight to the right settings page.
+      ...(storage.host ? { NYYON_HOST: storage.host } : {}),
+      ...(process.env.RENDER_SERVICE_ID ? { NYYON_HOST_SERVICE_ID: process.env.RENDER_SERVICE_ID } : {}),
+      ...(process.env.FLY_APP_NAME ? { NYYON_HOST_APP: process.env.FLY_APP_NAME } : {}),
       ...(process.env.NYYON_ALLOW_EPHEMERAL === '1' ? { NYYON_ALLOW_EPHEMERAL: '1' } : {}),
     };
     // Anything else the operator configured on the platform travels through
