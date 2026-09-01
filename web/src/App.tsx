@@ -81,6 +81,10 @@ export default function App() {
   const [editAccount, setEditAccount] = useState(false);
   const [bootStep, setBootStep] = useState<string | null>(null);
   const [storageSettingsUrl, setStorageSettingsUrl] = useState<string | null>(null);
+  // The re-check needs to SAY something. Without this the button re-renders the
+  // same screen and reads as broken — the honest answer is usually "still no
+  // disk", because adding one triggers a redeploy that has to finish first.
+  const [storageCheck, setStorageCheck] = useState<'idle' | 'checking' | 'still-ephemeral' | 'failed'>('idle');
   const [storageHost, setStorageHost] = useState<string | null>(null);
   // They postponed the interview and are running on the shipped default voice
   // documents. Not an error state and not a nag — it is what the banner offers
@@ -259,11 +263,34 @@ export default function App() {
             target="_blank" rel="noreferrer"
             className="text-[12px] px-3.5 py-2 rounded-sm bg-ink text-paper"
           >Add storage on {storageHost || 'Render'} →</a>
-          <button onClick={() => void checkBoot()}
-                  className="text-[12px] px-3 py-2 rounded-sm hairline bg-card hover:bg-card/70">
-            I added it — check again
+          <button
+            disabled={storageCheck === 'checking'}
+            onClick={async () => {
+              setStorageCheck('checking');
+              try {
+                const s2 = await onboarding.state();
+                if (s2?.storage?.persistent === true || s2?.storage?.allowed === true) { void checkBoot(); return; }
+                setStorageCheck('still-ephemeral');
+              } catch { setStorageCheck('failed'); }
+            }}
+            className="text-[12px] px-3 py-2 rounded-sm hairline bg-card hover:bg-card/70 disabled:opacity-50">
+            {storageCheck === 'checking' ? 'Checking…' : 'I added it — check again'}
           </button>
         </div>
+
+        {storageCheck === 'still-ephemeral' && (
+          <p className="text-[12px] leading-relaxed text-amber-700 dark:text-amber-400">
+            Still running on temporary storage. If you just added the disk, {storageHost || 'the host'} is
+            redeploying — that takes a couple of minutes, and this page works the moment it finishes.
+            Check that the disk is mounted at <span className="mono">/var/data</span> and{' '}
+            <span className="mono">NYYON_STATE_DIR</span> is <span className="mono">/var/data/wrangler</span>.
+          </p>
+        )}
+        {storageCheck === 'failed' && (
+          <p className="text-[12px] text-amber-700 dark:text-amber-400">
+            Could not reach the install just now — it may be restarting. Try again in a moment.
+          </p>
+        )}
 
         <p className="text-[11px] text-mute leading-relaxed pt-1">
           A 1GB disk mounted at <span className="mono">/var/data</span>, then set{' '}
