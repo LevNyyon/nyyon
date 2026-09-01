@@ -2,7 +2,22 @@
 
 An AI command center you own: outreach, writing, and publishing from one place, in your voice. A chat assistant called **Nyo** sits at the center, surrounded by **modules** (product areas with their own pages) and **tools** (granular capabilities Nyo can use). It runs entirely on your own machine: Workers runtime plus a local SQLite (D1) database.
 
-## Install it on the web (one click)
+## Install it on the web, free
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LevNyyon/nyyon)
+
+A free Cloudflare account is all it takes — no card, no server to rent. The
+button forks this repo to your GitHub, creates your own database (D1) and
+storage bucket, deploys, and hands you an https address. Open it and create
+your account: the first person through the door within the first hour becomes
+the operator, so there is no code to hunt for.
+
+Everything is yours: your data lives in YOUR database, the four modules
+(Daily Planner, Digest, Editorial, GTM) are installed and active on arrival,
+and nothing is pre-loaded — no sample data, no keys. Add an Anthropic key in
+Settings when you want Nyo to answer.
+
+## Install it on the web (Render, with a disk)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LevNyyon/nyyon)
 
