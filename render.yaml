@@ -25,6 +25,7 @@ services:
     envVars:
       - key: NYYON_STATE_DIR      # the database + R2 state live on the disk
         value: /var/data/wrangler
+      # PORT is supplied by the platform and must be the port we listen on.
       - key: NYYON_BIND_IP        # the platform router reaches us
         value: 0.0.0.0
       - key: NYYON_INTERNAL_CRON  # scheduled work runs inside this instance

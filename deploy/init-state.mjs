@@ -1,0 +1,75 @@
+#!/usr/bin/env node
+// Prepare this instance's OWN database, on its own disk.
+//
+// Creates the miniflare D1 file wrangler will open, applies schema + every
+// migration, and registers the packs baked in at build time. Idempotent: a
+// redeploy re-runs it and finds the work already done. No network, no hosted
+// database — the file lives on this machine.
+import { readFileSync, existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
+import { join, dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
+
+const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const STATE = process.env.NYYON_STATE_DIR || join(REPO, 'workers', 'api', '.wrangler', 'state');
+const D1DIR = join(STATE, 'v3', 'd1', 'miniflare-D1DatabaseObject');
+mkdirSync(D1DIR, { recursive: true });
+
+// Miniflare names the file from the binding's database id. wrangler.jsonc uses
+// the literal "LOCAL", and miniflare hashes it — match that so the server
+// opens the database we just built rather than an empty second one.
+const idFor = (s) => createHash('sha256').update(s).digest('hex');
+const existing = readdirSync(D1DIR).filter((f) => f.endsWith('.sqlite') && f !== 'metadata.sqlite');
+const dbFile = existing.length
+  ? join(D1DIR, existing.sort((a, b) => readFileSync(join(D1DIR, b)).length - readFileSync(join(D1DIR, a)).length)[0])
+  : join(D1DIR, `${idFor('LOCAL')}.sqlite`);
+
+const db = new DatabaseSync(dbFile);
+db.exec('PRAGMA foreign_keys=ON');
+const already = () => {
+  try { return !!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='plugins'").get(); }
+  catch { return false; }
+};
+
+if (!already()) {
+  console.log('[init] building the database at', dbFile);
+  // Whole-file exec first (node:sqlite runs multi-statement SQL, and it keeps
+  // multi-line CREATEs intact). Only if a file trips — a historical migration
+  // referencing a table later removed from the schema — fall back to
+  // statement-at-a-time so ONE bad statement cannot skip the whole file.
+  const run = (sql, label) => {
+    try { db.exec(sql); return; } catch { /* fall through */ }
+    let depth = 0, buf = '';
+    const stmts = [];
+    for (const ch of sql) {
+      if (ch === '(') depth++;
+      if (ch === ')') depth--;
+      if (ch === ';' && depth <= 0) { stmts.push(buf); buf = ''; continue; }
+      buf += ch;
+    }
+    if (buf.trim()) stmts.push(buf);
+    for (const raw of stmts) {
+      const st = raw.split('\n').filter((l) => !l.trim().startsWith('--')).join('\n').trim();
+      if (!st) continue;
+      try { db.exec(st); } catch (e) {
+        const m = String(e?.message || e);
+        if (/already exists|duplicate column/i.test(m)) continue;
+        console.error(`[init] ${label}: ${m.slice(0, 110)}`);
+      }
+    }
+  };
+  run(readFileSync(join(REPO, 'db', 'schema.sql'), 'utf8'), 'schema');
+  for (const f of readdirSync(join(REPO, 'db', 'migrations')).filter((f) => f.endsWith('.sql')).sort()) {
+    run(readFileSync(join(REPO, 'db', 'migrations', f), 'utf8'), f);
+  }
+  console.log('[init] schema + migrations applied');
+} else {
+  console.log('[init] database already present — leaving it alone');
+}
+db.close();
+
+// Register the baked packs (its own module: it opens the same file).
+const { execFileSync } = await import('node:child_process');
+try { execFileSync(process.execPath, [join(REPO, 'deploy', 'register-bundled.mjs')], { stdio: 'inherit', env: process.env }); }
+catch (e) { console.error('[init] register-bundled:', e?.message || e); }

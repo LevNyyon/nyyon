@@ -57,7 +57,9 @@ if (!distAt || newestSourceMtime(web) > distAt) {
   }
 }
 
-const PORT = process.env.NYYON_API_PORT || '8799';
+// PORT is what container hosts assign and then route to; NYYON_API_PORT is
+// the VM's fixed port behind Caddy. Honour the platform first.
+const PORT = process.env.PORT || process.env.NYYON_API_PORT || '8799';
 // Where the install's DATA lives. On a VM that is the checkout itself; on a
 // container host it must be the mounted disk, or every deploy wipes the
 // operator's database. Either way it is a plain directory on this machine —
@@ -85,7 +87,7 @@ const sidecars = [
   const p = spawn(process.execPath, [script], {
     cwd: repo,
     stdio: 'inherit',
-    env: { ...process.env, NYYON_API_PORT: PORT, NYYON_RESTART_CMD: process.env.NYYON_RESTART_CMD ?? '' },
+    env: { ...process.env, NYYON_API_PORT: PORT, PORT: undefined, NYYON_RESTART_CMD: process.env.NYYON_RESTART_CMD ?? '' },
   });
   p.on('error', (e) => console.error(`[server] ${label} failed to start:`, e?.message || e));
   return p;
