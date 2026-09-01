@@ -2,7 +2,32 @@
 
 An AI command center you own: outreach, writing, and publishing from one place, in your voice. A chat assistant called **Nyo** sits at the center, surrounded by **modules** (product areas with their own pages) and **tools** (granular capabilities Nyo can use). It runs entirely on your own machine: Workers runtime plus a local SQLite (D1) database.
 
-## Install
+## Install it on the web (one click)
+
+[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LevNyyon/nyyon)
+
+Click the button. Render reads [`render.yaml`](render.yaml), asks you to confirm,
+and builds your own instance: one web service, one 1GB disk, its own https
+address. The first screen is "create your account" — the install belongs to
+whoever opens it first, and that is you.
+
+Everything runs INSIDE that instance: the app, its SQLite database on the
+mounted disk, and the scheduled work (driven from inside the process, no
+external scheduler). Nothing is hosted anywhere else, and you never hand a
+credential to anyone.
+
+**What it costs.** The instance needs a disk to remember anything, and disks
+require Render's Starter plan: about $7/month plus $0.25 for the 1GB disk. You
+can deploy without the disk on the free plan to try it, but the data resets
+whenever the instance sleeps or redeploys.
+
+**What comes with it.** Four modules ship as plugins and are installed and
+active on first boot: Daily Planner, Digest, Editorial (Hot Takes, Blog,
+Social) and GTM (Prospecting, Outreach). Nothing else is pre-loaded — no
+sample data, no keys. Add an Anthropic key in Settings when you want Nyo and
+the writing tools to answer.
+
+## Install it on your own machine
 
 See [INSTALL.md](INSTALL.md) for the one-line installer and exactly what it does to your machine. By hand, from a clone of this repo:
 
