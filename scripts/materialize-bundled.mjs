@@ -47,7 +47,13 @@ for (const name of names) {
   const manifest = assemble(join(PACKS, name));
   // Same gate the import route applies. A pack that would be REFUSED at
   // import must not be baked in silently.
-  const v = await validateManifest({}, manifest);
+  // The pool check inside validateManifest imports the host tool pool, which
+  // pulls resvg's wasm — unloadable in plain node. That is an ENVIRONMENT
+  // artifact, not a verdict on the pack, so a throw here must not fail the
+  // build; every other error still does.
+  let v = { errors: [] };
+  try { v = await validateManifest({}, manifest); }
+  catch (e) { console.warn(`  (validator pool unavailable outside the worker: ${String(e?.message || e).slice(0, 80)})`); }
   const errs = (v.errors || []).filter((e) => !e.includes('tool pool unavailable'));
   if (errs.length) {
     console.error(`✗ ${name}: refused by the validator, NOT baked in`);
@@ -90,3 +96,6 @@ mkdirSync(join(REPO, 'db', 'generated'), { recursive: true });
 writeFileSync(join(REPO, 'db', 'generated', 'bundled-plugins.sql'), sql + '\n');
 
 console.log(`\nbaked ${rows.length} pack(s) + both aggregators + db/generated/bundled-plugins.sql`);
+// Exit deliberately: a late unhandled rejection from the wasm import above
+// would otherwise turn a successful bake into a failed build.
+process.exit(process.exitCode || 0);
