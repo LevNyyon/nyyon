@@ -17,9 +17,13 @@ external scheduler). Nothing is hosted anywhere else, and you never hand a
 credential to anyone.
 
 **What it costs.** The instance needs a disk to remember anything, and disks
-require Render's Starter plan: about $7/month plus $0.25 for the 1GB disk. You
-can deploy without the disk on the free plan to try it, but the data resets
-whenever the instance sleeps or redeploys.
+require Render's Starter plan: about $7/month plus $0.25 for the 1GB disk.
+
+**You cannot set it up wrong.** If you deploy without a disk, the app checks its
+own storage at boot and REFUSES to take you through setup, showing exactly what
+to change instead. Nobody spends an hour configuring an install that was going
+to forget them. (Deliberately want a throwaway demo? `NYYON_ALLOW_EPHEMERAL=1`
+steps the screen aside.)
 
 **What comes with it.** Four modules ship as plugins and are installed and
 active on first boot: Daily Planner, Digest, Editorial (Hot Takes, Blog,
