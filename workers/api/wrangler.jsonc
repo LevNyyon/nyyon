@@ -1,10 +1,10 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "nyyon-demo",
+  "name": "nyyon-command-center",
   "main": "src/index.js",
   // No open *.workers.dev URL — the only public route is your custom domain, gated
   // by the src/gate.js login. Prevents an unauthenticated backdoor to the API.
-  "workers_dev": true,
+  "workers_dev": false,
   // NOTE: the your custom domain custom domain is bound at the account level (via
   // the Cloudflare API / dashboard: Workers → your worker → Domains &
   // Routes), NOT here — the deploy token lacks Zone:Workers Routes:Edit on the
@@ -34,8 +34,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "nyyon-demo",
-      "database_id": "f0314d93-e3fe-430e-a0c1-3dff02a99f37"
+      "database_name": "nyyon",
+      "database_id": "LOCAL"
     }
   ],
 
@@ -50,7 +50,7 @@
   // an account signup in front of the first run. Locally it simulates; once
   // deployed it is the real bucket.
   "r2_buckets": [
-    { "binding": "ASSETS", "bucket_name": "nyyon-demo-assets" }
+    { "binding": "ASSETS", "bucket_name": "nyyon-assets" }
   ],
 
   // Workers AI: deliberately NOT bound. The VM/server edition runs with no
@@ -103,7 +103,7 @@
   // this array to exactly these 3, or `wrangler deploy` fails the limit and can
   // wipe the :45 tick. Crons are set out-of-band via the CF API when CI uses
   // `wrangler versions deploy` (which does NOT sync triggers).
-  
+  "triggers": { "crons": ["0 * * * *", "45 * * * *", "0 6 * * *"] },
 
   "assets": {
     "directory": "../../web/dist",

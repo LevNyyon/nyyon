@@ -1,0 +1,37 @@
+# One-click install of the Nyyon Command Center.
+#
+# Everything lives on THIS instance: the app, its SQLite database (on the
+# mounted disk), the plugin applier, and the scheduled work (driven from
+# inside the process, not by any external scheduler). Nothing is hosted
+# elsewhere and no account anywhere else is required.
+#
+# The instance gets its own https URL. The first screen is "create your
+# account" — the install belongs to whoever opens it first.
+services:
+  - type: web
+    name: nyyon
+    runtime: node
+    plan: starter          # a disk is required, so this is the smallest plan that has one
+    region: frankfurt
+    branch: main
+    buildCommand: bash ./deploy/render-build.sh
+    startCommand: bash ./deploy/render-start.sh
+    healthCheckPath: /api/health
+    autoDeploy: false
+    disk:
+      name: nyyon-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NYYON_STATE_DIR      # the database + R2 state live on the disk
+        value: /var/data/wrangler
+      - key: NYYON_BIND_IP        # the platform router reaches us
+        value: 0.0.0.0
+      - key: NYYON_INTERNAL_CRON  # scheduled work runs inside this instance
+        value: "1"
+      - key: NODE_VERSION
+        value: "22"
+      - key: GATE_SECRET          # session signing key, generated per install
+        generateValue: true
+      - key: NYYON_APPLIER_KEY    # the applier's local key
+        generateValue: true

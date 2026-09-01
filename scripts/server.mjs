@@ -58,8 +58,17 @@ if (!distAt || newestSourceMtime(web) > distAt) {
 }
 
 const PORT = process.env.NYYON_API_PORT || '8799';
+// Where the install's DATA lives. On a VM that is the checkout itself; on a
+// container host it must be the mounted disk, or every deploy wipes the
+// operator's database. Either way it is a plain directory on this machine —
+// nothing is hosted elsewhere.
+const STATE_DIR = process.env.NYYON_STATE_DIR || '';
+// 0.0.0.0 when something in front of us (Caddy on the VM, the platform's
+// router on a container host) needs to reach the port.
+const BIND = process.env.NYYON_BIND_IP || '127.0.0.1';
 const child = spawn('npx',
-  ['wrangler', 'dev', '--port', PORT, '--ip', '127.0.0.1', '--local', '--test-scheduled'],
+  ['wrangler', 'dev', '--port', PORT, '--ip', BIND, '--local', '--test-scheduled',
+   ...(STATE_DIR ? ['--persist-to', STATE_DIR] : [])],
   { cwd: api, stdio: 'inherit' });
 
 // The plugin applier runs beside the worker. A Worker cannot write its own
@@ -81,6 +90,30 @@ const sidecars = [
   p.on('error', (e) => console.error(`[server] ${label} failed to start:`, e?.message || e));
   return p;
 });
+
+// The cron shim. On the VM a systemd timer fires these; a container host has
+// no systemd, so the same schedule runs from inside this process. Identical
+// effect: the install drives its own scheduled work, nothing external does.
+if (process.env.NYYON_INTERNAL_CRON === '1') {
+  const LEGS = ['0 * * * *', '45 * * * *', '0 6 * * *'];
+  let lastHour = -1;
+  let lastDay = '';
+  const fire = async (cron) => {
+    try {
+      await fetch(`http://127.0.0.1:${PORT}/__scheduled?cron=${encodeURIComponent(cron)}`, { signal: AbortSignal.timeout(120_000) });
+      console.log(`[cron] fired ${cron}`);
+    } catch (e) { console.error(`[cron] ${cron}:`, e?.message || e); }
+  };
+  setInterval(() => {
+    const d = new Date();
+    const h = d.getUTCHours();
+    const m = d.getUTCMinutes();
+    const day = d.toISOString().slice(0, 10);
+    if (m < 5 && h !== lastHour) { lastHour = h; void fire(LEGS[0]); if (h === 6 && day !== lastDay) { lastDay = day; void fire(LEGS[2]); } }
+    if (m >= 45 && m < 50 && lastHour === h) { void fire(LEGS[1]); lastHour = -2; }
+  }, 60_000);
+  console.log('[server] internal cron shim armed (hourly, :45, daily 06:00 UTC)');
+}
 
 const stop = () => {
   try { child.kill('SIGTERM'); } catch { /* gone */ }

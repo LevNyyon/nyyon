@@ -1,0 +1,131 @@
+#cloud-config
+hostname: nyyon
+package_update: true
+packages: [git, curl, ca-certificates, debian-keyring, debian-archive-keyring, apt-transport-https]
+users:
+  - name: nyyon
+    shell: /bin/bash
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    ssh_authorized_keys:
+      - ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPS6Yc9NAZnk/11zjx23KbE0QB1MyN6KSTFg/iSElEwo levkerzhner@Levs-MacBook-Pro.local
+write_files:
+  - path: /etc/systemd/system/nyyon.service
+    content: |
+      [Unit]
+      Description=Nyyon Command Center (server mode)
+      After=network-online.target
+      Wants=network-online.target
+      [Service]
+      User=nyyon
+      WorkingDirectory=/opt/nyyon
+      Environment=HOME=/home/nyyon
+      ExecStart=/usr/bin/npm run server
+      Restart=always
+      RestartSec=5
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/nyyon-telegram.service
+    content: |
+      [Unit]
+      Description=Nyyon Telegram long-poll bridge
+      After=nyyon.service
+      [Service]
+      User=nyyon
+      ExecStart=/usr/bin/node /opt/nyyon/services/telegram/poll.mjs
+      Restart=always
+      RestartSec=10
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/nyyon-plugins.service
+    content: |
+      [Unit]
+      Description=Nyyon plugin applier
+      After=nyyon.service
+      [Service]
+      User=nyyon
+      ExecStart=/usr/bin/node /opt/nyyon/services/plugins/apply.mjs
+      Restart=always
+      RestartSec=10
+      [Install]
+      WantedBy=multi-user.target
+  - path: /etc/systemd/system/nyyon-cron.service
+    content: |
+      [Unit]
+      Description=Nyyon scheduled-work shim (fires wrangler /__scheduled)
+      [Service]
+      Type=oneshot
+      ExecStart=/opt/nyyon-cron.sh
+  - path: /etc/systemd/system/nyyon-cron.timer
+    content: |
+      [Unit]
+      Description=Nyyon cron shim timer
+      [Timer]
+      OnCalendar=*-*-* *:00,15,30,45:00
+      AccuracySec=30s
+      Persistent=false
+      [Install]
+      WantedBy=timers.target
+  - path: /opt/nyyon-cron.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Cron does not fire off-cloud, so the VM fires it: wrangler dev runs
+      # with --test-scheduled and this shim curls /__scheduled on the same
+      # minutes the deployed worker registers (wrangler.jsonc triggers).
+      M=$(date -u +%M); H=$(date -u +%H)
+      fire() { curl -fsS -m 120 -G --data-urlencode "cron=$1" http://127.0.0.1:8799/__scheduled >/dev/null 2>&1 || true; }
+      if [ "$M" = "00" ]; then fire "0 * * * *"; [ "$H" = "06" ] && fire "0 6 * * *"; fi
+      if [ "$M" = "45" ]; then fire "45 * * * *"; fi
+      exit 0
+  - path: /opt/nyyon-domain.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Self-issue the instance's web address. On a real cloud host (Vultr
+      # metadata answers) the public IP becomes https://<ip-dashes>.sslip.io
+      # with a Let's Encrypt cert via Caddy. In a local VM (no metadata) fall
+      # back to plain HTTP on :80 — there is no public IP to certify.
+      IP=$(curl -fsS -m 2 http://169.254.169.254/v1/interfaces/0/ipv4/address 2>/dev/null || true)
+      if [ -n "$IP" ]; then
+        DOMAIN="$(echo "$IP" | tr . -).sslip.io"
+        printf '%s {\n  encode gzip\n  reverse_proxy 127.0.0.1:8799\n}\n' "$DOMAIN" > /etc/caddy/Caddyfile
+        echo "$DOMAIN" > /etc/nyyon-domain
+      else
+        printf ':80 {\n  encode gzip\n  reverse_proxy 127.0.0.1:8799\n}\n' > /etc/caddy/Caddyfile
+        echo "local" > /etc/nyyon-domain
+      fi
+      systemctl reload caddy 2>/dev/null || systemctl restart caddy
+  - path: /opt/provision-nyyon.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      # Fresh Ubuntu -> running Nyyon Command Center behind Caddy.
+      # Same file locally (QEMU) and for the Vultr image build.
+      set -euo pipefail
+      exec > /var/log/nyyon-provision.log 2>&1
+      SRC_URL="${NYYON_SRC_URL:-http://10.0.2.2:8977/nyyon-app.tar.gz}"
+      echo "== node =="
+      curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+      apt-get install -y nodejs
+      echo "== caddy =="
+      curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/gpg.key | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+      curl -1sLf https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt > /etc/apt/sources.list.d/caddy-stable.list
+      apt-get update && apt-get install -y caddy
+      echo "== source =="
+      mkdir -p /opt/nyyon
+      curl -fsSL "$SRC_URL" -o /tmp/nyyon-app.tar.gz
+      tar -xzf /tmp/nyyon-app.tar.gz -C /opt/nyyon --strip-components=1
+      find /opt/nyyon -name '._*' -delete
+      chown -R nyyon:nyyon /opt/nyyon
+      echo "== setup =="
+      su - nyyon -c 'cd /opt/nyyon && npm run setup'
+      echo "== web build =="
+      su - nyyon -c 'cd /opt/nyyon/web && npm run build'
+      echo "== domain =="
+      bash /opt/nyyon-domain.sh
+      echo "== services =="
+      systemctl daemon-reload
+      systemctl enable --now nyyon.service nyyon-cron.timer nyyon-telegram.service nyyon-plugins.service
+      echo "PROVISION OK"
+runcmd:
+  - [bash, /opt/provision-nyyon.sh]
