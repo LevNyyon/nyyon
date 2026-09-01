@@ -42,3 +42,9 @@ services:
         generateValue: true
       - key: NYYON_APPLIER_KEY    # the applier's local key
         generateValue: true
+      # Proof that you own this instance. A hosted install cannot use the
+      # local shortcut (being on the machine), so the first person to claim it
+      # must show something only the owner can see — this value, visible in
+      # your dashboard under Environment.
+      - key: SETUP_TOKEN
+        generateValue: true

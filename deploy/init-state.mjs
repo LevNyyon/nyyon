@@ -61,7 +61,7 @@ if (!storage.persistent && process.env.NYYON_ALLOW_EPHEMERAL !== '1') {
     // untouched (model keys, gateway credentials).
     for (const [k, v] of Object.entries(process.env)) {
       if (!v) continue;
-      if (/^(ANTHROPIC|OPENAI|NYYON_GW_|WA_|LI_|UNIPILE|TELEGRAM|SERP|PDL|TWILIO|THEORG|DEV_API_KEY)/.test(k)) vars[k] = v;
+      if (/^(ANTHROPIC|OPENAI|NYYON_GW_|WA_|LI_|UNIPILE|TELEGRAM|SERP|PDL|TWILIO|THEORG|DEV_API_KEY|SETUP_TOKEN)/.test(k)) vars[k] = v;
     }
     writeFileSync(varsPath, Object.entries(vars).map(([k, v]) => `${k}="${String(v).replace(/"/g, '\\"')}"`).join('\n') + '\n');
     console.log(`[init] wrote .dev.vars (${Object.keys(vars).length} keys) from the environment`);

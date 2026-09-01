@@ -103,12 +103,28 @@ async function pbkdf2(password, salt, iterations) {
 async function readRow(env) {
   if (!env?.DB) return null;
   try {
+    const row = await env.DB.prepare('SELECT * FROM install_state WHERE id = 1').first();
+    if (row) return row;
+    // First contact with a brand-new install: stamp WHEN it came up. That
+    // timestamp is what makes the claim window below possible — without it
+    // there is no way to tell a minute-old deploy from a month-old one.
+    await env.DB.prepare(
+      'INSERT OR IGNORE INTO install_state (id, created_at) VALUES (1, ?)',
+    ).bind(now()).run().catch(() => {});
     return (await env.DB.prepare('SELECT * FROM install_state WHERE id = 1').first()) || null;
   } catch (e) {
     if (/no such table/i.test(String(e?.message || e))) return null;
     throw e;
   }
 }
+
+// How long a freshly deployed install lets the FIRST visitor claim it.
+//
+// A brand-new user has no token to present: they clicked deploy and opened the
+// URL. Demanding a code they have never seen is where an install stops being
+// usable. So the door is open briefly — the same thing every self-hosted app
+// does — and then it locks and asks for the code the deploy generated.
+const CLAIM_WINDOW_MS = 60 * 60 * 1000;
 
 async function writeRow(env, patch) {
   const ts = now();
@@ -255,10 +271,19 @@ export async function verifySetupAccess(env, { token = '', host = '', session = 
   const bare = h.startsWith('[') ? h.replace(/^(\[[^\]]*\]).*$/, '$1') : h.split(':')[0];
   if (LOOPBACK_HOSTS.has(bare) || bare.endsWith('.localhost')) return true;
 
-  // Otherwise the caller must present the token the installer printed.
+  // A token, if the caller has one (the local installer prints it; a hosted
+  // deploy puts it in the operator's own dashboard).
   const expected = String(row?.setup_token || env?.SETUP_TOKEN || '').trim();
-  if (!expected) return false;
-  return safeStrEqual(String(token || '').trim(), expected);
+  if (expected && safeStrEqual(String(token || '').trim(), expected)) return true;
+
+  // Or: this install is brand new and nobody has claimed it yet. The first
+  // person through the door within the window becomes the operator. After it
+  // closes, only the token gets you in — so a forgotten public URL cannot be
+  // taken over a week later.
+  const bornAt = Number(row?.created_at || 0);
+  if (bornAt > 0 && (now() - bornAt) < CLAIM_WINDOW_MS) return true;
+
+  return false;
 }
 
 // STEP ONE of setup: the operator's own credential. It creates the account and
