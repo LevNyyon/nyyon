@@ -45,7 +45,14 @@ function newestSourceMtime(dir) {
 }
 const distIndex = join(web, 'dist', 'index.html');
 const distAt = existsSync(distIndex) ? statSync(distIndex).mtimeMs : 0;
-if (!distAt || newestSourceMtime(web) > distAt) {
+// A host that builds in a SEPARATE step already produced dist, and its
+// checkout gives every source file a fresh mtime — so the staleness check
+// fires and a full vite build runs inside the runtime container. That is what
+// exceeded a 512MB box: the app itself needs ~180MB, the build needs several
+// times that. When the platform states it prebuilt, trust the artifact.
+const PREBUILT = process.env.NYYON_PREBUILT === '1' && distAt > 0;
+if (PREBUILT) console.log('[server] using the prebuilt web bundle (build step ran elsewhere)');
+if (!PREBUILT && (!distAt || newestSourceMtime(web) > distAt)) {
   console.log(distAt ? 'Web sources changed — rebuilding…' : 'Building the web app (first run)…');
   const r = spawnSync('npm', ['run', 'build'], { cwd: web, stdio: 'inherit' });
   // A failed build must be LOUD: continuing would silently serve the old

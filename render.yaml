@@ -32,6 +32,8 @@ services:
         value: "1"
       - key: NYYON_SKIP_APPLIER   # packs are baked at build time here
         value: "1"
+      - key: NYYON_PREBUILT       # the build step already produced web/dist
+        value: "1"
       - key: NODE_OPTIONS         # keep the parent process lean
         value: --max-old-space-size=256
       - key: NODE_VERSION
