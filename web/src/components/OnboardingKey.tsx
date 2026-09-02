@@ -77,11 +77,38 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
             </div>
 
             <div className="px-5 py-5">
-              <p className="text-[13px] leading-relaxed text-mute mb-4">
-                {mode === 'anthropic'
-                  ? 'The rest of setup is a conversation, and the conversation runs on a model. Paste an Anthropic API key to begin. It is stored on this install only, and you can change it later in Settings.'
-                  : 'Groq is free and needs no card. Create the key in the tab that just opened, paste it here, and setup continues on the free model.'}
-              </p>
+              <div className="flex gap-1.5 mb-3">
+                <button type="button" onClick={() => switchTo('anthropic')}
+                  className={`text-[12px] px-2.5 py-1 rounded-sm transition ${mode === 'anthropic' ? 'bg-ink text-paper' : 'hairline bg-paper text-mute hover:text-ink'}`}>
+                  Anthropic
+                </button>
+                <button type="button" onClick={() => switchTo('groq')}
+                  className={`text-[12px] px-2.5 py-1 rounded-sm transition ${mode === 'groq' ? 'bg-ink text-paper' : 'hairline bg-paper text-mute hover:text-ink'}`}>
+                  Groq · free, no card
+                </button>
+              </div>
+
+              {mode === 'anthropic' ? (
+                <p className="text-[13px] leading-relaxed text-mute mb-4">
+                  The rest of setup is a conversation, and the conversation runs on a model. Paste an
+                  Anthropic API key to begin. It is stored on this install only, and you can change it
+                  later in Settings.
+                </p>
+              ) : (
+                <ol className="text-[13px] leading-relaxed text-mute mb-4 pl-4 list-decimal space-y-1">
+                  <li>
+                    <a href="https://console.groq.com/login" target="_blank" rel="noreferrer noopener"
+                       className="underline underline-offset-2 hover:text-ink transition">Create a free Groq account</a>
+                    {' '}— Google or email, no card.
+                  </li>
+                  <li>
+                    <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer noopener"
+                       className="underline underline-offset-2 hover:text-ink transition">Press Create API Key</a>
+                    {' '}and copy it — it is shown once.
+                  </li>
+                  <li>Paste it below. Setup continues on the free model.</li>
+                </ol>
+              )}
 
               <label className="block mb-4">
                 <span className="mono text-[9px] uppercase tracking-[0.16em] text-mute">
@@ -97,39 +124,20 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
                   spellCheck={false}
                   className="mt-1 w-full h-9 px-2.5 rounded-sm hairline bg-paper mono text-[12px] outline-none focus:border-emerald-500"
                 />
-                {/* A real link, not just the hostname as text: someone who does not
-                    already have a key is at the hardest point in setup, and making
-                    them retype a URL is where they put it down. The desktop shell
-                    routes this to the system browser (setWindowOpenHandler in
-                    desktop/main.cjs), so it never opens a chromeless app window. */}
-                <span className="block mt-1.5 text-[11px] text-mute">
-                  {mode === 'anthropic' ? (
-                    <>
-                      Don't have one?{' '}
-                      <a
-                        href="https://console.anthropic.com/settings/keys"
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="underline underline-offset-2 hover:text-ink transition"
-                      >
-                        Create a key at console.anthropic.com
-                      </a>
-                      , then paste it here.
-                    </>
-                  ) : (
-                    <>
-                      <a
-                        href="https://console.groq.com/keys"
-                        target="_blank"
-                        rel="noreferrer noopener"
-                        className="underline underline-offset-2 hover:text-ink transition"
-                      >
-                        console.groq.com/keys
-                      </a>
-                      {' '}— sign up free (no card), press Create API Key, paste the gsk_ key here. Shown once.
-                    </>
-                  )}
-                </span>
+                {mode === 'anthropic' && (
+                  <span className="block mt-1.5 text-[11px] text-mute">
+                    Don't have one?{' '}
+                    <a
+                      href="https://console.anthropic.com/settings/keys"
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      className="underline underline-offset-2 hover:text-ink transition"
+                    >
+                      Create a key at console.anthropic.com
+                    </a>
+                    , then paste it here — or use Groq above, free with no card.
+                  </span>
+                )}
               </label>
 
               {error && <div className="text-[12px] text-rose-600 mb-3">{error}</div>}
@@ -152,23 +160,6 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
                   Later
                 </button>
               </div>
-              <div className="mt-3 text-[11px] text-mute">
-                {mode === 'anthropic' ? (
-                  <>
-                    No Claude account?{' '}
-                    <button type="button" onClick={() => switchTo('groq')}
-                      className="underline underline-offset-2 hover:text-ink transition">
-                      Use Groq — free, no card
-                    </button>
-                  </>
-                ) : (
-                  <button type="button" onClick={() => switchTo('anthropic')}
-                    className="underline underline-offset-2 hover:text-ink transition">
-                    ← Back to Anthropic
-                  </button>
-                )}
-              </div>
-
               {onBack && (
                 <div className="mt-3">
                   <button
