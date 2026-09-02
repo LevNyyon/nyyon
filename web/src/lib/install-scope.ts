@@ -16,7 +16,11 @@ export function reconcileInstallScope(installId: string | null | undefined): voi
   try {
     const seen = localStorage.getItem(STAMP_KEY);
     if (seen === installId) return;
-    if (seen !== null) for (const k of SCOPED_KEYS) localStorage.removeItem(k);
+    // No stamp but caches present means they predate this mechanism, so their
+    // install is UNKNOWN — and an unknown install is not this one. Dropping
+    // them costs one transcript on first upgrade; keeping them is how a fresh
+    // install shows somebody else's conversation.
+    for (const k of SCOPED_KEYS) localStorage.removeItem(k);
     localStorage.setItem(STAMP_KEY, installId);
   } catch { /* private mode: nothing cached anyway */ }
 }
