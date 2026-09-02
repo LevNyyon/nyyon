@@ -416,7 +416,7 @@ app.get('/api/system/health', async (c) => {
   // A connected free backup brain is a working model — an install running on
   // it is degraded-by-choice, not down.
   const freeBrain = await env.DB.prepare(
-    "SELECT provider, model FROM plugin_free_llm_config WHERE id = 1 AND api_key IS NOT NULL AND api_key != ''",
+    "SELECT provider, model FROM plugin_free_llm_providers WHERE api_key IS NOT NULL AND api_key != '' ORDER BY active DESC LIMIT 1",
   ).first().catch(() => null);
   if (!keySet && freeBrain) {
     checks.push({

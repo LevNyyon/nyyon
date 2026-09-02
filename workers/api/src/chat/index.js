@@ -147,8 +147,8 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
   // Low / Mid / High model switch (sent per message; changeable mid-conversation).
   // Models resolve doc > env > default (the llm-models knowledge doc / Settings).
   const mc = await loadModelConfig(env).catch(() => null);
-  const { findBackupLlm } = await import('../gateways/index.js');
-  const backupSlug = findBackupLlm();
+  const { pickBackupLlm } = await import('../gateways/index.js');
+  const backupSlug = await pickBackupLlm(env);
   let cfg = resolveTier(env, tier, mc, backupSlug);
   const keyMissing =
     (cfg.provider === 'anthropic' && !env.ANTHROPIC_API_KEY) ||

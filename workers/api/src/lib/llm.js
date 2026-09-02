@@ -109,8 +109,8 @@ export async function localComplete(env, { system, prompt, maxTokens = 2000 }) {
     // No self-hosted endpoint. An installed backup-brain plugin is the other
     // way a keyless install still has a model, and it covers the non-chat jobs
     // (light tools, classification) just as much as the chat loop.
-    const { findBackupLlm, callGateway } = await import('../gateways/index.js');
-    const slug = findBackupLlm();
+    const { pickBackupLlm, callGateway } = await import('../gateways/index.js');
+    const slug = await pickBackupLlm(env);
     if (!slug) throw new Error('no backup model available — install the Free LLM plugin, or add a model key in Settings');
     const msgs = [];
     if (system) msgs.push({ role: 'system', content: system });

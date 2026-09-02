@@ -1,11 +1,17 @@
 export const def = {
   name: 'disconnect_free_llm',
-  description: 'Forget the connected free model provider and its key. Nyo goes back to the main model only.',
-  input_schema: { type: 'object', properties: {}, required: [] },
+  description: "Forget one free provider's key (or every one of them when provider is omitted).",
+  input_schema: {
+    type: 'object',
+    properties: { provider: { type: 'string', enum: ['gemini', 'groq'] } },
+    required: [],
+  },
 };
 
-export async function run(api) {
-  await api.db.prepare('DELETE FROM plugin_free_llm_config WHERE id = 1').run();
-  await api.log('disconnected', {});
-  return { ok: true, note: 'Disconnected. The key is gone from this install.' };
+export async function run(api, input) {
+  const p = String(input?.provider || '').trim().toLowerCase();
+  if (p) await api.db.prepare('DELETE FROM plugin_free_llm_providers WHERE provider = ?').bind(p).run();
+  else await api.db.prepare('DELETE FROM plugin_free_llm_providers').run();
+  await api.log('disconnected', { provider: p || 'all' });
+  return { ok: true, note: p ? `${p} forgotten.` : 'All free providers forgotten.' };
 }

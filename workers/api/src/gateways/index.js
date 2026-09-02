@@ -299,11 +299,27 @@ for (const [slug, gw] of Object.entries(pluginGateways)) GATEWAYS[slug] = gw;
 // The host knows no plugin by name. A plugin that ships a model boundary
 // advertises capability:'llm-backup' on its gateway, and this is how the chat
 // fallback finds it. Any future free-model plugin works with no host change.
-export function findBackupLlm() {
-  for (const [slug, g] of Object.entries(GATEWAYS)) {
-    if (g?.capability === 'llm-backup' && g?.modes?.chat) return slug;
+export function findBackupLlms() {
+  return Object.entries(GATEWAYS)
+    .filter(([, g]) => g?.capability === 'llm-backup' && g?.modes?.chat)
+    .map(([slug]) => slug);
+}
+
+// The OPERATOR chooses which connected provider is the brain (each gateway's
+// status reports connected/active from the plugin's own table). The host
+// never names a provider — it asks.
+export async function pickBackupLlm(env) {
+  const slugs = findBackupLlms();
+  let firstConnected = null;
+  for (const slug of slugs) {
+    try {
+      const st = await callGateway(env, slug, 'status', {});
+      if (!st?.connected) continue;
+      if (st.active) return slug;
+      firstConnected = firstConnected || slug;
+    } catch { /* an unreadable gateway is not a candidate */ }
   }
-  return null;
+  return firstConnected;
 }
 
 export function listGateways() {

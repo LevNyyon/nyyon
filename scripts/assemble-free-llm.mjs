@@ -9,30 +9,30 @@ for (const f of toolFiles) {
   if (mod.def?.name !== name) throw new Error(`def mismatch in ${f}`);
   tools.push({ name, code_file: `tools/${f}`, def: mod.def });
 }
+const GW_MODES = ['discover', 'status', 'probe', 'chat'];
 const manifest = {
   nyyon_plugin: 2,
   name: 'free-llm',
   title: 'Free LLM',
-  version: '1.0.0',
-  description: 'A backup brain. Connect a free model provider (Groq or Cloudflare Workers AI) and Nyo keeps working when the main model has no key or no credit. Ships its own gateway, its own key store, and its own page.',
+  version: '2.0.0',
+  description: 'Backup brains: one gateway per free provider (Google Gemini, Groq). Connect any of them and Nyo keeps working when the main model has no key or no credit. Keys live in the plugin’s own table; the operator picks which connected provider is active.',
   icon: 'Sparkle',
   origin: { system: 'nyyon-app' },
   requires: {
-    // It needs a backup-llm gateway AND brings its own: the host has no such
-    // boundary, so the binder resolves this to the bundled implementation.
-    gateways: [{ slug: 'backup-llm', modes: ['chat', 'status', 'probe'], purpose: 'reach the free provider over its OpenAI-compatible endpoint' }],
+    gateways: [
+      { slug: 'gemini', modes: GW_MODES, purpose: 'Google Gemini over its OpenAI-compatible endpoint' },
+      { slug: 'groq', modes: GW_MODES, purpose: 'Groq over its OpenAI-compatible endpoint' },
+    ],
     tables: [{
-      name: 'plugin_free_llm_config',
-      ddl: 'CREATE TABLE IF NOT EXISTS plugin_free_llm_config (id INTEGER PRIMARY KEY, provider TEXT NOT NULL, api_key TEXT NOT NULL, model TEXT, account_id TEXT, updated_at INTEGER NOT NULL)',
+      name: 'plugin_free_llm_providers',
+      ddl: 'CREATE TABLE IF NOT EXISTS plugin_free_llm_providers (provider TEXT PRIMARY KEY, api_key TEXT NOT NULL, model TEXT, active INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)',
     }],
   },
   provides: {
-    gateways: [{
-      slug: 'backup-llm',
-      modes: ['chat', 'status', 'probe'],
-      capability: 'llm-backup',
-      code_file: 'gateway-backup-llm.mjs',
-    }],
+    gateways: [
+      { slug: 'gemini', modes: GW_MODES, capability: 'llm-backup', code_file: 'gateway-gemini.mjs' },
+      { slug: 'groq', modes: GW_MODES, capability: 'llm-backup', code_file: 'gateway-groq.mjs' },
+    ],
     tools,
     workflows: [],
     knowledge: [],
@@ -46,4 +46,4 @@ const manifest = {
   },
 };
 writeFileSync(join(PACK, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-console.log('manifest:', tools.length, 'tools, 1 gateway, 1 table, 1 surface');
+console.log('manifest v2:', tools.length, 'tools, 2 gateways, 1 table');

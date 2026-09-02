@@ -19,11 +19,12 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
   // 'anthropic' is the primary path; 'groq' is the free one for people with
   // no Claude account. Switching clears the field — the keys look nothing
   // alike and a half-typed one from the other provider only breeds confusion.
-  const [mode, setMode] = useState<'anthropic' | 'groq'>('anthropic');
-  const switchTo = (m: 'anthropic' | 'groq') => {
+  const [mode, setMode] = useState<'anthropic' | 'gemini' | 'groq'>('anthropic');
+  const switchTo = (m: 'anthropic' | 'gemini' | 'groq') => {
     setMode(m); setKey(''); setError(null);
     // The deep link opens alongside the form, so "set up here" means exactly
     // that: the key page is already in front of them when they look.
+    if (m === 'gemini') window.open('https://aistudio.google.com/apikey', '_blank', 'noopener');
     if (m === 'groq') window.open('https://console.groq.com/keys', '_blank', 'noopener');
   };
 
@@ -82,9 +83,13 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
                   className={`text-[12px] px-2.5 py-1 rounded-sm transition ${mode === 'anthropic' ? 'bg-ink text-paper' : 'hairline bg-paper text-mute hover:text-ink'}`}>
                   Anthropic
                 </button>
+                <button type="button" onClick={() => switchTo('gemini')}
+                  className={`text-[12px] px-2.5 py-1 rounded-sm transition ${mode === 'gemini' ? 'bg-ink text-paper' : 'hairline bg-paper text-mute hover:text-ink'}`}>
+                  Gemini · free
+                </button>
                 <button type="button" onClick={() => switchTo('groq')}
                   className={`text-[12px] px-2.5 py-1 rounded-sm transition ${mode === 'groq' ? 'bg-ink text-paper' : 'hairline bg-paper text-mute hover:text-ink'}`}>
-                  Groq · free, no card
+                  Groq · free
                 </button>
               </div>
 
@@ -94,6 +99,15 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
                   Anthropic API key to begin. It is stored on this install only, and you can change it
                   later in Settings.
                 </p>
+              ) : mode === 'gemini' ? (
+                <ol className="text-[13px] leading-relaxed text-mute mb-4 pl-4 list-decimal space-y-1">
+                  <li>
+                    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer noopener"
+                       className="underline underline-offset-2 hover:text-ink transition">Sign in with any Google account and create an API key</a>
+                    {' '}— free, no card, generous limits.
+                  </li>
+                  <li>Paste it below. Setup continues on the free model.</li>
+                </ol>
               ) : (
                 <ol className="text-[13px] leading-relaxed text-mute mb-4 pl-4 list-decimal space-y-1">
                   <li>
@@ -106,19 +120,19 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
                        className="underline underline-offset-2 hover:text-ink transition">Press Create API Key</a>
                     {' '}and copy it — it is shown once.
                   </li>
-                  <li>Paste it below. Setup continues on the free model.</li>
+                  <li>Paste it below. Fast, but expect pauses in long conversations (tight per-minute limits).</li>
                 </ol>
               )}
 
               <label className="block mb-4">
                 <span className="mono text-[9px] uppercase tracking-[0.16em] text-mute">
-                  {mode === 'anthropic' ? 'Anthropic API key' : 'Groq API key'}
+                  {mode === 'anthropic' ? 'Anthropic API key' : mode === 'gemini' ? 'Gemini API key' : 'Groq API key'}
                 </span>
                 <input
                   type="password"
                   value={key}
                   onChange={(e) => setKey(e.target.value)}
-                  placeholder={mode === 'anthropic' ? 'sk-ant-...' : 'gsk_...'}
+                  placeholder={mode === 'anthropic' ? 'sk-ant-...' : mode === 'gemini' ? 'AIza...' : 'gsk_...'}
                   autoFocus
                   autoComplete="off"
                   spellCheck={false}

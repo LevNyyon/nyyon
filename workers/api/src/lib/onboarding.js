@@ -79,7 +79,7 @@ export async function llmConfigured(env) {
   // onto the same screen forever — verified, configured, and stuck.
   try {
     const r = await env.DB.prepare(
-      "SELECT 1 AS x FROM plugin_free_llm_config WHERE id = 1 AND api_key IS NOT NULL AND api_key != ''",
+      "SELECT 1 AS x FROM plugin_free_llm_providers WHERE api_key IS NOT NULL AND api_key != '' LIMIT 1",
     ).first();
     return !!r?.x;
   } catch { return false; }
@@ -92,69 +92,31 @@ export async function saveAndVerifyLlmKey(env, { key, provider = 'anthropic' }) 
   const clean = String(key || '').trim();
   if (!clean) return { ok: false, error: 'Paste your API key to continue.' };
 
-  // The free path: a Groq key goes into the Free LLM plugin's own table, not
-  // the host's gateway config — the plugin owns that provider end to end. The
-  // host's job here is only to verify it with one real request so a typo
-  // fails NOW, on this screen, not silently in the first interview message.
-  if (provider === 'groq') {
+  // The free path: the key goes to the provider's OWN gateway (the Free LLM
+  // plugin ships one per service). The gateway discovers a model this key can
+  // actually run, the row lands in the plugin's table, and the newly
+  // connected provider becomes the active backup brain.
+  if (provider === 'gemini' || provider === 'groq') {
+    const { callGateway } = await import('../gateways/index.js');
+    const slug = `plugin__free-llm__${provider}`;
+    let d;
+    try {
+      d = await callGateway(env, slug, 'discover', { api_key: clean });
+    } catch (e) {
+      return { ok: false, error: 'The Free LLM plugin is not installed on this system, so there is no free-model path.' };
+    }
+    if (!d?.ok) return { ok: false, error: `${provider === 'gemini' ? 'Gemini' : 'Groq'} rejected the key: ${String(d?.error || 'no answer').slice(0, 200)}` };
     try {
       await env.DB.prepare(
-        `INSERT INTO plugin_free_llm_config (id, provider, api_key, model, account_id, updated_at)
-         VALUES (1, 'groq', ?, NULL, NULL, ?)
-         ON CONFLICT(id) DO UPDATE SET provider='groq', api_key=excluded.api_key, updated_at=excluded.updated_at`,
-      ).bind(clean, Date.now()).run();
+        `INSERT INTO plugin_free_llm_providers (provider, api_key, model, active, updated_at)
+         VALUES (?, ?, ?, 1, ?)
+         ON CONFLICT(provider) DO UPDATE SET api_key=excluded.api_key, model=excluded.model, active=1, updated_at=excluded.updated_at`,
+      ).bind(provider, clean, d.model, Date.now()).run();
+      await env.DB.prepare('UPDATE plugin_free_llm_providers SET active = 0 WHERE provider != ?').bind(provider).run();
     } catch {
-      return { ok: false, error: 'The Free LLM plugin is not installed on this system, so there is nowhere to keep a Groq key.' };
+      return { ok: false, error: 'The Free LLM plugin is not installed on this system, so there is nowhere to keep the key.' };
     }
-    try {
-      // Never hardcode a model name: Groq retires them under people's feet
-      // (llama-3.3-70b-versatile died exactly this way, mid-onboarding, on a
-      // brand-new account). Ask THIS key what it can run, pick the best chat
-      // model, and store the choice so the gateway uses the same one.
-      const lr = await fetch('https://api.groq.com/openai/v1/models', {
-        signal: AbortSignal.timeout(20_000),
-        headers: { Authorization: `Bearer ${clean}` },
-      });
-      const ldata = await lr.json().catch(() => ({}));
-      if (!lr.ok) {
-        return { ok: false, error: `Groq rejected the key: ${String(ldata?.error?.message || `HTTP ${lr.status}`).slice(0, 160)}` };
-      }
-      const ids = (ldata?.data || []).map((m) => String(m?.id || '')).filter(Boolean);
-      // Not everything Groq lists can hold a conversation with tools. Swept on
-      // a real free account (2026-09): orpheus is TTS, compound/allam/qwen3.6
-      // answer text but never call tools; gpt-oss-120b, qwen3.8-27b and
-      // gpt-oss-20b do both. Rank by that, keep llama patterns for the day
-      // they return, and TRY candidates in order — a pick that fails the real
-      // request just means the next one gets its turn.
-      const chatIds = ids.filter((id) => !/whisper|tts|guard|embed|vision|safety|orpheus|compound|allam/i.test(id));
-      const rank = (id) =>
-        /gpt-oss-120b/i.test(id) ? 0 :
-        /llama.*70b/i.test(id)   ? 1 :
-        /qwen.*2[0-9]b|70b|72b/i.test(id) ? 2 :
-        /gpt-oss/i.test(id)      ? 3 :
-        /llama/i.test(id)        ? 4 : 5;
-      const candidates = [...chatIds].sort((a, b) => rank(a) - rank(b)).slice(0, 3);
-      if (!candidates.length) return { ok: false, error: 'The key works, but Groq listed no usable chat models for it.' };
-
-      let lastErr = '';
-      for (const pick of candidates) {
-        const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          signal: AbortSignal.timeout(30_000),
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clean}` },
-          body: JSON.stringify({ model: pick, max_tokens: 40, messages: [{ role: 'user', content: 'say ok' }] }),
-        });
-        const data = await r.json().catch(() => ({}));
-        if (r.ok && data?.choices?.[0]) {
-          await env.DB.prepare('UPDATE plugin_free_llm_config SET model = ? WHERE id = 1').bind(pick).run().catch(() => {});
-          return { ok: true, provider: 'groq', verified: true, model: pick };
-        }
-        lastErr = String(data?.error?.message || `HTTP ${r.status}`).slice(0, 160);
-      }
-      return { ok: false, error: `Groq rejected the key: ${lastErr}` };
-    } catch (e) {
-      return { ok: false, error: `Could not reach Groq: ${String(e?.message || e).slice(0, 120)}` };
-    }
+    return { ok: true, provider, verified: true, model: d.model };
   }
 
   const field = provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';

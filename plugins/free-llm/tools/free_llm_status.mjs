@@ -1,17 +1,21 @@
 export const def = {
   name: 'free_llm_status',
-  description: "What free backup model this install has connected, if any. Pass check:true to spend one tiny request confirming it still answers.",
+  description: 'Every free provider this install knows: connected or not, which model, and which one is the active backup brain. Pass check:true to also confirm the active one answers with a real request.',
   input_schema: {
     type: 'object',
-    properties: { check: { type: 'boolean', description: 'also make one real request to confirm it answers' } },
+    properties: { check: { type: 'boolean' } },
     required: [],
   },
 };
 
 export async function run(api, input) {
-  const status = await api.gateway('backup-llm', 'status', {});
-  if (!status?.connected) return { connected: false, providers: status?.providers || [] };
-  if (!input?.check) return status;
-  const probe = await api.gateway('backup-llm', 'probe', {});
-  return { ...status, answering: !!probe?.ok, error: probe?.ok ? null : probe?.error || null };
+  const providers = [];
+  for (const p of ['gemini', 'groq']) {
+    const s = await api.gateway(p, 'status', {});
+    providers.push({ provider: p, ...s });
+  }
+  const active = providers.find((p) => p.connected && p.active);
+  if (!input?.check || !active) return { providers, active: active?.provider || null };
+  const probe = await api.gateway(active.provider, 'probe', {});
+  return { providers, active: active.provider, answering: !!probe?.ok, error: probe?.ok ? null : probe?.error };
 }

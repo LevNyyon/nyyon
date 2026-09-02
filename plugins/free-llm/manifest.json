@@ -2,8 +2,8 @@
   "nyyon_plugin": 2,
   "name": "free-llm",
   "title": "Free LLM",
-  "version": "1.0.0",
-  "description": "A backup brain. Connect a free model provider (Groq or Cloudflare Workers AI) and Nyo keeps working when the main model has no key or no credit. Ships its own gateway, its own key store, and its own page.",
+  "version": "2.0.0",
+  "description": "Backup brains: one gateway per free provider (Google Gemini, Groq). Connect any of them and Nyo keeps working when the main model has no key or no credit. Keys live in the plugin’s own table; the operator picks which connected provider is active.",
   "icon": "Sparkle",
   "origin": {
     "system": "nyyon-app"
@@ -11,33 +11,56 @@
   "requires": {
     "gateways": [
       {
-        "slug": "backup-llm",
+        "slug": "gemini",
         "modes": [
-          "chat",
+          "discover",
           "status",
-          "probe"
+          "probe",
+          "chat"
         ],
-        "purpose": "reach the free provider over its OpenAI-compatible endpoint"
+        "purpose": "Google Gemini over its OpenAI-compatible endpoint"
+      },
+      {
+        "slug": "groq",
+        "modes": [
+          "discover",
+          "status",
+          "probe",
+          "chat"
+        ],
+        "purpose": "Groq over its OpenAI-compatible endpoint"
       }
     ],
     "tables": [
       {
-        "name": "plugin_free_llm_config",
-        "ddl": "CREATE TABLE IF NOT EXISTS plugin_free_llm_config (id INTEGER PRIMARY KEY, provider TEXT NOT NULL, api_key TEXT NOT NULL, model TEXT, account_id TEXT, updated_at INTEGER NOT NULL)"
+        "name": "plugin_free_llm_providers",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_free_llm_providers (provider TEXT PRIMARY KEY, api_key TEXT NOT NULL, model TEXT, active INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)"
       }
     ]
   },
   "provides": {
     "gateways": [
       {
-        "slug": "backup-llm",
+        "slug": "gemini",
         "modes": [
-          "chat",
+          "discover",
           "status",
-          "probe"
+          "probe",
+          "chat"
         ],
         "capability": "llm-backup",
-        "code_file": "gateway-backup-llm.mjs"
+        "code_file": "gateway-gemini.mjs"
+      },
+      {
+        "slug": "groq",
+        "modes": [
+          "discover",
+          "status",
+          "probe",
+          "chat"
+        ],
+        "capability": "llm-backup",
+        "code_file": "gateway-groq.mjs"
       }
     ],
     "tools": [
@@ -46,15 +69,15 @@
         "code_file": "tools/connect_free_llm.mjs",
         "def": {
           "name": "connect_free_llm",
-          "description": "Connect a FREE model provider as this install's backup brain. provider is 'groq' (get a key at console.groq.com/keys, no card) or 'cloudflare' (Workers AI, needs account_id + an API token). The key is stored in this plugin's own table and verified with one real request before it is reported working.",
+          "description": "Connect a FREE model provider as this install's backup brain. provider 'gemini' (recommended — key at aistudio.google.com/apikey, no card, generous limits) or 'groq' (console.groq.com/keys, no card, tight per-minute limits). The right model is discovered for the key, verified with a real request, and the newly connected provider becomes the active one.",
           "input_schema": {
             "type": "object",
             "properties": {
               "provider": {
                 "type": "string",
                 "enum": [
-                  "groq",
-                  "cloudflare"
+                  "gemini",
+                  "groq"
                 ]
               },
               "api_key": {
@@ -63,11 +86,7 @@
               },
               "model": {
                 "type": "string",
-                "description": "optional; each provider has a sensible default"
-              },
-              "account_id": {
-                "type": "string",
-                "description": "Cloudflare only: the account id"
+                "description": "optional — discovered automatically otherwise"
               }
             },
             "required": [
@@ -82,10 +101,18 @@
         "code_file": "tools/disconnect_free_llm.mjs",
         "def": {
           "name": "disconnect_free_llm",
-          "description": "Forget the connected free model provider and its key. Nyo goes back to the main model only.",
+          "description": "Forget one free provider's key (or every one of them when provider is omitted).",
           "input_schema": {
             "type": "object",
-            "properties": {},
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "gemini",
+                  "groq"
+                ]
+              }
+            },
             "required": []
           }
         }
@@ -95,16 +122,38 @@
         "code_file": "tools/free_llm_status.mjs",
         "def": {
           "name": "free_llm_status",
-          "description": "What free backup model this install has connected, if any. Pass check:true to spend one tiny request confirming it still answers.",
+          "description": "Every free provider this install knows: connected or not, which model, and which one is the active backup brain. Pass check:true to also confirm the active one answers with a real request.",
           "input_schema": {
             "type": "object",
             "properties": {
               "check": {
-                "type": "boolean",
-                "description": "also make one real request to confirm it answers"
+                "type": "boolean"
               }
             },
             "required": []
+          }
+        }
+      },
+      {
+        "name": "set_active_free_llm",
+        "code_file": "tools/set_active_free_llm.mjs",
+        "def": {
+          "name": "set_active_free_llm",
+          "description": "Choose which CONNECTED free provider is the active backup brain.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "provider": {
+                "type": "string",
+                "enum": [
+                  "gemini",
+                  "groq"
+                ]
+              }
+            },
+            "required": [
+              "provider"
+            ]
           }
         }
       }
