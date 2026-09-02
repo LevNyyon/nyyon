@@ -603,16 +603,22 @@ export function Chat({ onClose, scope = 'nyo', title, onBack, backLabel = 'Back 
           {/* The first open must explain itself: what goes in, what comes out.
               Static copy, zero model calls — it renders instantly and works on
               a keyless install. It vanishes the moment a conversation exists. */}
-          <div className="w-full max-w-2xl hairline rounded-lg bg-card/50 px-4 py-3">
-            <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute mb-1.5">nyo · how this works</p>
+          <div className="w-full max-w-2xl hairline rounded-lg bg-card/50 px-4 py-3.5 space-y-2.5">
+            <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">nyo · how this works</p>
             <p className="text-[12.5px] leading-relaxed text-mute">
-              Tell me about your day in plain words: what has to get done, any fixed
-              meetings, how you're feeling about it. I'll turn that into the plan on the
-              right: two-hour <span className="text-ink">Focus Sessions</span> as the
-              backbone, supporting blocks around them, and a to-do list. Then we adjust it
-              together: tick things off, shift blocks, add tasks, roll over what didn't
-              happen. Yesterday's unfinished work is where I'll usually start.
+              This is your planning desk: one conversation in, one concrete day plan out.
             </p>
+            <ul className="text-[12.5px] leading-relaxed text-mute space-y-1 pl-4 list-disc">
+              <li>You describe the day in plain words: what must get done, fixed meetings, how much energy you have.</li>
+              <li>I build the plan on the right: two-hour <span className="text-ink">Focus Sessions</span> as the backbone, supporting blocks around them, and a to-do list.</li>
+              <li>The plan stays live: tick things done, shift blocks, add tasks, undo, move between days.</li>
+            </ul>
+            <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute pt-1">from you</p>
+            <ul className="text-[12.5px] leading-relaxed text-mute space-y-1 pl-4 list-disc">
+              <li>Start each morning here: say "plan my day" or just talk.</li>
+              <li>Mark blocks and to-dos done as the day moves.</li>
+              <li>When I ask about yesterday's unfinished items, tell me: done, carry over, or drop.</li>
+            </ul>
           </div>
           <div className="w-full max-w-2xl">{composer}</div>
           <div className="flex flex-wrap justify-center gap-2 max-w-2xl">

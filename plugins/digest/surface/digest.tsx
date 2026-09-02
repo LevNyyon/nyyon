@@ -527,15 +527,24 @@ function BriefPane() {
               // First open explains itself: what feeds it, what comes out.
               // Static copy, no model call, gone once the brief has items.
               <div className="max-w-xl mx-auto py-12 space-y-3">
-                <div className="hairline rounded-lg bg-card/50 px-4 py-3 text-left">
-                  <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute mb-1.5">nyo · how this works</p>
+                <div className="hairline rounded-lg bg-card/50 px-4 py-3.5 text-left space-y-2.5">
+                  <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">nyo · how this works</p>
                   <p className="text-[12.5px] leading-relaxed text-mute">
-                    The digest reads the channels you connect (WhatsApp chats and groups,
-                    news and web sources) and turns everything that piled up into one short
-                    brief: what needs action, what's worth knowing, what can wait. It fills
-                    on its own each morning, or right now with <span className="text-ink">Generate</span>.
-                    Nothing here leaves this install.
+                    The Digest is your morning brief: everything that piled up across your
+                    channels, already read and sorted so you don't have to do it yourself.
                   </p>
+                  <ul className="text-[12.5px] leading-relaxed text-mute space-y-1 pl-4 list-disc">
+                    <li>It reads what you connect: WhatsApp chats and groups, news and web sources.</li>
+                    <li>It sorts everything into three piles: <span className="text-ink">Action needed</span>, <span className="text-ink">Worth knowing</span>, <span className="text-ink">Can wait</span>.</li>
+                    <li>It fills on its own every morning, or right now with <span className="text-ink">Generate</span>.</li>
+                    <li>Everything stays on this install; nothing is sent anywhere.</li>
+                  </ul>
+                  <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute pt-1">from you</p>
+                  <ul className="text-[12.5px] leading-relaxed text-mute space-y-1 pl-4 list-disc">
+                    <li>Connect WhatsApp and pick your sources once: Nyo walks you through it.</li>
+                    <li>Glance at the brief daily and open what matters.</li>
+                    <li>Clear <span className="text-ink">Action needed</span> first; mark the rest read as you go.</li>
+                  </ul>
                 </div>
                 <div className="text-center text-sm text-mute pt-2">
                   <span className="text-4xl block mb-2">☕</span>
