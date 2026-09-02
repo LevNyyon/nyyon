@@ -4,7 +4,9 @@
 
 ## Install
 
-Copy this, paste it to your AI agent (Claude Code, Cursor, any agent that runs commands):
+1. **Log in to Cloudflare — or create the free account**: [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up). Email and password, no card.
+2. **Verify your email** — click the link Cloudflare sends you.
+3. **Paste this to your AI agent** (Claude Code, Cursor, any agent that runs commands):
 
 ```
 Install nyyon for me: clone https://github.com/LevNyyon/nyyon, cd into it, run
@@ -12,11 +14,8 @@ Install nyyon for me: clone https://github.com/LevNyyon/nyyon, cd into it, run
 and give me the setup link it prints.
 ```
 
-## What happens
-
-1. Your agent deploys nyyon into **your own free Cloudflare account** — your app, your database, your https address.
-2. Your browser opens once. You click **Allow** (create the free account right there if you need one — email and password, no card).
-3. Your agent hands you a link. Open it, set your password, you're in — from any device, forever.
+4. Your browser opens once — click **Allow**. That connects the deploy to **your** account: your app, your database, your https address.
+5. Your agent hands you a setup link. Open it, set your password, you're in — from any device, forever.
 
 Four modules come installed: **Daily Planner, Digest, Editorial, GTM**. Add an
 Anthropic key in Settings when you want the AI to answer; everything else works
