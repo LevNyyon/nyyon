@@ -1,0 +1,118 @@
+{
+  "nyyon_plugin": 2,
+  "name": "gemini-llm",
+  "title": "Gemini",
+  "version": "1.0.0",
+  "description": "Google Gemini as a backup brain: free, no card, generous limits. One gateway to one service, installable into any running nyyon — the host discovers it by capability, not by name.",
+  "icon": "Sparkle",
+  "origin": {
+    "system": "nyyon-app"
+  },
+  "requires": {
+    "gateways": [
+      {
+        "slug": "gemini",
+        "modes": [
+          "discover",
+          "status",
+          "probe",
+          "chat"
+        ],
+        "purpose": "Google Gemini over its OpenAI-compatible endpoint"
+      }
+    ],
+    "tables": [
+      {
+        "name": "plugin_gemini_llm_config",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gemini_llm_config (id INTEGER PRIMARY KEY, api_key TEXT NOT NULL, model TEXT, active INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL)"
+      }
+    ]
+  },
+  "provides": {
+    "gateways": [
+      {
+        "slug": "gemini",
+        "modes": [
+          "discover",
+          "status",
+          "probe",
+          "chat"
+        ],
+        "capability": "llm-backup",
+        "code_file": "gateway-gemini.mjs"
+      }
+    ],
+    "tools": [
+      {
+        "name": "connect_gemini",
+        "code_file": "tools/connect_gemini.mjs",
+        "def": {
+          "name": "connect_gemini",
+          "description": "Connect Google Gemini as a backup brain for this install. Free key at aistudio.google.com/apikey (no card). The right model is discovered for the key and verified with a real request.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "api_key": {
+                "type": "string",
+                "description": "the AIza... key from AI Studio"
+              },
+              "model": {
+                "type": "string",
+                "description": "optional — discovered automatically otherwise"
+              }
+            },
+            "required": [
+              "api_key"
+            ]
+          }
+        }
+      },
+      {
+        "name": "disconnect_gemini",
+        "code_file": "tools/disconnect_gemini.mjs",
+        "def": {
+          "name": "disconnect_gemini",
+          "description": "Forget the Gemini key. Nyo falls back to whatever other brain is available.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "gemini_status",
+        "code_file": "tools/gemini_status.mjs",
+        "def": {
+          "name": "gemini_status",
+          "description": "Is Gemini connected as a backup brain, and on which model? Pass check:true to confirm it answers with a real request.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "check": {
+                "type": "boolean"
+              }
+            },
+            "required": []
+          }
+        }
+      }
+    ],
+    "workflows": [],
+    "knowledge": [],
+    "surfaces": [
+      {
+        "slug": "gemini",
+        "title": "Gemini",
+        "icon": "Sparkle",
+        "page_file": "surface/gemini.tsx",
+        "files": [
+          {
+            "path": "data.ts",
+            "code_file": "surface/data.ts"
+          }
+        ]
+      }
+    ]
+  }
+}
