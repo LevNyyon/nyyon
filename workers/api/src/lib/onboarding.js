@@ -92,45 +92,6 @@ export async function saveAndVerifyLlmKey(env, { key, provider = 'anthropic' }) 
   const clean = String(key || '').trim();
   if (!clean) return { ok: false, error: 'Paste your API key to continue.' };
 
-  // The free path: the key goes to the provider's OWN gateway (the Free LLM
-  // plugin ships one per service). The gateway discovers a model this key can
-  // actually run, the row lands in the plugin's table, and the newly
-  // connected provider becomes the active backup brain.
-  if (provider === 'gemini' || provider === 'groq') {
-    // The most common failure is pasting the WRONG THING (an OAuth blob from
-    // the consent screen even passes verification — then expires within the
-    // hour). Teach, immediately, before any network call.
-    if (provider === 'groq' && !/^gsk_/.test(clean)) {
-      return { ok: false, error: "That is not a Groq API key — keys start with gsk_. On console.groq.com/keys press 'Create API Key' and copy that." };
-    }
-    const { callGateway } = await import('../gateways/index.js');
-    const slug = provider === 'gemini' ? 'plugin__gemini-llm__gemini' : 'plugin__free-llm__groq';
-    let d;
-    try {
-      d = await callGateway(env, slug, 'discover', { api_key: clean });
-    } catch (e) {
-      return { ok: false, error: 'The Free LLM plugin is not installed on this system, so there is no free-model path.' };
-    }
-    if (!d?.ok) return { ok: false, error: `${provider === 'gemini' ? 'Gemini' : 'Groq'} rejected the key: ${String(d?.error || 'no answer').slice(0, 200)}` };
-    try {
-      if (provider === 'gemini') {
-        await env.DB.prepare(
-          `INSERT INTO plugin_gemini_llm_config (id, api_key, model, active, updated_at) VALUES (1, ?, ?, 1, ?)
-           ON CONFLICT(id) DO UPDATE SET api_key=excluded.api_key, model=excluded.model, active=1, updated_at=excluded.updated_at`,
-        ).bind(clean, d.model, Date.now()).run();
-      } else {
-        await env.DB.prepare(
-          `INSERT INTO plugin_free_llm_providers (provider, api_key, model, active, updated_at)
-           VALUES ('groq', ?, ?, 1, ?)
-           ON CONFLICT(provider) DO UPDATE SET api_key=excluded.api_key, model=excluded.model, active=1, updated_at=excluded.updated_at`,
-        ).bind(clean, d.model, Date.now()).run();
-      }
-    } catch {
-      return { ok: false, error: 'The Free LLM plugin is not installed on this system, so there is nowhere to keep the key.' };
-    }
-    return { ok: true, provider, verified: true, model: d.model };
-  }
-
   const field = provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
   await saveGatewayConfig(env, 'llm', { [field]: clean, ...(provider === 'openai' ? { LLM_PROVIDER: 'openai' } : {}) });
 

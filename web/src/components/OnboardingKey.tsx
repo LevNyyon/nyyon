@@ -19,14 +19,7 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
   // 'anthropic' is the primary path; 'groq' is the free one for people with
   // no Claude account. Switching clears the field — the keys look nothing
   // alike and a half-typed one from the other provider only breeds confusion.
-  const [mode, setMode] = useState<'anthropic' | 'gemini' | 'groq'>('anthropic');
-  const switchTo = (m: 'anthropic' | 'gemini' | 'groq') => {
-    setMode(m); setKey(''); setError(null);
-    // The deep link opens alongside the form, so "set up here" means exactly
-    // that: the key page is already in front of them when they look.
-    if (m === 'gemini') window.open('https://aistudio.google.com/apikey', '_blank', 'noopener');
-    if (m === 'groq') window.open('https://console.groq.com/keys', '_blank', 'noopener');
-  };
+
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -34,7 +27,7 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
     setBusy(true);
     setError(null);
     try {
-      const r = await onboarding.saveLlmKey(key.trim(), mode);
+      const r = await onboarding.saveLlmKey(key.trim());
       if (r?.ok) { onReady(); return; }
       setError(r?.error || 'That key could not be verified.');
     } catch (e) {
@@ -78,67 +71,29 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
             </div>
 
             <div className="px-5 py-5">
-              <div className="flex gap-1.5 mb-3">
-                <button type="button" onClick={() => switchTo('anthropic')}
-                  className={`text-[12px] px-2.5 py-1 rounded-sm transition ${mode === 'anthropic' ? 'bg-ink text-paper' : 'hairline bg-paper text-mute hover:text-ink'}`}>
-                  Anthropic
-                </button>
-                <button type="button" onClick={() => switchTo('gemini')}
-                  className={`text-[12px] px-2.5 py-1 rounded-sm transition ${mode === 'gemini' ? 'bg-ink text-paper' : 'hairline bg-paper text-mute hover:text-ink'}`}>
-                  Gemini · free
-                </button>
-                <button type="button" onClick={() => switchTo('groq')}
-                  className={`text-[12px] px-2.5 py-1 rounded-sm transition ${mode === 'groq' ? 'bg-ink text-paper' : 'hairline bg-paper text-mute hover:text-ink'}`}>
-                  Groq · free
-                </button>
-              </div>
-
-              {mode === 'anthropic' ? (
+              {(
                 <p className="text-[13px] leading-relaxed text-mute mb-4">
                   The rest of setup is a conversation, and the conversation runs on a model. Paste an
                   Anthropic API key to begin. It is stored on this install only, and you can change it
                   later in Settings.
                 </p>
-              ) : mode === 'gemini' ? (
-                <ol className="text-[13px] leading-relaxed text-mute mb-4 pl-4 list-decimal space-y-1">
-                  <li>
-                    <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer noopener"
-                       className="underline underline-offset-2 hover:text-ink transition">Sign in with any Google account and create an API key</a>
-                    {' '}— free, no card, limits that fit real conversations.
-                  </li>
-                  <li>Paste it below. Setup continues on the free model.</li>
-                </ol>
-              ) : (
-                <ol className="text-[13px] leading-relaxed text-mute mb-4 pl-4 list-decimal space-y-1">
-                  <li>
-                    <a href="https://console.groq.com/login" target="_blank" rel="noreferrer noopener"
-                       className="underline underline-offset-2 hover:text-ink transition">Create a free Groq account</a>
-                    {' '}— Google or email, no card.
-                  </li>
-                  <li>
-                    <a href="https://console.groq.com/keys" target="_blank" rel="noreferrer noopener"
-                       className="underline underline-offset-2 hover:text-ink transition">Press Create API Key</a>
-                    {' '}and copy it — it is shown once.
-                  </li>
-                  <li>Paste it below. Fast, but expect pauses in long conversations (tight per-minute limits).</li>
-                </ol>
               )}
 
               <label className="block mb-4">
                 <span className="mono text-[9px] uppercase tracking-[0.16em] text-mute">
-                  {mode === 'anthropic' ? 'Anthropic API key' : mode === 'gemini' ? 'Gemini API key' : 'Groq API key'}
+                  Anthropic API key
                 </span>
                 <input
                   type="password"
                   value={key}
                   onChange={(e) => setKey(e.target.value)}
-                  placeholder={mode === 'anthropic' ? 'sk-ant-...' : mode === 'gemini' ? 'AIza...' : 'gsk_...'}
+                  placeholder="sk-ant-..."
                   autoFocus
                   autoComplete="off"
                   spellCheck={false}
                   className="mt-1 w-full h-9 px-2.5 rounded-sm hairline bg-paper mono text-[12px] outline-none focus:border-emerald-500"
                 />
-                {mode === 'anthropic' && (
+                {(
                   <span className="block mt-1.5 text-[11px] text-mute">
                     Don't have one?{' '}
                     <a
@@ -149,7 +104,7 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
                     >
                       Create a key at console.anthropic.com
                     </a>
-                    , then paste it here — or use Groq above, free with no card.
+                    , then paste it here.
                   </span>
                 )}
               </label>
