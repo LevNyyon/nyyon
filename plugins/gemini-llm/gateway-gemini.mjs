@@ -41,7 +41,12 @@ function toNative(messages) {
       for (const c of m.tool_calls || []) {
         nameById[c.id] = c.function?.name;
         let args = {}; try { args = JSON.parse(c.function?.arguments || '{}'); } catch { /* empty */ }
-        parts.push({ functionCall: { name: c.function?.name, args } });
+        const part = { functionCall: { name: c.function?.name, args } };
+        // Gemini 3 thinking models SIGN their tool calls and refuse a replayed
+        // history without the signature. It rides the call id through the
+        // host's provider-neutral shapes (prefix 'ts.'), and is restored here.
+        if (typeof c.id === 'string' && c.id.startsWith('ts.')) part.thoughtSignature = c.id.slice(3);
+        parts.push(part);
       }
       if (parts.length) contents.push({ role: 'model', parts });
       continue;
@@ -64,7 +69,9 @@ function toOpenAi(json, model) {
   const parts = cand?.content?.parts || [];
   const text = parts.filter((p) => typeof p.text === 'string').map((p) => p.text).join('');
   const calls = parts.filter((p) => p.functionCall).map((p, i) => ({
-    id: `call_${i}_${p.functionCall.name}`,
+    // The signature travels AS the id — the one field every shape between
+    // here and the transcript preserves untouched.
+    id: p.thoughtSignature ? `ts.${p.thoughtSignature}` : `call_${i}_${p.functionCall.name}`,
     type: 'function',
     function: { name: p.functionCall.name, arguments: JSON.stringify(p.functionCall.args || {}) },
   }));
