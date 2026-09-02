@@ -524,9 +524,23 @@ function BriefPane() {
               </div>
             ) : (
               // Genuinely empty brief (fresh install / everything cleared).
-              <div className="text-center py-16 space-y-3">
-                <div className="text-4xl">☕</div>
-                <div className="text-sm text-mute">Nothing in the brief. Hit <span className="text-ink">Generate</span> to scan recent activity.</div>
+              // First open explains itself: what feeds it, what comes out.
+              // Static copy, no model call, gone once the brief has items.
+              <div className="max-w-xl mx-auto py-12 space-y-3">
+                <div className="hairline rounded-lg bg-card/50 px-4 py-3 text-left">
+                  <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute mb-1.5">nyo · how this works</p>
+                  <p className="text-[12.5px] leading-relaxed text-mute">
+                    The digest reads the channels you connect (WhatsApp chats and groups,
+                    news and web sources) and turns everything that piled up into one short
+                    brief: what needs action, what's worth knowing, what can wait. It fills
+                    on its own each morning, or right now with <span className="text-ink">Generate</span>.
+                    Nothing here leaves this install.
+                  </p>
+                </div>
+                <div className="text-center text-sm text-mute pt-2">
+                  <span className="text-4xl block mb-2">☕</span>
+                  Nothing in the brief yet. Connect channels via Nyo, then hit <span className="text-ink">Generate</span>.
+                </div>
               </div>
             )
           )}
