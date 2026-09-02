@@ -19,7 +19,7 @@ export type ConversationDetail = {
   }>;
 };
 
-export type SystemHealthLevel = 'green' | 'yellow' | 'red';
+export type SystemHealthLevel = 'green' | 'yellow' | 'red' | 'off';
 export type SystemHealthCheck = {
   name: string;
   status: SystemHealthLevel;

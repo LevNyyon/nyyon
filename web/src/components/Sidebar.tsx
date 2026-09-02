@@ -178,11 +178,13 @@ const HEALTH_COLOR: Record<SystemHealthLevel, string> = {
   green:  'bg-emerald-500',
   yellow: 'bg-amber-500',
   red:    'bg-rose-500',
+  off:    'bg-stone-300 dark:bg-stone-600',   // not connected — a state, not a problem
 };
 const HEALTH_LABEL: Record<SystemHealthLevel, string> = {
   green:  'systems ok',
   yellow: 'degraded',
   red:    'down',
+  off:    'off',
 };
 
 function Health() {

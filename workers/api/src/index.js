@@ -450,8 +450,13 @@ app.get('/api/system/health', async (c) => {
   // so the notes point at the REAL gateway — not a hardcoded localhost port.
   const waBase   = (env.WA_BASE_URL || '').replace(/\/$/, '');
   const linkPage = waBase ? waBase.replace(/\/api$/, '') + '/link' : null;
-  try {
-    if (!waBase) throw new Error('WA_BASE_URL not set');
+  // Never connected is NOT a failure. A fresh install must be green: an
+  // optional gateway with no credentials is 'off' — visible in the breakdown,
+  // ignored by the roll-up. Yellow is reserved for configured-and-failing.
+  if (!waBase) {
+    checks.push({ name: 'WhatsApp', status: 'off', severity: 'degraded',
+      note: 'not connected — connect it in Settings when you want WhatsApp features' });
+  } else try {
     // Through the gateway lib — auth/header/session logic lives ONLY there.
     const wa = await checkWaHealth(env);
     if (wa.error && /HTTP 401/.test(wa.error)) {
@@ -471,13 +476,16 @@ app.get('/api/system/health', async (c) => {
     }
   } catch (e) {
     checks.push({ name: 'WA gateway', status: 'yellow', severity: 'degraded',
-      note: `unreachable at ${waBase || '(WA_BASE_URL unset)'} — is the gateway + tunnel up?` });
+      note: `unreachable at ${waBase} — is the gateway service up?` });
   }
 
   // 4. LinkedIn gateway — reachability only (real work also needs LI cookies,
   //    tracked separately). Same public-tunnel requirement as WhatsApp; not
   //    set up yet, so on the deployed worker this reports "needs a tunnel".
-  try {
+  if (!env.UNIPILE_DSN) {
+    checks.push({ name: 'LinkedIn', status: 'off', severity: 'degraded',
+      note: 'not connected — connect it in Settings when you want LinkedIn features' });
+  } else try {
     // Through the pool (probe_linkedin → the linkedin gateway) — same
     // reachability check, one transport, and an exact pass-through of the probe
     // blob, so the reachable/error reads below are unchanged.
@@ -485,7 +493,7 @@ app.get('/api/system/health', async (c) => {
     checks.push({
       name: 'LinkedIn gateway', severity: 'degraded',
       status: li?.reachable ?? li?.ok ? 'green' : 'yellow',
-      note: (li?.reachable ?? li?.ok) ? null : (li?.error || 'Unipile not configured — connect LinkedIn in Settings'),
+      note: (li?.reachable ?? li?.ok) ? null : (li?.error || 'configured but not answering — check the Unipile DSN + key in Settings'),
     });
   } catch (e) {
     checks.push({ name: 'LinkedIn gateway', status: 'yellow', severity: 'degraded',
@@ -495,7 +503,12 @@ app.get('/api/system/health', async (c) => {
   // 5. Website — the operator's live public site (WEBSITE_BASE_URL).
   //    Publicly reachable, so a straight fetch works from the deployed
   //    worker — no tunnel needed.
-  checks.push(await probeGateway('Website', env.WEBSITE_BASE_URL, 'WEBSITE_BASE_URL', { deployed }));
+  if (!env.WEBSITE_BASE_URL) {
+    checks.push({ name: 'Website', status: 'off', severity: 'degraded',
+      note: 'not set — optional: point WEBSITE_BASE_URL at a public site to watch it here' });
+  } else {
+    checks.push(await probeGateway('Website', env.WEBSITE_BASE_URL, 'WEBSITE_BASE_URL', { deployed }));
+  }
 
   // 6. Digest channels — any enabled channel whose last_status is 'error'
   //    is degraded. Skipped channels (disabled) don't count.
@@ -512,7 +525,7 @@ app.get('/api/system/health', async (c) => {
         note: bad.map((b) => b.source).join(', ') + ' — clears once the source gateway/session is live (fix the matching gateway check above)',
       });
     } else if ((rows.results || []).length === 0) {
-      checks.push({ name: 'Digest channels', status: 'yellow', severity: 'degraded', note: 'no channels enabled' });
+      checks.push({ name: 'Digest channels', status: 'off', severity: 'degraded', note: 'none enabled yet' });
     } else {
       checks.push({ name: `Digest channels (${rows.results.length} on)`, status: 'green', severity: 'degraded', note: null });
     }
@@ -547,7 +560,14 @@ app.get('/api/system/health', async (c) => {
     }
   } catch { /* plugin_editorial_osint_listeners table may not exist yet — skip */ }
 
-  // 8. GTM gateways — the module's own external dependencies. WhatsApp +
+  // 8. GTM gateways — but ONLY on installs that HAVE the GTM plugin. A
+  //    health panel probing a module that is not installed is how a fresh
+  //    scoped install ends up warning about things it does not contain.
+  const hasGtm = await env.DB.prepare(
+    "SELECT 1 AS x FROM plugins WHERE name = 'gtm' AND status IN ('active','bound')",
+  ).first().then((r) => !!r?.x).catch(() => false);
+  if (hasGtm) {
+  // GTM gateways — the module's own external dependencies. WhatsApp +
   //    LinkedIn ride the shared gateway checks above (same servers — the GTM
   //    contact-lookup and company/jobs endpoints live on them). What's GTM-
   //    specific: theorg (org charts, public GraphQL, the Enrich tab's hard
@@ -587,8 +607,10 @@ app.get('/api/system/health', async (c) => {
         : null,
     });
   }
+  } // hasGtm
 
-  // Roll up: red beats yellow beats green.
+  // Roll up: red beats yellow beats green. 'off' is invisible to the roll-up
+  // — not connected is a state, not a problem.
   const overall = checks.some((c) => c.status === 'red')    ? 'red'
                 : checks.some((c) => c.status === 'yellow') ? 'yellow'
                 : 'green';
