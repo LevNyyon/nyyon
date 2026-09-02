@@ -1,27 +1,24 @@
-# Command Center
+# nyyon
 
-An AI command center you own: outreach, writing, and publishing from one place, in your voice. A chat assistant called **Nyo** sits at the center, surrounded by **modules** (product areas with their own pages) and **tools** (granular capabilities Nyo can use). It runs entirely on your own machine: Workers runtime plus a local SQLite (D1) database.
+Your own AI command center — planning, outreach, writing and publishing, with
+an assistant at the center. Yours means yours: your account, your database,
+your URL, reachable from any device, free.
 
-## Get your own nyyon (free, ~3 minutes)
-
-Every install is fully independent: your Cloudflare account, your worker,
-your database, your URL — reachable from any device, shared with no one.
-Free tier, no card.
-
-Have an AI agent (Claude Code, Cursor, ...)? Paste this:
+## Get yours — copy this, paste it to your AI agent
 
 ```
-Set up my own nyyon:
-git clone https://github.com/LevNyyon/nyyon && cd nyyon
-run `npx wrangler login` and wait for me to click Allow,
-then `npm run deploy` and give me the setup link it prints.
+Install nyyon for me: clone https://github.com/LevNyyon/nyyon, cd into it,
+run `npx wrangler login` and wait while I approve it in the browser,
+then run `npm run deploy` and give me the setup link it prints.
 ```
 
-Your part is two moments: click **Allow** when the browser opens (create the
-free Cloudflare account right there if you don't have one — email + password),
-then open the setup link your agent hands you and set your password. Done.
+That is the whole install. Works with Claude Code, Cursor, or any agent that
+can run commands. Two moments are yours: click **Allow** when the browser
+opens (create the free Cloudflare account right there if you need one — email
+and password, no card), then open the setup link your agent hands back and
+set your password. You're in.
 
-No agent? The same three commands, run by hand:
+No agent? The same three commands by hand:
 
 ```
 git clone https://github.com/LevNyyon/nyyon && cd nyyon
@@ -29,11 +26,13 @@ npx wrangler login
 npm run deploy
 ```
 
-The installer creates everything in your account, installs the four modules
-(Daily Planner, Digest, Editorial, GTM), and prints a one-time setup link
-that dies the moment your account exists. Re-running it later updates the
-app and keeps your data. Add an Anthropic key in Settings when you want the
-AI to answer — everything else works without it.
+**What you get:** the app live at your own https address with four modules
+installed — Daily Planner, Digest, Editorial (Hot Takes, Blog, Social) and
+GTM (Prospecting, Outreach). Everything runs in YOUR Cloudflare account on
+the free tier; nothing is shared with anyone and no credential ever leaves
+your machine. Re-running the installer updates the app and keeps your data.
+Add an Anthropic key in Settings when you want the AI to answer — everything
+else works without it.
 
 ## Other ways to run it
 
