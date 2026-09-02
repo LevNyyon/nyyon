@@ -415,9 +415,15 @@ app.get('/api/system/health', async (c) => {
     false;
   // A connected free backup brain is a working model — an install running on
   // it is degraded-by-choice, not down.
-  const freeBrain = await env.DB.prepare(
-    "SELECT provider, model FROM plugin_free_llm_providers WHERE api_key IS NOT NULL AND api_key != '' ORDER BY active DESC LIMIT 1",
-  ).first().catch(() => null);
+  const freeBrain = await (async () => {
+    try {
+      const { pickBackupLlm, callGateway } = await import('./gateways/index.js');
+      const slug = await pickBackupLlm(env);
+      if (!slug) return null;
+      const st = await callGateway(env, slug, 'status', {});
+      return st?.connected ? { provider: st.label || slug, model: st.model } : null;
+    } catch { return null; }
+  })();
   if (!keySet && freeBrain) {
     checks.push({
       name: `LLM · free backup (${freeBrain.model || freeBrain.provider})`,

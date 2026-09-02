@@ -74,14 +74,14 @@ export async function llmConfigured(env) {
   try {
     if (await resolveCredential(env, 'ANTHROPIC_API_KEY')) return true;
   } catch { /* fall through to the backup check */ }
-  // A connected free backup brain COUNTS. Verifying a Groq key returned ok
-  // while this check still said "no model", so boot bounced the operator back
-  // onto the same screen forever — verified, configured, and stuck.
+  // A connected backup brain COUNTS — and the check must ask the gateway
+  // registry, never a named table. It peeked at free-llm's table, so a key
+  // stored by the gemini pack (its OWN table) left llm_ready false and boot
+  // bounced the operator back onto the model step forever: verified,
+  // configured, stuck. Any plugin advertising llm-backup satisfies this.
   try {
-    const r = await env.DB.prepare(
-      "SELECT 1 AS x FROM plugin_free_llm_providers WHERE api_key IS NOT NULL AND api_key != '' LIMIT 1",
-    ).first();
-    return !!r?.x;
+    const { pickBackupLlm } = await import('../gateways/index.js');
+    return !!(await pickBackupLlm(env));
   } catch { return false; }
 }
 
@@ -97,6 +97,15 @@ export async function saveAndVerifyLlmKey(env, { key, provider = 'anthropic' }) 
   // actually run, the row lands in the plugin's table, and the newly
   // connected provider becomes the active backup brain.
   if (provider === 'gemini' || provider === 'groq') {
+    // The most common failure is pasting the WRONG THING (an OAuth blob from
+    // the consent screen even passes verification — then expires within the
+    // hour). Teach, immediately, before any network call.
+    if (provider === 'gemini' && !/^AIza/.test(clean)) {
+      return { ok: false, error: "That is not a Gemini API key — keys start with AIza. On aistudio.google.com/apikey press 'Create API key' and copy that." };
+    }
+    if (provider === 'groq' && !/^gsk_/.test(clean)) {
+      return { ok: false, error: "That is not a Groq API key — keys start with gsk_. On console.groq.com/keys press 'Create API Key' and copy that." };
+    }
     const { callGateway } = await import('../gateways/index.js');
     const slug = provider === 'gemini' ? 'plugin__gemini-llm__gemini' : 'plugin__free-llm__groq';
     let d;
