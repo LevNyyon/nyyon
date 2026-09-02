@@ -1127,6 +1127,9 @@ const WA_DIGEST_LOOKBACK_MS = 5 * 24 * 60 * 60 * 1000;
 // no deploy. The constants above/below stay as the seeded defaults; a missing
 // or broken doc falls back to them.
 const DIGEST_POLICY_DEFAULTS = Object.freeze({
+  search_topics_cap: 5,        // most topics looked up per run
+  search_per_topic_limit: 5,   // most headlines kept per topic per provider
+  search_urgency: 2,           // where search items land in the brief
   wa_lookback_days: 5,           // WA chat scan window (operator-tuned from 7, 2026-06-07)
   wa_max_messages_per_chat: 400, // per-chat cap fed to the LLM (raised from 120, 2026-06-07)
   osint_per_target_cap: 6,       // OSINT mentions per target per digest
@@ -1672,6 +1675,74 @@ async function pullOsintInsights(api) {
   return inserted;
 }
 
+// ── search: operator topics × every installed search provider ──────────────
+// The provider is DISCOVERED, never named: any plugin whose gateway advertises
+// capability 'search' (news-search ships one) is queried for each topic in the
+// plugin-digest-search-topics doc. No providers or no topics = a soft note,
+// not an error — the channel simply has nothing to say yet.
+const SEARCH_TOPICS_DEFAULT = `# Digest search topics
+
+One topic per line. The digest's search channel looks each of these up every
+run and files fresh headlines into the brief. Lines starting with # are
+ignored. Keep it to a handful — the brief should stay a brief.
+
+AI agents
+`;
+
+async function pullSearch(api) {
+  const providers = await api.discoverGateways('search');
+  if (!providers.length) return { ids: [], error: 'no search provider installed — add one (e.g. the News Search plugin)' };
+  const policy = await loadDigestPolicy(api);
+
+  let doc = null;
+  try { doc = await api.knowledge('plugin-digest-search-topics'); } catch { doc = null; }
+  if (!doc) {
+    try {
+      await api.saveKnowledge('plugin-digest-search-topics', { title: 'Digest search topics', body: SEARCH_TOPICS_DEFAULT });
+      doc = { body: SEARCH_TOPICS_DEFAULT };
+    } catch { doc = { body: SEARCH_TOPICS_DEFAULT }; }
+  }
+  const topics = String(doc.body || '').split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'))
+    .slice(0, policy.search_topics_cap);
+  if (!topics.length) return { ids: [], error: 'no topics listed — edit the "Digest search topics" doc in Knowledge' };
+
+  const ids = [];
+  const seen = new Set();
+  const now = Date.now();
+  let lastErr = null;
+  for (const topic of topics) {
+    for (const p of providers) {
+      let r = null;
+      try { r = await p.call({ query: topic, limit: policy.search_per_topic_limit }); }
+      catch (e) { lastErr = String(e?.message || e); r = null; }
+      if (!r?.ok) { if (r?.error) lastErr = String(r.error); continue; }
+      for (const hit of r.results || []) {
+        if (!hit?.url || seen.has(hit.url)) continue;
+        seen.add(hit.url);
+        // One stable id per URL: a headline that was read or dismissed stays
+        // read on every later run (INSERT OR IGNORE semantics).
+        let h = 0;
+        for (let i = 0; i < hit.url.length; i++) h = ((h << 5) - h + hit.url.charCodeAt(i)) | 0;
+        const id = 'srch_' + (h >>> 0).toString(36);
+        const inserted = await insertDigestItem(api, {
+          id, kind: 'news', ref_kind: 'search', ref_id: topic,
+          title: hit.title,
+          summary: [hit.source, hit.published_at, `topic: ${topic}`].filter(Boolean).join(' · '),
+          source_label: hit.source || p.label, source_url: hit.url,
+          urgency: policy.search_urgency, actionable: 0, suggested_action: null, created_at: now,
+        });
+        if (inserted) ids.push(id);
+      }
+    }
+  }
+  // Nothing landed AND a provider was failing: that is a channel problem, not
+  // a quiet news day — surface it so the Channels tab shows the real state.
+  if (!ids.length && lastErr) return { ids, error: `search provider failing: ${lastErr.slice(0, 160)}` };
+  return ids;
+}
+
 async function pullCalendar(api, nowMs /*, sinceMs */) {
   // Look-AHEAD window — events in the next 7 days. Calendar items are
   // forward-looking so we always use a wider window than WA/OSINT (which
@@ -1806,6 +1877,28 @@ export async function generateDigest(api, { since_ms = 24 * 60 * 60 * 1000 } = {
   // alongside the per-source +N adds.
   const prune = await pruneStaleDigestItems(api);
 
+  // Channel rows exist from the FIRST run. Without them a missing row counted
+  // as enabled while toggle_digest_channel errored 'unknown channel' — the
+  // Channels tab was a control panel over rows that were not there.
+  for (const [src, label, on, note] of [
+    ['search', 'Search', 1, 'headlines for the topics in the Digest search topics doc'],
+    ['attention', 'System attention', 1, null],
+    ['li_signals', 'LinkedIn signals', 0, 'dormant until an li_signals feed exists on this install'],
+    ['osint_insights', 'OSINT insights', 1, null],
+    ['whatsapp', 'WhatsApp', 1, 'needs the WhatsApp connection to have messages to read'],
+    ['osint', 'OSINT mentions', 1, null],
+    ['heartbeat', 'Content signals', 1, null],
+    ['calendar', 'Calendar', 1, null],
+    ['email', 'Email', 0, 'not implemented yet'],
+  ]) {
+    try {
+      const t = Date.now();
+      await api.db.prepare(
+        'INSERT OR IGNORE INTO plugin_digest_channels (source, label, enabled, cadence, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).bind(src, label, on, 'daily', note, t, t).run();
+    } catch { /* older schema: the tolerant reads cope */ }
+  }
+
   // Run each enabled channel. Record stats per channel (even on partial fail).
   async function maybeRun(source, runFn) {
     if (!(await isChannelEnabled(api, source))) {
@@ -1833,6 +1926,7 @@ export async function generateDigest(api, { since_ms = 24 * 60 * 60 * 1000 } = {
     try { await recordChannelRun(api, source, { ok: !hardErr, added, error }); } catch {}
   }
 
+  await maybeRun('search',    () => pullSearch(api));
   await maybeRun('attention', () => pullAttention(api));
   await maybeRun('li_signals', () => pullLiSignals(api));
   await maybeRun('osint_insights', () => pullOsintInsights(api));

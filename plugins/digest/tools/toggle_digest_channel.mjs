@@ -8,7 +8,7 @@ export const def = {
   input_schema: {
     type: 'object',
     properties: {
-      source:  { type: 'string', enum: ['attention', 'li_signals', 'osint_insights', 'whatsapp', 'calendar', 'osint', 'heartbeat', 'email'] },
+      source:  { type: 'string', enum: ['search', 'attention', 'li_signals', 'osint_insights', 'whatsapp', 'calendar', 'osint', 'heartbeat', 'email'] },
       enabled: { type: 'boolean' },
       cadence: { type: 'string', enum: ['manual', 'daily', 'hourly'] },
       notes:   { type: 'string' },

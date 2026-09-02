@@ -615,6 +615,7 @@ export function generateIndex(rows) {
   const tables = {};
   const knowledge = {};
   const hostReads = {};
+  const caps = {};
 
   for (const row of rows) {
     let m;
@@ -651,6 +652,9 @@ export function generateIndex(rows) {
     knowledge[m.name] = arr(m.requires?.knowledge)
       .map((k) => String((typeof k === 'string' ? k : k?.slug) || '').toLowerCase())
       .filter(Boolean);
+    caps[m.name] = arr(m.requires?.capabilities)
+      .map((c) => (typeof c === 'string' ? { capability: c, mode: c } : { capability: String(c?.capability || ''), mode: String(c?.mode || c?.capability || '') }))
+      .filter((c) => c.capability);
 
     for (const t of arr(m.provides?.tools)) {
       if (!TOOL_RE.test(t?.name || '') || seenTool.has(t.name)) continue;
@@ -659,7 +663,7 @@ export function generateIndex(rows) {
       imports.push(`import * as ${v} from './${m.name}/tool-${t.name}.mjs';`);
       toolRefs.push(
         `  ${JSON.stringify(t.name)}: { def: ${v}.def, run: (env, input, ctx) => `
-        + `${v}.run(pluginApi(env, ${JSON.stringify(m.name)}, BINDINGS[${JSON.stringify(m.name)}], TABLES[${JSON.stringify(m.name)}], KNOWLEDGE[${JSON.stringify(m.name)}], HOST_READS[${JSON.stringify(m.name)}]), input, ctx) },`,
+        + `${v}.run(pluginApi(env, ${JSON.stringify(m.name)}, BINDINGS[${JSON.stringify(m.name)}], TABLES[${JSON.stringify(m.name)}], KNOWLEDGE[${JSON.stringify(m.name)}], HOST_READS[${JSON.stringify(m.name)}], CAPABILITIES[${JSON.stringify(m.name)}]), input, ctx) },`,
       );
     }
     for (const g of arr(m.provides?.gateways).filter((gg) => binding?.[gg.slug]?.via === 'bundled')) {
@@ -685,6 +689,7 @@ export function generateIndex(rows) {
     `const TABLES = ${JSON.stringify(tables, null, 2)};`,
     `const KNOWLEDGE = ${JSON.stringify(knowledge, null, 2)};`,
     `const HOST_READS = ${JSON.stringify(hostReads, null, 2)};`,
+    `const CAPABILITIES = ${JSON.stringify(caps, null, 2)};`,
     '',
     'export const pluginTools = {',
     ...toolRefs,

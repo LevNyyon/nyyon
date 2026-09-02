@@ -2,7 +2,7 @@
   "nyyon_plugin": 2,
   "name": "digest",
   "title": "Digest",
-  "version": "1.0.1",
+  "version": "1.1.1",
   "description": "The morning brief: scans followed WhatsApp chats, OSINT mentions and synthesized insights, content signals, the calendar mirror, LinkedIn signals and system-attention checks into one urgency-sorted feed of actionable cards. Each card drafts its own WhatsApp reply (group-vs-private routed, quote-replies in thread), schedules through slot picks, saves interesting people to Contacts, and learns continuously: dismissals tune the interest filter, score feedback grows taste rules, draft edits teach the operator's voice, and lead heat stays stamped on every signal.",
   "origin": {
     "system": "cmd.nyyon.com",
@@ -170,6 +170,13 @@
       {
         "name": "plugin_digest_wa_queue",
         "ddl": "CREATE TABLE IF NOT EXISTS plugin_digest_wa_queue (id TEXT PRIMARY KEY, chat_id TEXT NOT NULL, text TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'queued', not_before INTEGER, source TEXT, source_ref TEXT, created_at INTEGER NOT NULL, sent_at INTEGER, message_id TEXT, error TEXT); CREATE INDEX IF NOT EXISTS idx_plugin_digest_wa_queue_due ON plugin_digest_wa_queue (status, not_before)"
+      }
+    ],
+    "capabilities": [
+      {
+        "capability": "search",
+        "mode": "search",
+        "purpose": "headline lookups for the search channel's topics \u2014 any installed search provider"
       }
     ]
   },
@@ -783,6 +790,7 @@
               "source": {
                 "type": "string",
                 "enum": [
+                  "search",
                   "attention",
                   "li_signals",
                   "osint_insights",
@@ -948,6 +956,11 @@
         "slug": "plugin-digest-wa-send-slots",
         "title": "WhatsApp send slots",
         "body_file": "knowledge/plugin-digest-wa-send-slots.md"
+      },
+      {
+        "slug": "plugin-digest-search-topics",
+        "title": "Digest search topics",
+        "body_file": "knowledge/plugin-digest-search-topics.md"
       }
     ],
     "surfaces": [

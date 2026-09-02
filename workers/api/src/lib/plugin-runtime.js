@@ -291,7 +291,7 @@ function scopedGateway(env, pluginName, binding) {
 
 // Build one plugin's capability object. Called by the GENERATED
 // plugins/index.js wrapper — plugin code never constructs its own.
-export function pluginApi(env, pluginName, binding, tables, knowledgeSlugs, hostReadTables) {
+export function pluginApi(env, pluginName, binding, tables, knowledgeSlugs, hostReadTables, capabilities) {
   const allowed = new Set((tables || []).map((t) => String(t).toLowerCase()));
   const hostReads = new Set((hostReadTables || []).map((t) => String(t).toLowerCase()));
   // Host knowledge a plugin may READ. Its OWN docs (plugin-<name>-*) are
@@ -305,6 +305,31 @@ export function pluginApi(env, pluginName, binding, tables, knowledgeSlugs, host
   return {
     db: scopedDb(env, pluginName, allowed, hostReads),
     gateway: scopedGateway(env, pluginName, binding || {}),
+    // Capability discovery — the llm-backup seam, generalized for pack code.
+    // A pack asks "who can search?" at CALL time and gets callable handles; it
+    // never names a provider, and a provider installed later simply starts
+    // appearing. The reach is BOUNDED three ways: the capability must be
+    // declared in the pack's manifest (requires.capabilities — the operator
+    // sees it at import), reserved gateways are never discoverable, and each
+    // handle is bound to the declared mode plus read-only status — a pack
+    // cannot discover its way into another pack's config-writing modes.
+    discoverGateways: async (capability) => {
+      const cap = String(capability || '').trim();
+      if (!cap) return [];
+      const grant = (capabilities || []).find((c) =>
+        (typeof c === 'string' ? c : c?.capability) === cap);
+      if (!grant) throw new Error(`plugin ${pluginName}: capability "${cap}" is not declared in requires.capabilities`);
+      const mode = String((typeof grant === 'string' ? cap : grant.mode || cap));
+      const { GATEWAYS, callGateway } = await import('../gateways/index.js');
+      return Object.entries(GATEWAYS)
+        .filter(([slug, g]) => g?.capability === cap && !RESERVED_GATEWAYS.has(slug) && g?.modes?.[mode])
+        .map(([slug, g]) => ({
+          slug,
+          label: g?.service || slug,
+          call: (input) => callGateway(env, slug, mode, input || {}),
+          status: g?.modes?.status ? () => callGateway(env, slug, 'status', {}) : null,
+        }));
+    },
     knowledge: async (slug) => {
       const sl = String(slug || '').toLowerCase();
       if (!ownDoc.test(sl) && !readable.has(sl)) {
