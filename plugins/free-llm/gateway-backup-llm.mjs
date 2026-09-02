@@ -14,7 +14,7 @@
 const PROVIDERS = {
   groq: {
     label: 'Groq',
-    default_model: 'llama-3.3-70b-versatile',
+    default_model: 'openai/gpt-oss-120b',
     base: () => 'https://api.groq.com/openai/v1',
     signup: 'console.groq.com/keys',
   },

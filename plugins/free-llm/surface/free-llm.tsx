@@ -7,7 +7,7 @@ import { readStatus, connect, disconnect, type Status, type ProviderOption } fro
 // the same as it behaves.
 const GUIDE: Record<string, { blurb: string; steps: { text: string; href?: string; link?: string }[] }> = {
   groq: {
-    blurb: 'Free, no card, about 1,000 requests a day on Llama 3.3 70B, and very fast. Best choice for daily use.',
+    blurb: 'Free, no card, about 1,000 requests a day on GPT-OSS 120B, and very fast. Best choice for daily use.',
     steps: [
       { text: 'Create a free Groq account (Google or email, no card).', link: 'console.groq.com/login', href: 'https://console.groq.com/login' },
       { text: 'Open API Keys and press Create API Key.', link: 'console.groq.com/keys', href: 'https://console.groq.com/keys' },
@@ -39,7 +39,7 @@ export default function FreeLlm() {
   useEffect(() => { void load(); }, []);
 
   const providers: ProviderOption[] = status?.providers || [
-    { key: 'groq', label: 'Groq', default_model: 'llama-3.3-70b-versatile', signup: 'console.groq.com/keys' },
+    { key: 'groq', label: 'Groq', default_model: 'openai/gpt-oss-120b', signup: 'console.groq.com/keys' },
     { key: 'cloudflare', label: 'Cloudflare Workers AI', default_model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', signup: 'dash.cloudflare.com' },
   ];
 

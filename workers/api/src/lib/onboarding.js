@@ -98,17 +98,51 @@ export async function saveAndVerifyLlmKey(env, { key, provider = 'anthropic' }) 
       return { ok: false, error: 'The Free LLM plugin is not installed on this system, so there is nowhere to keep a Groq key.' };
     }
     try {
-      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-        method: 'POST',
-        signal: AbortSignal.timeout(30_000),
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clean}` },
-        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', max_tokens: 8, messages: [{ role: 'user', content: 'ok' }] }),
+      // Never hardcode a model name: Groq retires them under people's feet
+      // (llama-3.3-70b-versatile died exactly this way, mid-onboarding, on a
+      // brand-new account). Ask THIS key what it can run, pick the best chat
+      // model, and store the choice so the gateway uses the same one.
+      const lr = await fetch('https://api.groq.com/openai/v1/models', {
+        signal: AbortSignal.timeout(20_000),
+        headers: { Authorization: `Bearer ${clean}` },
       });
-      const data = await r.json().catch(() => ({}));
-      if (!r.ok || !data?.choices?.[0]) {
-        return { ok: false, error: `Groq rejected the key: ${String(data?.error?.message || `HTTP ${r.status}`).slice(0, 160)}` };
+      const ldata = await lr.json().catch(() => ({}));
+      if (!lr.ok) {
+        return { ok: false, error: `Groq rejected the key: ${String(ldata?.error?.message || `HTTP ${lr.status}`).slice(0, 160)}` };
       }
-      return { ok: true, provider: 'groq', verified: true };
+      const ids = (ldata?.data || []).map((m) => String(m?.id || '')).filter(Boolean);
+      // Not everything Groq lists can hold a conversation with tools. Swept on
+      // a real free account (2026-09): orpheus is TTS, compound/allam/qwen3.6
+      // answer text but never call tools; gpt-oss-120b, qwen3.8-27b and
+      // gpt-oss-20b do both. Rank by that, keep llama patterns for the day
+      // they return, and TRY candidates in order — a pick that fails the real
+      // request just means the next one gets its turn.
+      const chatIds = ids.filter((id) => !/whisper|tts|guard|embed|vision|safety|orpheus|compound|allam/i.test(id));
+      const rank = (id) =>
+        /gpt-oss-120b/i.test(id) ? 0 :
+        /llama.*70b/i.test(id)   ? 1 :
+        /qwen.*2[0-9]b|70b|72b/i.test(id) ? 2 :
+        /gpt-oss/i.test(id)      ? 3 :
+        /llama/i.test(id)        ? 4 : 5;
+      const candidates = [...chatIds].sort((a, b) => rank(a) - rank(b)).slice(0, 3);
+      if (!candidates.length) return { ok: false, error: 'The key works, but Groq listed no usable chat models for it.' };
+
+      let lastErr = '';
+      for (const pick of candidates) {
+        const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          signal: AbortSignal.timeout(30_000),
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clean}` },
+          body: JSON.stringify({ model: pick, max_tokens: 40, messages: [{ role: 'user', content: 'say ok' }] }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (r.ok && data?.choices?.[0]) {
+          await env.DB.prepare('UPDATE plugin_free_llm_config SET model = ? WHERE id = 1').bind(pick).run().catch(() => {});
+          return { ok: true, provider: 'groq', verified: true, model: pick };
+        }
+        lastErr = String(data?.error?.message || `HTTP ${r.status}`).slice(0, 160);
+      }
+      return { ok: false, error: `Groq rejected the key: ${lastErr}` };
     } catch (e) {
       return { ok: false, error: `Could not reach Groq: ${String(e?.message || e).slice(0, 120)}` };
     }
