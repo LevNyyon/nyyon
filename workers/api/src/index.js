@@ -438,9 +438,12 @@ app.get('/api/system/health', async (c) => {
       name: `LLM · ${down ? (usingFallback ? models.writer_fallback : models.nyo_mid) : models.nyo_mid}`,
       status: down ? (usingFallback ? 'yellow' : 'yellow') : 'green',
       severity: 'critical',
+      // When Anthropic itself is down/out of credit, every Anthropic model is
+      // — claiming chat "fell back" to a smaller Anthropic model is a lie on
+      // any install without a second provider. Say what is actually true.
       note: down
-        ? `Primary (${models.nyo_mid}) ${why}${mins ? ` (~${mins} min)` : ''} — chat fell back to ${models.nyo_low}. ${usingFallback ? `Heavy writers (AEO, GTM outreach) are running on the fallback writer ${models.writer_fallback}.` : 'Heavy writers (AEO, GTM outreach) are PAUSED — set a Fallback writer in Settings to keep them running.'} ${h.reason === 'auth' ? 'Fix ANTHROPIC_API_KEY' : 'Top up Anthropic credit'} and it recovers automatically.`
-        : `Nyo tiers: low=${models.nyo_low} · mid=${models.nyo_mid} · high=${models.nyo_high}. Writers: ${models.writer}${models.writer_fallback ? ` (fallback: ${models.writer_fallback})` : ' (no fallback set)'}.`,
+        ? `Anthropic is ${why}${mins ? ` (~${mins} min)` : ''} — everything that needs a model is paused.${usingFallback ? ` Heavy writers are running on the fallback writer ${models.writer_fallback}.` : ''} ${h.reason === 'auth' ? 'Fix the key in Settings → Nyo brain' : 'Top up at console.anthropic.com'} and it recovers automatically — no restart needed.`
+        : `Nyo tiers: low=${models.nyo_low} · mid=${models.nyo_mid} · high=${models.nyo_high}. Writers: ${models.writer}${models.writer_fallback ? ` (fallback: ${models.writer_fallback})` : ''}.`,
     });
   }
 
