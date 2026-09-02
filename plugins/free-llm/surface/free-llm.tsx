@@ -5,15 +5,6 @@ import { readStatus, connect, disconnect, setActive, type Status } from './data'
 // operator decides which connected one is the active backup brain.
 const PROVIDERS: { key: string; label: string; free: string; steps: { text: string; href?: string; link?: string }[]; placeholder: string }[] = [
   {
-    key: 'gemini', label: 'Google Gemini',
-    free: 'Free, no card, generous limits — the free tier that fits a tool-calling agent. Recommended.',
-    steps: [
-      { text: 'Sign in with any Google account and create an API key.', link: 'aistudio.google.com/apikey', href: 'https://aistudio.google.com/apikey' },
-      { text: 'Copy the key and paste it below.' },
-    ],
-    placeholder: 'AIza...',
-  },
-  {
     key: 'groq', label: 'Groq',
     free: 'Free, no card, very fast — but tight per-minute token limits: expect pauses in long conversations.',
     steps: [

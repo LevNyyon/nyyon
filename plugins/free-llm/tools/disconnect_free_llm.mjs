@@ -3,7 +3,7 @@ export const def = {
   description: "Forget one free provider's key (or every one of them when provider is omitted).",
   input_schema: {
     type: 'object',
-    properties: { provider: { type: 'string', enum: ['gemini', 'groq'] } },
+    properties: { provider: { type: 'string', enum: ['groq'] } },
     required: [],
   },
 };

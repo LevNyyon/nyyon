@@ -1,10 +1,10 @@
 export const def = {
   name: 'connect_free_llm',
-  description: "Connect a FREE model provider as this install's backup brain. provider 'gemini' (recommended — key at aistudio.google.com/apikey, no card, generous limits) or 'groq' (console.groq.com/keys, no card, tight per-minute limits). The right model is discovered for the key, verified with a real request, and the newly connected provider becomes the active one.",
+  description: "Connect Groq as this install's free backup brain (key at console.groq.com/keys, no card; fast but tight per-minute limits). Other providers — like Gemini — install as their own plugins.",
   input_schema: {
     type: 'object',
     properties: {
-      provider: { type: 'string', enum: ['gemini', 'groq'] },
+      provider: { type: 'string', enum: ['groq'] },
       api_key:  { type: 'string', description: 'the provider API key' },
       model:    { type: 'string', description: 'optional — discovered automatically otherwise' },
     },
@@ -15,7 +15,7 @@ export const def = {
 export async function run(api, input) {
   const provider = String(input?.provider || '').trim().toLowerCase();
   const apiKey = String(input?.api_key || '').trim();
-  if (!['gemini', 'groq'].includes(provider)) return { ok: false, error: 'provider must be gemini or groq' };
+  if (provider !== 'groq') return { ok: false, error: 'this pack ships groq; other providers install as their own plugins' };
   if (!apiKey) return { ok: false, error: 'no api_key given' };
 
   // The provider's own gateway discovers which model this key can actually

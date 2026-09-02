@@ -2,24 +2,14 @@
   "nyyon_plugin": 2,
   "name": "free-llm",
   "title": "Free LLM",
-  "version": "2.0.0",
-  "description": "Backup brains: one gateway per free provider (Google Gemini, Groq). Connect any of them and Nyo keeps working when the main model has no key or no credit. Keys live in the plugin’s own table; the operator picks which connected provider is active.",
+  "version": "2.1.0",
+  "description": "A backup brain on Groq: free, no card, fast (tight per-minute limits). Nyo uses it whenever the main model has no key or no credit. Other providers — like Gemini — install as their own plugins; the host discovers every backup brain by capability, never by name.",
   "icon": "Sparkle",
   "origin": {
     "system": "nyyon-app"
   },
   "requires": {
     "gateways": [
-      {
-        "slug": "gemini",
-        "modes": [
-          "discover",
-          "status",
-          "probe",
-          "chat"
-        ],
-        "purpose": "Google Gemini over its OpenAI-compatible endpoint"
-      },
       {
         "slug": "groq",
         "modes": [
@@ -41,17 +31,6 @@
   "provides": {
     "gateways": [
       {
-        "slug": "gemini",
-        "modes": [
-          "discover",
-          "status",
-          "probe",
-          "chat"
-        ],
-        "capability": "llm-backup",
-        "code_file": "gateway-gemini.mjs"
-      },
-      {
         "slug": "groq",
         "modes": [
           "discover",
@@ -69,14 +48,13 @@
         "code_file": "tools/connect_free_llm.mjs",
         "def": {
           "name": "connect_free_llm",
-          "description": "Connect a FREE model provider as this install's backup brain. provider 'gemini' (recommended — key at aistudio.google.com/apikey, no card, generous limits) or 'groq' (console.groq.com/keys, no card, tight per-minute limits). The right model is discovered for the key, verified with a real request, and the newly connected provider becomes the active one.",
+          "description": "Connect Groq as this install's free backup brain (key at console.groq.com/keys, no card; fast but tight per-minute limits). Other providers — like Gemini — install as their own plugins.",
           "input_schema": {
             "type": "object",
             "properties": {
               "provider": {
                 "type": "string",
                 "enum": [
-                  "gemini",
                   "groq"
                 ]
               },
@@ -108,7 +86,6 @@
               "provider": {
                 "type": "string",
                 "enum": [
-                  "gemini",
                   "groq"
                 ]
               }
@@ -146,7 +123,6 @@
               "provider": {
                 "type": "string",
                 "enum": [
-                  "gemini",
                   "groq"
                 ]
               }

@@ -10,7 +10,7 @@ export const def = {
 
 export async function run(api, input) {
   const providers = [];
-  for (const p of ['gemini', 'groq']) {
+  for (const p of ['groq']) {
     const s = await api.gateway(p, 'status', {});
     providers.push({ provider: p, ...s });
   }

@@ -3,7 +3,7 @@ export const def = {
   description: 'Choose which CONNECTED free provider is the active backup brain.',
   input_schema: {
     type: 'object',
-    properties: { provider: { type: 'string', enum: ['gemini', 'groq'] } },
+    properties: { provider: { type: 'string', enum: ['groq'] } },
     required: ['provider'],
   },
 };

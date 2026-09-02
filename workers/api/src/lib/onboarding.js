@@ -98,7 +98,7 @@ export async function saveAndVerifyLlmKey(env, { key, provider = 'anthropic' }) 
   // connected provider becomes the active backup brain.
   if (provider === 'gemini' || provider === 'groq') {
     const { callGateway } = await import('../gateways/index.js');
-    const slug = `plugin__free-llm__${provider}`;
+    const slug = provider === 'gemini' ? 'plugin__gemini-llm__gemini' : 'plugin__free-llm__groq';
     let d;
     try {
       d = await callGateway(env, slug, 'discover', { api_key: clean });
@@ -107,12 +107,18 @@ export async function saveAndVerifyLlmKey(env, { key, provider = 'anthropic' }) 
     }
     if (!d?.ok) return { ok: false, error: `${provider === 'gemini' ? 'Gemini' : 'Groq'} rejected the key: ${String(d?.error || 'no answer').slice(0, 200)}` };
     try {
-      await env.DB.prepare(
-        `INSERT INTO plugin_free_llm_providers (provider, api_key, model, active, updated_at)
-         VALUES (?, ?, ?, 1, ?)
-         ON CONFLICT(provider) DO UPDATE SET api_key=excluded.api_key, model=excluded.model, active=1, updated_at=excluded.updated_at`,
-      ).bind(provider, clean, d.model, Date.now()).run();
-      await env.DB.prepare('UPDATE plugin_free_llm_providers SET active = 0 WHERE provider != ?').bind(provider).run();
+      if (provider === 'gemini') {
+        await env.DB.prepare(
+          `INSERT INTO plugin_gemini_llm_config (id, api_key, model, active, updated_at) VALUES (1, ?, ?, 1, ?)
+           ON CONFLICT(id) DO UPDATE SET api_key=excluded.api_key, model=excluded.model, active=1, updated_at=excluded.updated_at`,
+        ).bind(clean, d.model, Date.now()).run();
+      } else {
+        await env.DB.prepare(
+          `INSERT INTO plugin_free_llm_providers (provider, api_key, model, active, updated_at)
+           VALUES ('groq', ?, ?, 1, ?)
+           ON CONFLICT(provider) DO UPDATE SET api_key=excluded.api_key, model=excluded.model, active=1, updated_at=excluded.updated_at`,
+        ).bind(clean, d.model, Date.now()).run();
+      }
     } catch {
       return { ok: false, error: 'The Free LLM plugin is not installed on this system, so there is nowhere to keep the key.' };
     }

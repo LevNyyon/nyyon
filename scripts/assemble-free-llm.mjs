@@ -14,13 +14,12 @@ const manifest = {
   nyyon_plugin: 2,
   name: 'free-llm',
   title: 'Free LLM',
-  version: '2.0.0',
-  description: 'Backup brains: one gateway per free provider (Google Gemini, Groq). Connect any of them and Nyo keeps working when the main model has no key or no credit. Keys live in the plugin’s own table; the operator picks which connected provider is active.',
+  version: '2.1.0',
+  description: 'A backup brain on Groq: free, no card, fast (tight per-minute limits). Nyo uses it whenever the main model has no key or no credit. Other providers — like Gemini — install as their own plugins; the host discovers every backup brain by capability, never by name.',
   icon: 'Sparkle',
   origin: { system: 'nyyon-app' },
   requires: {
     gateways: [
-      { slug: 'gemini', modes: GW_MODES, purpose: 'Google Gemini over its OpenAI-compatible endpoint' },
       { slug: 'groq', modes: GW_MODES, purpose: 'Groq over its OpenAI-compatible endpoint' },
     ],
     tables: [{
@@ -30,7 +29,6 @@ const manifest = {
   },
   provides: {
     gateways: [
-      { slug: 'gemini', modes: GW_MODES, capability: 'llm-backup', code_file: 'gateway-gemini.mjs' },
       { slug: 'groq', modes: GW_MODES, capability: 'llm-backup', code_file: 'gateway-groq.mjs' },
     ],
     tools,
@@ -46,4 +44,4 @@ const manifest = {
   },
 };
 writeFileSync(join(PACK, 'manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
-console.log('manifest v2:', tools.length, 'tools, 2 gateways, 1 table');
+console.log('manifest v2:', tools.length, 'tools, 1 gateway, 1 table');
