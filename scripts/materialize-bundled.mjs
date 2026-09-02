@@ -42,6 +42,13 @@ const names = existsSync(PACKS)
   ? readdirSync(PACKS).filter((n) => NAME_RE.test(n) && existsSync(join(PACKS, n, 'manifest.json'))).sort()
   : [];
 
+// Neutralize the aggregators BEFORE anything imports them. bindGateways
+// (below) lazily imports the gateway registry, which imports the CURRENT
+// aggregator — which, right after a reset, still references pack files that
+// no longer exist. An empty aggregator always resolves.
+writeFileSync(join(REPO, 'workers', 'api', 'src', 'plugins', 'index.js'), generateIndex([]));
+writeFileSync(join(REPO, 'web', 'src', 'plugins', 'index.ts'), generateWebIndex([]));
+
 const rows = [];
 for (const name of names) {
   const manifest = assemble(join(PACKS, name));
@@ -61,7 +68,10 @@ for (const name of names) {
     process.exitCode = 1;
     continue;
   }
-  const binding = bindGateways(manifest).binding || {};
+  // bindGateways is async(env, m) — calling it (manifest) put the manifest in
+  // the env slot and read .binding off a PROMISE, so every bake shipped empty
+  // bindings and bundled gateways existed only after a runtime re-import.
+  const binding = (await bindGateways({}, manifest)).binding || {};
   for (const f of filesFor(manifest, binding)) {
     const abs = resolve(REPO, f.path);
     mkdirSync(dirname(abs), { recursive: true });

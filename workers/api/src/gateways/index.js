@@ -35,8 +35,6 @@ import { fetchText as webFetchText, fetchBytes as webFetchBytes, head as webHead
 import { promoteLeadToPipeline, listPipeline, updateDeal } from '../lib/pipeline.js';
 import { writeContact as crmWriteContact, upsertCalendarEvent, deleteCalendarEvent } from '../lib/db.js';
 import { beginSend, markSent, markFailed } from '../lib/outbox.js';
-import { renderSocialCard } from '../lib/social-cards.js';
-import { renderFigures as renderArticleFigures, renderCover as renderArticleCover } from '../lib/article-figures.js';
 import { renderCandidateImages } from '../lib/blog-images.js';
 import { pdlEnrich, twilioLookup, serpSearch, fetchTheorg, probeTheorg } from '../lib/enrich-gateways.js';
 import { hfComplete, probeHf } from '../lib/hf-gateway.js';
@@ -181,9 +179,13 @@ export const GATEWAYS = {
     service: 'the host image renderer (resvg WASM + bundled fonts + R2 storage)',
     description: 'Render social cards, article figures, covers, and featured-image candidates to stored images. Pure rendering: content in, stored URL out.',
     modes: {
-      card:   (env, input) => renderSocialCard(env, input || {}),
-      figures: (env, input) => renderArticleFigures(env, input || {}),
-      cover:  (env, input) => renderArticleCover(env, input || {}),
+      // Lazy on purpose: social-cards pulls the resvg WASM at import time,
+      // which only loads inside the worker. A static import here made the
+      // whole gateway registry un-importable from plain node — and the BAKE
+      // imports it to compute gateway bindings.
+      card:   (env, input) => import('../lib/social-cards.js').then((m) => m.renderSocialCard(env, input || {})),
+      figures: (env, input) => import('../lib/article-figures.js').then((m) => m.renderFigures(env, input || {})),
+      cover:  (env, input) => import('../lib/article-figures.js').then((m) => m.renderCover(env, input || {})),
       images: (env, input) => renderCandidateImages(env, input || {}),
     },
     configFields: [],
