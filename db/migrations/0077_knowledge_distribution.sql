@@ -45,3 +45,8 @@ An AI command center you own. It runs as one self-contained install: the app, it
 - **Modules are plugins.** Each is a sealed capability: its own tools, page, tables and knowledge. Install, remove, export, import — the system stays coherent.
 - **Tools are the verbs; modules are the sentences.** Nyo knows every verb of every installed module.
 - **Knowledge is the control surface.** Rules, voices and thresholds live as editable docs here, not as code.' WHERE slug='about';
+
+-- Nyo must know where the interview lives: asked 'interview me' in plain
+-- chat, it truthfully found no such tool and improvised. The knowledge doc
+-- is the right home for the answer (editable, no deploy).
+UPDATE knowledge_docs SET body = body || char(10) || char(10) || '## The setup interview' || char(10) || 'The interview is a DEDICATED flow, not a plain-chat improvisation: it opens from the "finish with Nyo" banner (or the setup screen) and writes the canonical voice documents. If the operator asks you to interview them in this chat, do not improvise one — tell them to press the banner, which opens the real thing.' WHERE slug='module-nyo' AND body NOT LIKE '%The setup interview%';

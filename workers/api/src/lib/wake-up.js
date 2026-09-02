@@ -182,7 +182,7 @@ export async function runWakeUp(env, opts = {}) {
     lines.push('');
     lines.push(`Fifteen minutes: you talk, I ask, and I write your voice documents — who you are, how you sound, what you're working toward. Until then everything this system drafts is in a generic voice instead of yours.`);
     lines.push('');
-    lines.push(`Say **interview me** whenever you're ready.`);
+    lines.push(`Press **finish with Nyo** in the banner up top whenever you're ready — that opens the interview. (Asking me here works too; I'll take you there.)`);
     lines.push('');
     lines.push(`${activePlugins} module${activePlugins === 1 ? '' : 's'} installed and running — ask me **status** anytime and I'll walk through them.`);
   } else {
