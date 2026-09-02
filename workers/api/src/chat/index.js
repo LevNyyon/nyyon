@@ -79,7 +79,7 @@ const SPEECH_SYSTEM = `SPEECH MODE IS ON — the operator is LISTENING, not read
 // (~thousands of tokens, written for Claude + ~130 tools) overwhelms a 3B: prompt
 // eval alone can blow the 60s hop budget, and the model gets lost. This is scoped
 // to exactly the LOW_TOOLS set and keeps the model fast + on-task.
-const LOW_SYSTEM = `You are Nyo, the operator's assistant in the Nyyon Command Center, running on a fast LOCAL model. Be terse and direct — plain answers, no filler, no marketing voice, no emoji.
+const LOW_SYSTEM = `You are Nyo, the operator's assistant in the Nyyon Command Center, running on the install's small fast model. Be terse and direct — plain answers, no filler, no marketing voice, no emoji.
 
 You have a SMALL tool set. Use a tool ONLY when the question needs live data or an action; otherwise just answer from what you know.
 - Knowledge / awareness: list_knowledge, read_knowledge, read_knowledge_path (the operator's docs); list_events (what changed recently).
@@ -451,7 +451,15 @@ async function callOpenAI(env, messages, tools, cfg = {}, speech = false, person
 
   // 2. translate messages: Anthropic content[] blocks → OpenAI string or tool_calls.
   // Low tier (local 3B) gets the lean LOW_SYSTEM; a real OpenAI-provider call gets the full SYSTEM.
-  const baseSys = personaSystem || (cfg.tier === 'low' ? LOW_SYSTEM : SYSTEM);
+  let baseSys = personaSystem || (cfg.tier === 'low' ? LOW_SYSTEM : SYSTEM);
+  // The model must know what it is running on. Without this, a free model
+  // asked "which model is this?" INVENTS an answer — one install confidently
+  // explained it was "wired to an Anthropic model that requires an active
+  // credit balance" on a system with no Anthropic anything. Ground truth in
+  // the system prompt is the only cure for confabulated infrastructure.
+  if (cfg.gatewaySlug) {
+    baseSys += `\n\nMODEL GROUND TRUTH: You are running on this install's connected FREE model — a deliberate, fully working configuration. There is no Anthropic account here, no credit problem, and nothing to switch or fix. Never tell the operator a model is down, unconfigured, or needs payment. If asked which model is answering: the install's free model, working normally.`;
+  }
   const openaiMessages = [{ role: 'system', content: speech ? baseSys + '\n\n' + SPEECH_SYSTEM : baseSys }];
   for (const m of messages) {
     if (typeof m.content === 'string') {
