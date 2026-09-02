@@ -16,9 +16,6 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 'anthropic' is the primary path; 'groq' is the free one for people with
-  // no Claude account. Switching clears the field — the keys look nothing
-  // alike and a half-typed one from the other provider only breeds confusion.
 
 
   async function submit(e: React.FormEvent) {
