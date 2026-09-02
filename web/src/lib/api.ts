@@ -301,6 +301,8 @@ export type OnboardingState = {
   };
   /** false = no model key yet, so the interview cannot run at all */
   llm_ready?: boolean;
+  /** fingerprint of THIS install's database; local caches are scoped to it */
+  install_id?: string | null;
   /** boot should land on the setup surface (not finished, not postponed) */
   needed: boolean;
   /** an account exists: they can sign in, and step one is behind them */

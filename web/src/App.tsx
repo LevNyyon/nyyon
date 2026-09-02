@@ -6,6 +6,7 @@ import { OnboardingAccount } from './components/OnboardingAccount';
 import { SetupResumeBanner } from './components/SetupResumeBanner';
 import { OPEN_INTERVIEW_EVENT, announcePrereqsChanged } from './components/ModuleSetupGate';
 import { AUTH_EVENT, onboarding, modulePrereqs } from './lib/api';
+import { reconcileInstallScope } from './lib/install-scope';
 import { Sidebar } from './components/Sidebar';
 import { ChatDrawer } from './components/ChatDrawer';
 import { Plugins }         from './pages/Plugins';
@@ -105,6 +106,9 @@ export default function App() {
     try {
       const s = await onboarding.state();
       setBootStep(s?.step ?? null);
+      // Before anything reads a cached transcript: if this is a different
+      // install than the one those caches came from, drop them.
+      reconcileInstallScope(s?.install_id);
       setSetupDeferred(s?.setup_deferred === true);
       // An install that cannot keep data must not walk anyone through setup:
       // an hour of work would vanish at the next restart with no warning. Say

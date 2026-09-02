@@ -525,6 +525,7 @@ export async function onboardingState(env, { detail = false } = {}) {
     setup_complete: Boolean(install.setup_complete),
     setup_deferred: Boolean(install.setup_deferred),
     setup_token_set: Boolean(install.setup_token_set),
+    install_id: install.install_id || null,
     step: deriveStep({ install, llmReady: llm_ready, rows, facts, docs }),
     conversation_id: ONBOARDING_CONVERSATION_ID,
     // A count, not the content: enough for the UI to know a session is already

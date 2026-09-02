@@ -199,6 +199,12 @@ export async function readInstallState(env) {
     // account" — that is `has_admin` and always was.
     onboarded: setup_complete,
     setup_token_set: Boolean(row?.setup_token) || Boolean(env?.SETUP_TOKEN),
+    // A fingerprint for THIS database. The browser caches transcripts, and a
+    // cache has no idea the install underneath it was rebuilt — so a wiped
+    // install came back up showing the previous one's conversations. The SPA
+    // stamps its caches with this and drops anything from a different install.
+    // created_at is stamped once, on first contact, and never changes.
+    install_id: row?.created_at ? String(row.created_at) : null,
     onboarded_at: row?.setup_completed_at ? Number(row.setup_completed_at)
       : row?.onboarded_at ? Number(row.onboarded_at) : null,
     admin_set_at: row?.admin_set_at ? Number(row.admin_set_at) : null,
