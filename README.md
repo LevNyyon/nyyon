@@ -1,24 +1,31 @@
 # nyyon
 
-Your own AI command center — planning, outreach, writing and publishing, with
-an assistant at the center. Yours means yours: your account, your database,
-your URL, reachable from any device, free.
+**Your own AI command center. Three minutes. Free. Nothing shared with anyone.**
 
-## Get yours — copy this, paste it to your AI agent
+## Install
+
+Copy this, paste it to your AI agent (Claude Code, Cursor, any agent that runs commands):
 
 ```
-Install nyyon for me: clone https://github.com/LevNyyon/nyyon, cd into it,
-run `npx wrangler login` and wait while I approve it in the browser,
-then run `npm run deploy` and give me the setup link it prints.
+Install nyyon for me: clone https://github.com/LevNyyon/nyyon, cd into it, run
+`npx wrangler login` and wait while I approve it, then run `npm run deploy`
+and give me the setup link it prints.
 ```
 
-That is the whole install. Works with Claude Code, Cursor, or any agent that
-can run commands. Two moments are yours: click **Allow** when the browser
-opens (create the free Cloudflare account right there if you need one — email
-and password, no card), then open the setup link your agent hands back and
-set your password. You're in.
+## What happens
 
-No agent? The same three commands by hand:
+1. Your agent deploys nyyon into **your own free Cloudflare account** — your app, your database, your https address.
+2. Your browser opens once. You click **Allow** (create the free account right there if you need one — email and password, no card).
+3. Your agent hands you a link. Open it, set your password, you're in — from any device, forever.
+
+Four modules come installed: **Daily Planner, Digest, Editorial, GTM**. Add an
+Anthropic key in Settings when you want the AI to answer; everything else works
+without it. Re-running the install updates the app and keeps your data.
+
+<details>
+<summary><b>No agent? Install by hand</b></summary>
+
+The same three commands, run yourself:
 
 ```
 git clone https://github.com/LevNyyon/nyyon && cd nyyon
@@ -26,13 +33,10 @@ npx wrangler login
 npm run deploy
 ```
 
-**What you get:** the app live at your own https address with four modules
-installed — Daily Planner, Digest, Editorial (Hot Takes, Blog, Social) and
-GTM (Prospecting, Outreach). Everything runs in YOUR Cloudflare account on
-the free tier; nothing is shared with anyone and no credential ever leaves
-your machine. Re-running the installer updates the app and keeps your data.
-Add an Anthropic key in Settings when you want the AI to answer — everything
-else works without it.
+</details>
+
+<details>
+<summary><b>Everything else</b> — other ways to run it, architecture, the plugin format</summary>
 
 ## Other ways to run it
 
@@ -93,3 +97,5 @@ Under everything sits an activity bus: every meaningful mutation logs an event. 
 - **Hot Takes**: turn industry signals into a take, a brief, an article, and social posts.
 - **Outreach + Prospecting**: WhatsApp-first outreach queues where only the operator approves sends.
 - **Signals / OSINT**: feed sources and listeners that keep the system aware of your industry.
+
+</details>
