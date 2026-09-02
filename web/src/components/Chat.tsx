@@ -334,7 +334,18 @@ export function Chat({ onClose, scope = 'nyo', title, onBack, backLabel = 'Back 
             window.dispatchEvent(new Event('nyyon:plan-updated'));
           }
         } else if (e.kind === 'error') {
-          assistant = { ...assistant, content: (assistant.content ? assistant.content + '\n\n' : '') + `[error] ${e.message}` };
+          // A raw provider error is for logs, not for a chat bubble. Translate
+          // the two failures an operator can actually act on; anything else
+          // gets one honest line with the detail kept short.
+          const raw = String(e.message || '');
+          const human = /credit balance is too low|billing|purchase credits/i.test(raw)
+            ? 'The Anthropic account behind this install is out of credit, so nothing that needs a model can run. Top up at console.anthropic.com (Plans & Billing) — no restart needed, the next message just works.'
+            : /invalid x-api-key|authentication_error|invalid bearer|401/i.test(raw)
+              ? 'The model key was rejected. Check the Anthropic key in Settings → Nyo brain.'
+              : /overloaded|529|rate.?limit|429/i.test(raw)
+                ? 'The model is overloaded right now — wait a moment and send that again.'
+                : `Something went wrong talking to the model: ${raw.replace(/\s+/g, ' ').slice(0, 160)}`;
+          assistant = { ...assistant, content: (assistant.content ? assistant.content + '\n\n' : '') + human };
           setMessages([...next, assistant]);
           bumpAssistantActivity();
         }
