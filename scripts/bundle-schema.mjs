@@ -65,11 +65,29 @@ for (const f of readdirSync(join(REPO, 'db', 'migrations')).filter((f) => f.ends
 }
 
 // The end state: every table and index that survived, as CREATE IF NOT EXISTS.
+// The host seed must carry the HOST plus exactly the packs this build
+// bundles — nothing else. The migration replay contains every pack that ever
+// lived in the repo, and shipping it whole gave fresh installs knowledge
+// docs and tables from plugins they do not have. Namespaces are matched by
+// plain string prefix, never SQL LIKE ('_' is a wildcard there — a cleanup
+// using LIKE 'plugin\_%' without ESCAPE once matched the host's own
+// 'plugins' registry table and dropped it).
+const bundledPacks = readdirSync(join(REPO, 'plugins'), { withFileTypes: true })
+  .filter((d) => d.isDirectory()).map((d) => d.name);
+const keepTable = (name) => {
+  if (!name.startsWith('plugin_')) return true;   // host table ('plugins' itself does not match)
+  return bundledPacks.some((n) => name.startsWith(`plugin_${n.replace(/-/g, '_')}_`));
+};
+const keepDocSlug = (slug) => {
+  if (!String(slug).startsWith('plugin-')) return true;
+  return bundledPacks.some((n) => String(slug).startsWith(`plugin-${n}-`));
+};
+
 const rows = db.prepare(
-  `SELECT type, name, sql FROM sqlite_master
+  `SELECT type, name, tbl_name, sql FROM sqlite_master
    WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
    ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, name`,
-).all();
+).all().filter((r) => keepTable(r.tbl_name || r.name));
 
 // The SHAPE is not the install. Migrations also SEED — the knowledge tree,
 // Nyo's shipped voice documents, the registry, default workflows. A database
@@ -93,6 +111,7 @@ const seedLines = [];
 let seedRows = 0;
 for (const t of rows.filter((r) => r.type === 'table')) {
   let data = db.prepare(`SELECT * FROM "${t.name}"`).all();
+  if (t.name === 'knowledge_docs') data = data.filter((r) => keepDocSlug(r.slug));
   if (!data.length) continue;
   // A table that references ITSELF (the knowledge tree: parent_slug → slug)
   // must be emitted parents-first, or the FK check kills the child inserts —
