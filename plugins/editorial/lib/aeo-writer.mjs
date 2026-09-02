@@ -472,7 +472,7 @@ const HANDDRAFT_PREAMBLE = 'The operator hand-drafted the article below. Treat i
 // The assembled voice the writers follow: brand voice + the operator's learned
 // editorial taste + the founder's personal voice when an article opts into it.
 export async function readVoiceProfile(api, { voice = 'house' } = {}) {
-  const brand = await api.knowledge('brand-voice');
+  const brand = await api.knowledge('plugin-editorial-brand-voice');
   if (!brand?.body) throw new Error('knowledge doc brand-voice missing');
   let voice_doc = brand.body;
   try {
@@ -492,7 +492,7 @@ export async function draftArticle(api, {
   title = null, body = null, source_text = null, post = null,
   voice_doc = null, posts = null, target_keyword = null, expert_context = null, tags = null,
 } = {}) {
-  const playbookDoc = await api.knowledge('article-playbook');
+  const playbookDoc = await api.knowledge('plugin-editorial-article-playbook');
   if (!playbookDoc?.body) throw new Error('knowledge doc article-playbook missing');
 
   const brandVoice = voice_doc || (await readVoiceProfile(api)).voice_doc;
@@ -664,8 +664,8 @@ export async function composeAndSavePost(api, {
   const startedAt = now();
 
   const [brandVoiceDoc, playbookDoc] = await Promise.all([
-    api.knowledge('brand-voice'),
-    api.knowledge('article-playbook'),
+    api.knowledge('plugin-editorial-brand-voice'),
+    api.knowledge('plugin-editorial-article-playbook'),
   ]);
   if (!brandVoiceDoc?.body) throw new Error('knowledge doc brand-voice missing');
   if (!playbookDoc?.body)   throw new Error('knowledge doc article-playbook missing');
@@ -782,7 +782,7 @@ export async function expandPostWithFaq(api, { slug, voice = 'personal', actor =
   const post = await readBlogPostRow(api, slug);
   if (!post) throw new Error(`post ${slug} not found`);
 
-  const brandVoiceDoc = await api.knowledge('brand-voice');
+  const brandVoiceDoc = await api.knowledge('plugin-editorial-brand-voice');
   let voiceDoc = brandVoiceDoc?.body || '';
   try {
     const taste = await readTasteProfile(api);
@@ -958,8 +958,8 @@ export async function runAeoCron(api, { actor = 'aeo-cron', targetSlug = null, r
 
   try {
     const [brandVoiceDoc, playbookDoc] = await Promise.all([
-      api.knowledge('brand-voice'),
-      api.knowledge('article-playbook'),
+      api.knowledge('plugin-editorial-brand-voice'),
+      api.knowledge('plugin-editorial-article-playbook'),
     ]);
     if (!brandVoiceDoc?.body)  throw new Error('knowledge doc brand-voice missing');
     if (!playbookDoc?.body)    throw new Error('knowledge doc article-playbook missing');

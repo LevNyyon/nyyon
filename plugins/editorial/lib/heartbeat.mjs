@@ -50,7 +50,7 @@ export const GATES_SLUG = 'plugin-editorial-heartbeat-priorities';
 const PULSE_SLUG = 'plugin-editorial-industry-pulse';
 const PULSE_PROMPT_SLUG = 'plugin-editorial-heartbeat-pulse-prompt';
 const TASTE_SLUG = 'plugin-editorial-editorial-taste';
-const BRAND_VOICE_SLUG = 'brand-voice'; // HOST doc — declared read in requires.knowledge
+const BRAND_VOICE_SLUG = 'plugin-editorial-brand-voice'; // HOST doc — declared read in requires.knowledge
 
 // ─── seed sources ───────────────────────────────────────────────────────────
 // Company blogs (primary sources) + Google News topic queries (real outlets,

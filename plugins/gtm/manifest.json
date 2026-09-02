@@ -2292,6 +2292,16 @@
         "slug": "plugin-gtm-you",
         "title": "Who you are (the sender)",
         "body_file": "knowledge/plugin-gtm-you.md"
+      },
+      {
+        "slug": "plugin-gtm-lead-heat",
+        "title": "Lead heat",
+        "body_file": "knowledge/plugin-gtm-lead-heat.md"
+      },
+      {
+        "slug": "plugin-gtm-wa-pitches",
+        "title": "WhatsApp pitches",
+        "body_file": "knowledge/plugin-gtm-wa-pitches.md"
       }
     ],
     "surfaces": [

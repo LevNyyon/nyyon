@@ -204,8 +204,8 @@ export async function draftSuggestionAngles(api, { signals = null, limit = null 
   if (!list.length || cap <= 0) return { suggestions: [], reason: !list.length ? 'no eligible signals' : 'no room in the pending pile' };
 
   const [brandVoiceDoc, playbookDoc, existingQuestions, existingSuggestions] = await Promise.all([
-    api.knowledge('brand-voice'),
-    api.knowledge('article-playbook'),
+    api.knowledge('plugin-editorial-brand-voice'),
+    api.knowledge('plugin-editorial-article-playbook'),
     api.db.prepare(`SELECT question FROM plugin_editorial_aeo_questions LIMIT 300`).all(),
     api.db.prepare(`SELECT title FROM plugin_editorial_aeo_suggestions WHERE status != 'rejected' LIMIT 100`).all(),
   ]);
@@ -292,8 +292,8 @@ export async function generateAeoSuggestions(api, { limit = null } = {}) {
   }
 
   const [brandVoiceDoc, playbookDoc, existingQuestions, existingSuggestions] = await Promise.all([
-    api.knowledge('brand-voice'),
-    api.knowledge('article-playbook'),
+    api.knowledge('plugin-editorial-brand-voice'),
+    api.knowledge('plugin-editorial-article-playbook'),
     api.db.prepare(`SELECT question FROM plugin_editorial_aeo_questions LIMIT 300`).all(),
     api.db.prepare(`SELECT title FROM plugin_editorial_aeo_suggestions WHERE status != 'rejected' LIMIT 100`).all(),
   ]);

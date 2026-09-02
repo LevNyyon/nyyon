@@ -88,7 +88,7 @@ function stripSlots(v) {
 // with raw SQL on knowledge_docs; here it is a declared host-doc read.)
 async function withVoice(api, base) {
   try {
-    const doc = await api.knowledge('brand-voice');
+    const doc = await api.knowledge('plugin-editorial-brand-voice');
     if (doc?.body) return `${base}\n\nBrand voice (operator-editable):\n${String(doc.body)}`;
   } catch { /* fallback */ }
   return base;

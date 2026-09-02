@@ -3789,6 +3789,21 @@
         "slug": "plugin-editorial-visual-style",
         "title": "Visual style",
         "body_file": "knowledge/plugin-editorial-visual-style.md"
+      },
+      {
+        "slug": "plugin-editorial-article-playbook",
+        "title": "AEO + SEO article structure",
+        "body_file": "knowledge/plugin-editorial-article-playbook.md"
+      },
+      {
+        "slug": "plugin-editorial-brand",
+        "title": "Brand \u2014 voice, positioning, visual",
+        "body_file": "knowledge/plugin-editorial-brand.md"
+      },
+      {
+        "slug": "plugin-editorial-brand-voice",
+        "title": "Brand voice + writing rules",
+        "body_file": "knowledge/plugin-editorial-brand-voice.md"
       }
     ],
     "surfaces": [

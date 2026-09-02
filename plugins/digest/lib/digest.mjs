@@ -21,7 +21,7 @@
 // Knowledge (own docs, seeded on first read): plugin-digest-policy,
 //   plugin-digest-interests, plugin-digest-prompt-wa-reply,
 //   plugin-digest-prompt-wa-delivery, plugin-digest-wa-send-slots,
-//   plugin-digest-wa-pitches, plugin-digest-attention,
+//   plugin-gtm-wa-pitches, plugin-digest-attention,
 //   plugin-digest-li-signals. Declared host-doc reads:
 //   plugin-editorial-heartbeat-priorities, plugin-gtm-outreach-first-touch.
 //
@@ -1926,9 +1926,9 @@ export async function waSendSlots(api) {
 // ── pitch templates: canned openers for the card composer ──────
 // The BASIC pitch is the operator's real first-touch message and lives in
 // the gtm pack's plugin-gtm-outreach-first-touch doc (single source of
-// truth, declared host-doc read). plugin-digest-wa-pitches holds EXTRA
+// truth, declared host-doc read). plugin-gtm-wa-pitches holds EXTRA
 // pitches only.
-const PITCHES_SLUG = 'plugin-digest-wa-pitches';
+const PITCHES_SLUG = 'plugin-gtm-wa-pitches';
 const PITCHES_SEED = `# WhatsApp pitches
 
 EXTRA canned openers for the Digest card's WhatsApp composer. The basic

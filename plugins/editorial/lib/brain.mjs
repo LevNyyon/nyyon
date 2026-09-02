@@ -136,7 +136,7 @@ Output ONLY the 18 numbered questions, one per line.`;
 export async function generateBrainQuestions(api) {
   const [brand, voice, recentPosts, taste] = await Promise.all([
     api.knowledge('brand').catch(() => null),
-    api.knowledge('brand-voice').catch(() => null),
+    api.knowledge('plugin-editorial-brand-voice').catch(() => null),
     listBlogPostRows(api, { limit: 30, publishedOnly: true }).catch(() => []),
     readTasteProfile(api).catch(() => null),
   ]);

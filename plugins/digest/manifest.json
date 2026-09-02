@@ -144,6 +144,14 @@
       {
         "slug": "plugin-gtm-outreach-first-touch",
         "purpose": "the canonical first-touch pitch the card composer offers (gtm pack maintains it)"
+      },
+      {
+        "slug": "plugin-gtm-lead-heat",
+        "purpose": "lead scoring rules live with the gtm pack; heat degrades gracefully without them"
+      },
+      {
+        "slug": "plugin-gtm-wa-pitches",
+        "purpose": "extra WA openers live with the gtm pack; composer works without them"
       }
     ],
     "tables": [
@@ -907,11 +915,6 @@
         "body_file": "knowledge/plugin-digest-interests.md"
       },
       {
-        "slug": "plugin-digest-lead-heat",
-        "title": "Lead heat",
-        "body_file": "knowledge/plugin-digest-lead-heat.md"
-      },
-      {
         "slug": "plugin-digest-li-signals",
         "title": "Digest \u00b7 LinkedIn signals channel",
         "body_file": "knowledge/plugin-digest-li-signals.md"
@@ -940,11 +943,6 @@
         "slug": "plugin-digest-wa-draft-voice",
         "title": "WhatsApp draft voice",
         "body_file": "knowledge/plugin-digest-wa-draft-voice.md"
-      },
-      {
-        "slug": "plugin-digest-wa-pitches",
-        "title": "WhatsApp pitches",
-        "body_file": "knowledge/plugin-digest-wa-pitches.md"
       },
       {
         "slug": "plugin-digest-wa-send-slots",

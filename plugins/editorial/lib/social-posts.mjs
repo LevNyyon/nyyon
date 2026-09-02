@@ -268,7 +268,7 @@ export async function draftSocialPostText(api, channelKey, { title, excerpt = nu
     snippet: htmlToText(String(bodyHtml || '')).slice(0, 1600),
   };
   const [brandVoice, personalVoice, styleRules] = await Promise.all([
-    api.knowledge('brand-voice').catch(() => null),
+    api.knowledge('plugin-editorial-brand-voice').catch(() => null),
     api.knowledge('personal-voice').catch(() => null),
     api.knowledge('writing-style-rules').catch(() => null),
   ]);
@@ -316,7 +316,7 @@ export async function generateSocialPostsForBlog(api, slug, { source = 'blog-pub
   };
   const image_url = post.featured_image_url || null;
 
-  const brandVoice    = (await api.knowledge('brand-voice').catch(() => null))?.body || '';
+  const brandVoice    = (await api.knowledge('plugin-editorial-brand-voice').catch(() => null))?.body || '';
   const personalVoice = (await api.knowledge('personal-voice').catch(() => null))?.body || '';
   const styleRules    = (await api.knowledge('writing-style-rules').catch(() => null))?.body || '';
 
@@ -361,7 +361,7 @@ export async function generateSocialPostsForDigestItem(api, item, { force = fals
     snippet: (item.summary || item.title || '').slice(0, 1600),
   };
 
-  const brandVoice    = (await api.knowledge('brand-voice').catch(() => null))?.body || '';
+  const brandVoice    = (await api.knowledge('plugin-editorial-brand-voice').catch(() => null))?.body || '';
   const personalVoice = (await api.knowledge('personal-voice').catch(() => null))?.body || '';
   const styleRules    = (await api.knowledge('writing-style-rules').catch(() => null))?.body || '';
 
