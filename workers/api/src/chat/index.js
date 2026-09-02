@@ -191,6 +191,14 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
       let tools = cfg.toolAllow ? allTools.filter((t) => cfg.toolAllow.has(t.name)) : allTools;
       // Daily Planner is disconnected from the calendar + task list for now.
       if (agent === 'daily-planner') tools = tools.filter((t) => !PLANNER_DENY_TOOLS.has(t.name));
+      // On the free tier every hop resends everything and the budget is
+      // ~8K tokens/minute — WhatsApp and diagnostics defs are dead weight in a
+      // planning conversation and their absence halves the burn per hop.
+      if (cfg.gatewaySlug && agent === 'daily-planner') {
+        const essentials = new Set(['read_daily_plan', 'save_daily_plan', 'update_daily_plan', 'search_daily_plans',
+          'list_recent_plans', 'read_weekly_objectives', 'set_weekly_objectives', 'list_knowledge', 'read_knowledge']);
+        tools = tools.filter((t) => essentials.has(t.name));
+      }
       let fellBack = false;   // true once we've swapped mid/high → local this turn
       let notedOk  = false;   // close the credit circuit at most once per turn
       send('start', { conversation_id: convId, tier: cfg.tier, model: cfg.model || 'free backup model', tools: tools.map((t) => t.name) });
@@ -202,10 +210,37 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
       let mutationSucceeded = false;   // any mutating tool returned OK this turn
       let claimGuardFired = false;     // the claim-vs-action guard runs at most once
 
+      let throttleWaits = 0;   // free-tier TPM absorbed silently, at most twice a turn
+      let flubRetries = 0;     // free-model mangled tool calls resampled, at most twice a turn
       for (let hop = 0; hop < 8; hop++) {
         const res = await callLLM(env, convo, tools, activeCfg, speech, personaSystem);
         if (!res.ok) {
-          const errText = await res.text();
+          let errText = await res.text();
+          // Error bodies arrive as JSON envelopes; surface the MESSAGE, not
+          // the wrapper — the envelope hid the 'free model:' label from every
+          // downstream match and the operator got a raw blob.
+          try { const j = JSON.parse(errText); errText = String(j?.error?.message || j?.message || errText); } catch { /* already plain */ }
+          // Small models sometimes emit a tool call that fails validation
+          // (dropped underscores, wrong arg shape). That is a dice roll, not a
+          // condition — roll again instead of reporting it.
+          if (activeCfg.gatewaySlug && /tool.?call validation|tool_use_failed|did not match schema/i.test(errText) && flubRetries < 2) {
+            flubRetries++;
+            hop--;
+            continue;
+          }
+          // The free tier throttles per minute, and a multi-hop turn is exactly
+          // what trips it. A short "try again in Ns" is absorbed here — the
+          // operator sees a pause, not an error about a working model.
+          if (activeCfg.gatewaySlug && res.status === 429 && throttleWaits < 2) {
+            const m = errText.match(/try again in ([0-9.]+)\s*(ms|s)/i);
+            const waitS = m ? (m[2].toLowerCase() === 'ms' ? Number(m[1]) / 1000 : Number(m[1])) : NaN;
+            if (Number.isFinite(waitS) && waitS <= 12) {
+              throttleWaits++;
+              await new Promise((r) => setTimeout(r, Math.ceil(waitS * 1000) + 500));
+              hop--;
+              continue;
+            }
+          }
           const cls = activeCfg.provider === 'anthropic' ? classifyLlmError(res.status, errText) : null;
           // Main model out of credit / key rejected → open the circuit + fall
           // back to the local model ONCE for the rest of this turn.
@@ -531,7 +566,7 @@ async function backupBrainTransport(env, slug, reqBody) {
       max_tokens: reqBody.max_tokens || reqBody.max_completion_tokens || 4096,
     });
   } catch (e) {
-    return new Response(JSON.stringify({ error: { message: String(e?.message || e) } }), { status: 502, headers: hdr });
+    return new Response(JSON.stringify({ error: { message: `free model: ${String(e?.message || e)}` } }), { status: 502, headers: hdr });
   }
   if (!g?.ok || !g?.body) {
     // Name the origin. An unlabelled provider error gets pattern-matched

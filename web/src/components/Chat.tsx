@@ -343,8 +343,16 @@ export function Chat({ onClose, scope = 'nyo', title, onBack, backLabel = 'Back 
           // upgrade link, so a free-model hiccup was presented as an Anthropic
           // credit outage on an install with no Anthropic key at all.
           const human = /^free model:/i.test(raw)
-            ? (/rate.?limit|try again in|429|too large/i.test(raw)
-                ? 'The free model hit its per-minute limit. Wait a few seconds and send that again.'
+            ? (/tool.?call validation|did not match schema|tool_use_failed/i.test(raw)
+                ? 'The free model fumbled a tool call twice in a row. Send that again — it usually lands on the next try.'
+                : /rate.?limit|try again in|429|too large/i.test(raw)
+                ? (() => {
+                    const w = raw.match(/try again in ([0-9.]+)\s*s/i);
+                    const secs = w ? Math.ceil(Number(w[1])) : null;
+                    return secs
+                      ? `The free model hit its per-minute token limit. Try again in about ${secs} seconds — nothing is broken.`
+                      : 'The free model hit its per-minute limit. Wait a few seconds and send that again.';
+                  })()
                 : `The free model had a hiccup: ${raw.replace(/^free model:\s*/i, '').replace(/\s+/g, ' ').slice(0, 140)}. Try again.`)
             : /credit balance is too low/i.test(raw)
               ? 'The Anthropic account behind this install is out of credit, so nothing that needs a model can run. Top up at console.anthropic.com (Plans & Billing) — no restart needed, the next message just works.'
