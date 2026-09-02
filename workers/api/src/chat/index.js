@@ -534,7 +534,11 @@ async function backupBrainTransport(env, slug, reqBody) {
     return new Response(JSON.stringify({ error: { message: String(e?.message || e) } }), { status: 502, headers: hdr });
   }
   if (!g?.ok || !g?.body) {
-    return new Response(JSON.stringify({ error: { message: g?.error || 'the backup model did not answer' } }), {
+    // Name the origin. An unlabelled provider error gets pattern-matched
+    // downstream — a Groq rate-limit message containing a billing link was
+    // confidently presented to an operator as an ANTHROPIC credit problem on
+    // an install with no Anthropic anything.
+    return new Response(JSON.stringify({ error: { message: `free model: ${g?.error || 'no answer'}` } }), {
       status: g?.status || 502, headers: hdr,
     });
   }
