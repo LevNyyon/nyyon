@@ -100,9 +100,6 @@ export async function saveAndVerifyLlmKey(env, { key, provider = 'anthropic' }) 
     // The most common failure is pasting the WRONG THING (an OAuth blob from
     // the consent screen even passes verification — then expires within the
     // hour). Teach, immediately, before any network call.
-    if (provider === 'gemini' && !/^AIza/.test(clean)) {
-      return { ok: false, error: "That is not a Gemini API key — keys start with AIza. On aistudio.google.com/apikey press 'Create API key' and copy that." };
-    }
     if (provider === 'groq' && !/^gsk_/.test(clean)) {
       return { ok: false, error: "That is not a Groq API key — keys start with gsk_. On console.groq.com/keys press 'Create API Key' and copy that." };
     }
