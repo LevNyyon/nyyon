@@ -143,7 +143,7 @@ for (const m of packs) {
       body: JSON.stringify({ manifest: m, prematerialized: true }),
     });
     const d = await r.json().catch(() => ({}));
-    if (d.ok) { last = d.status; break; }
+    if (d.ok) { last = d.status || 'active'; break; }
     last = String(d.errors?.[0] || d.error || `HTTP ${r.status}`);
     await new Promise((res) => setTimeout(res, attempt * 3000));
   }

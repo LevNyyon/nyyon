@@ -1,10 +1,10 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "nyyon-command-center",
+  "name": "nyyon-street",
   "main": "src/index.js",
   // No open *.workers.dev URL — the only public route is your custom domain, gated
   // by the src/gate.js login. Prevents an unauthenticated backdoor to the API.
-  "workers_dev": false,
+  "workers_dev": true,
   // NOTE: the your custom domain custom domain is bound at the account level (via
   // the Cloudflare API / dashboard: Workers → your worker → Domains &
   // Routes), NOT here — the deploy token lacks Zone:Workers Routes:Edit on the
@@ -37,8 +37,8 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "nyyon",
-      "database_id": "LOCAL"
+      "database_name": "nyyon-street",
+      "database_id": "d5a7112e-b8e5-4732-9f20-c3f2ae83e86d"
     }
   ],
 
@@ -53,7 +53,7 @@
   // an account signup in front of the first run. Locally it simulates; once
   // deployed it is the real bucket.
   "r2_buckets": [
-    { "binding": "ASSETS", "bucket_name": "nyyon-assets" }
+    { "binding": "ASSETS", "bucket_name": "nyyon-street-assets" }
   ],
 
   // Workers AI: deliberately NOT bound. The VM/server edition runs with no
