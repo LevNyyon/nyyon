@@ -1,12 +1,10 @@
-// Nyo wake-up — proactive survey + catchup. Business rules extracted from
-// the /api/system/wake-up route (index.js), behavior-identical. Surveys
-// what's happened, what's pending, what's failed, and (optionally) fires any
-// AEO publish that should already have happened today. Composes a markdown
-// "morning briefing" and queues it as a Nyo pending message so the floating
-// button badges.
+// Nyo wake-up — the first thing Nyo says, and the only proactive voice.
+// Before setup: an invitation to the interview. After: real news only
+// (failures, actions taken) — never an ops tour of modules that may not be
+// installed. Queues as a Nyo pending message so the floating button badges.
 //
 // Idempotent: if there's been no material change since the last wake-up
-// (no new failures, no missed publishes, no new pending work), skips
+// (no new failures, no new actions, same setup state), skips
 // queueing so the operator doesn't get spammed every tab refocus.
 //
 // Thresholds (cadence hours, heartbeat, outbox retry window + limit) are
@@ -24,22 +22,10 @@ import { retryOutboxRow } from './outbox.js';
 
 const POLICY_SLUG = 'wake-up-policy';
 
-// ─── week math (inlined from the departed lib/brain.js) ─────────────────────
-// Returns ms-epoch of the most recent Sunday at 00:00 local time. Workers run
-// in UTC; we don't have the operator's tz, so we use UTC Sunday — close enough
-// for a weekly cadence, and consistent with the plugin's own brain engine.
-function weekOfSunday(ts = Date.now()) {
-  const d = new Date(ts);
-  const day = d.getUTCDay();             // 0 = Sunday
-  d.setUTCHours(0, 0, 0, 0);
-  d.setUTCDate(d.getUTCDate() - day);    // back up to Sunday
-  return d.getTime();
-}
 
 // Seeded defaults — mirrored into the knowledge doc so the operator can tune
 // them without a deploy.
 const POLICY_DEFAULTS = Object.freeze({
-  // A publish is "overdue" once this many hours have passed since the last one.
   cadence_hours: 18,
   // Re-brief a standing (unchanged) problem at most once per this many hours.
   heartbeat_hours: 20,
@@ -92,7 +78,7 @@ async function loadWakeUpPolicy(env) {
 }
 
 // Run the full wake-up. opts: { autofire?: boolean } — if true (default),
-// missed AEO publish gets actually fired. If false, just reports what would
+// kept for API compatibility; the wake-up takes no autonomous publish
 // be done. Returns { status, body } — the route serializes body as JSON with
 // that HTTP status (same shapes the inline route returned).
 export async function runWakeUp(env, opts = {}) {
@@ -116,60 +102,6 @@ export async function runWakeUp(env, opts = {}) {
     catch (e) { return []; }
   }
 
-  // 0. Sunday Brain — if it's Sunday and we haven't offered this week's
-  //    editorial brain yet, queue the proactive "ready?" message. This is
-  //    what makes Nyo ask the operator when they open the app on Sunday.
-  //    Idempotent: gated on a brain session existing for the week.
-  //    The brain engine itself lives in the editorial plugin now
-  //    (plugin_editorial_brain_sessions is its table — host reads it, per the
-  //    host-reads grant); weekOfSunday is inlined below since lib/brain.js
-  //    went with the pack.
-  try {
-    const isSunday = new Date(now).getUTCDay() === 0;
-    if (isSunday) {
-      const week = weekOfSunday(now);
-      const session = await safeFirst(`SELECT id, status FROM plugin_editorial_brain_sessions WHERE week_of = ? LIMIT 1`, week);
-      const offered = await safeFirst(
-        `SELECT created_at FROM events WHERE kind = ? AND created_at >= ? LIMIT 1`, EVENT_KINDS.BRAIN_OFFER_SENT, week,
-      );
-      // Offer only if no session exists yet AND we haven't offered this week.
-      if (!session && !offered) {
-        // Never offer a flow we can't run: deriving the slate needs the
-        // Anthropic tiers. While the credit breaker is open, stay quiet and
-        // do NOT stamp the weekly claim — the offer fires once health recovers.
-        const { getLlmHealth } = await import('./llm.js');
-        const llm = await getLlmHealth(env);
-        if (llm.status !== 'ok') {
-          console.log('brain offer suppressed — llm health:', llm.status, llm.reason || '');
-          throw Object.assign(new Error('llm down — brain offer suppressed'), { quiet: true });
-        }
-        // Claim the week FIRST (the dedup marker IS the guard): if this write
-        // fails to persist, abort without sending — otherwise every wake-up
-        // that day re-reads `offered=false` and re-nags. Claiming first means a
-        // rare failure costs at most one skipped nudge (operator can start the
-        // brain by hand), never an unbounded repeat.
-        try {
-          await logEvent(env, { kind: EVENT_KINDS.BRAIN_OFFER_SENT, actor: 'system', payload: { week_of: week } });
-        } catch (e) {
-          console.error('brain_offer_sent marker failed — skipping this week\'s offer to avoid repeat-nagging:', e?.message || e);
-          throw e; // handled by the outer catch; no message goes out
-        }
-        await queueNyoMessage(env, {
-          kind: 'brain_offer',
-          content:
-            `🧠 **It's Sunday — ready for this week's editorial brain?**\n\n` +
-            `I'll ask you ~18 quick questions — what you shipped, your hot takes, anything live in AI/marketing this week, a client win, a prediction — and turn your answers into the whole week's article slate.\n\n` +
-            `Say **"let's go"** when you're ready and I'll start. Takes about 10 minutes.`,
-          payload: { week_of: week },
-        });
-      }
-    }
-  } catch (e) { console.error('brain-offer wake-up step skipped:', e?.message || e); }
-
-  // 1. Stats: pending AEO questions, last successful publish, recent failures.
-  const pendingAeo  = await safeFirst(`SELECT COUNT(*) AS n FROM plugin_editorial_aeo_questions WHERE status = 'pending'`);
-  const failedAeo   = await safeFirst(`SELECT COUNT(*) AS n FROM plugin_editorial_aeo_questions WHERE status = 'failed'`);
-  const lastPublish = await safeFirst(`SELECT slug, title, published_at FROM plugin_editorial_blog_posts WHERE published = 1 ORDER BY published_at DESC LIMIT 1`);
 
   // 2. Recent outbox failures (any channel) in the policy window.
   const recentFails = await safeAll(
@@ -185,75 +117,11 @@ export async function runWakeUp(env, opts = {}) {
   let lastSig = null;
   try { lastSig = lastWakeUp?.payload ? (JSON.parse(lastWakeUp.payload)?.state_sig ?? null) : null; } catch { /* legacy event without a sig */ }
 
-  const hoursSincePublish = lastPublish?.published_at ? Math.round((now - lastPublish.published_at) / 3600000) : null;
-  // Don't consider "no publishes ever" as overdue — that's a fresh install,
-  // not a missed run.
-  const overdue = hoursSincePublish != null && hoursSincePublish >= policy.cadence_hours;
-
   // 5. Take action. `actions` accumulates everything Nyo does this wake-up —
   // they get rendered in a dedicated section of the briefing so the operator
   // sees "what I did" not just "what's pending". Skipped entirely when
   // autofire is false (preview mode).
   const actions = [];   // [{ kind, ok, label, detail? }]
-  let fired = null;
-  let cadenceBlocked = false;   // overdue, but nothing is publishable yet (every pending question still needs its interview)
-
-  // Once-per-day cap on the autonomous publish. The wake-up fires on every
-  // app open + tab refocus, so without this guard the catchup could publish
-  // several articles a day whenever multiple are queued. We allow at most ONE
-  // autofire publish per UTC day: skip if a publish already landed today OR
-  // we already attempted an autofire today.
-  const dayStartUTC = (() => { const d = new Date(now); d.setUTCHours(0, 0, 0, 0); return d.getTime(); })();
-  const publishedToday = (lastPublish?.published_at || 0) >= dayStartUTC;
-  const autofiredToday = !!(await safeFirst(
-    `SELECT 1 AS x FROM events WHERE kind = ? AND created_at >= ? LIMIT 1`, EVENT_KINDS.AEO_AUTOFIRE, dayStartUTC,
-  ));
-  const aeoDailyDone = publishedToday || autofiredToday;
-
-  // 5a. Catchup missed AEO publish — at most once/day, only when overdue.
-  if (autofire && overdue && !aeoDailyDone && (pendingAeo?.n || 0) > 0) {
-    // The writer lives in the editorial plugin now; run it by tool name
-    // (run_aeo_cron) through the shared pool — same return shape as the old
-    // lib/aeo-writer.js runAeoCron call.
-    const { runTool } = await import('../tools/index.js');
-    // Stamp the attempt up front so concurrent / rapid-refocus wake-ups in the
-    // same day can't each fire — one autofire per UTC day, success or not.
-    // This stamp IS the once-per-day cap: the next tick reads it back as
-    // aeoDailyDone. If it fails to PERSIST, we must NOT fire — a silent swallow
-    // here is how a single overdue day turns into a runaway publish loop. So a
-    // failed stamp aborts the fire instead of proceeding uncapped.
-    let capStamped = false;
-    try {
-      await logEvent(env, { kind: EVENT_KINDS.AEO_AUTOFIRE, actor: 'wake-up', payload: { at: now } });
-      capStamped = true;
-    } catch (e) {
-      console.error('aeo_autofire cap stamp failed — skipping autofire to avoid an uncapped publish loop:', e?.message || e);
-      actions.push({ kind: 'aeo_publish', ok: false, label: 'Autofire skipped', detail: 'daily-cap stamp failed to persist' });
-    }
-    if (capStamped) try {
-      // ready_only: only PUBLISH articles whose interview answers are already
-      // in. Never auto-start an interview or queue a "I need your take" nag
-      // from a background wake-up — the operator pulls those from the AEO UI
-      // / explicit "draft now". Stops Nyo shoving interview prompts in chat.
-      fired = await runTool(env, 'run_aeo_cron', { actor: 'wake-up-catchup', ready_only: true });
-      if (fired?.ok) {
-        actions.push({ kind: 'aeo_publish', ok: true, label: `Published "${fired.title}"`, detail: `${hoursSincePublish}h overdue → caught up`, ref: fired.blog_slug });
-      } else {
-        // "Nothing publishable" — every pending question is waiting on its
-        // interview — is a NO-OP, not a failure. Reporting it as an action on
-        // every single wake-up is exactly the spam we're killing here. Only a
-        // REAL error (something actually tried to ship and broke) is an action.
-        const reason = String(fired?.error || '').toLowerCase();
-        const noop = !reason || /no pending|nothing to|needs? interview|interview|awaiting|no publishable|no question/.test(reason);
-        if (noop) { cadenceBlocked = true; fired = null; }
-        else actions.push({ kind: 'aeo_publish', ok: false, label: 'Tried to publish missed article — failed', detail: fired.error });
-      }
-    } catch (e) {
-      fired = { ok: false, error: String(e?.message || e) };
-      actions.push({ kind: 'aeo_publish', ok: false, label: 'Tried to publish missed article — failed', detail: fired.error });
-    }
-  }
-
   // 5b. Auto-retry recent outbox failures. Conservative — one auto-retry per
   // original failure, ever. If the retry also fails, the operator decides
   // whether to push harder via the Outbox UI.
@@ -299,20 +167,29 @@ export async function runWakeUp(env, opts = {}) {
     }
   }
 
-  // 6. Compose the wake-up briefing.
-  const lines = [`👋 **Morning.** Here's where we stand:`];
-  if (lastPublish) {
-    lines.push(`- Last article published: **${lastPublish.title}** (${hoursSincePublish}h ago).`);
-  } else {
-    lines.push(`- No articles published yet.`);
-  }
-  lines.push(`- AEO queue: ${pendingAeo?.n || 0} pending question${pendingAeo?.n === 1 ? '' : 's'}, ${failedAeo?.n || 0} failed.`);
+  // 6. Compose. The first thing Nyo ever says is an INVITATION to the
+  // interview — not an ops report about modules this install may not even
+  // have. After setup, it only speaks when there is real news (actions taken,
+  // failures) — status on demand: the operator can always ask.
+  const { readInstallState } = await import('./install.js');
+  const install = await readInstallState(env).catch(() => ({ setup_complete: true }));
+  const interviewNeeded = !install.setup_complete;
+  const activePlugins = (await safeFirst(`SELECT COUNT(*) AS n FROM plugins WHERE status = 'active'`))?.n || 0;
 
-  const failsByChannel = recentFails.map((r) => `${r.channel}=${r.n}`).join(', ');
-  if (failsByChannel) {
-    lines.push(`- Outbox failures (${policy.outbox_window_hours}h): ${failsByChannel}.`);
+  const lines = [];
+  if (interviewNeeded) {
+    lines.push(`👋 **I'm Nyo.** We haven't done the interview yet.`);
+    lines.push('');
+    lines.push(`Fifteen minutes: you talk, I ask, and I write your voice documents — who you are, how you sound, what you're working toward. Until then everything this system drafts is in a generic voice instead of yours.`);
+    lines.push('');
+    lines.push(`Say **interview me** whenever you're ready.`);
+    lines.push('');
+    lines.push(`${activePlugins} module${activePlugins === 1 ? '' : 's'} installed and running — ask me **status** anytime and I'll walk through them.`);
   } else {
-    lines.push(`- Outbox: clean — no failed sends in the last ${policy.outbox_window_hours}h.`);
+    lines.push(`👋 **Morning.**`);
+    const failsByChannel = recentFails.map((r) => `${r.channel}=${r.n}`).join(', ');
+    if (failsByChannel) lines.push(`- Outbox failures (${policy.outbox_window_hours}h): ${failsByChannel}.`);
+    else lines.push(`- All quiet. ${activePlugins} module${activePlugins === 1 ? '' : 's'} running — ask me **status** for a walkthrough.`);
   }
 
   // What I actually did this wake-up.
@@ -326,31 +203,19 @@ export async function runWakeUp(env, opts = {}) {
     }
   }
 
-  // Cadence nudge — thoughtful + actionable, never a silent "tried & failed".
-  if (cadenceBlocked) {
-    lines.push('');
-    lines.push(`⚠️ ${hoursSincePublish ?? '?'}h since the last publish (past our ${policy.cadence_hours}h cadence), but all ${pendingAeo?.n || 0} queued questions are waiting on an interview — so nothing auto-shipped. Open **AEO** or tell me "interview me" and I'll get the next one out.`);
-  } else if (!actions.length && overdue && !autofire) {
-    lines.push('');
-    lines.push(`⚠️ It's been ${hoursSincePublish ?? '?'}h since the last publish — outside our ${policy.cadence_hours}h cadence. Run wake-up with \`autofire:true\` and I'll catch up.`);
-  }
-
   // Trigger gate — the point of this rewrite: brief ONCE per distinct state,
   // not on every mount/refocus.
   //
-  // We hash the *material* state into a signature (last publish, pending /
+  // We hash the *material* state into a signature (setup state, plugin
   // failed counts, overdue + cadence-blocked flags, outbox fails). If it
   // matches the signature of the briefing we last sent, the news is identical
   // → stay quiet. We re-brief when: (a) a real action was taken, (b) the
-  // signature changed (new publish / failure / pending), or (c) a heartbeat
+  // signature changed (setup done / new failure / plugin change), or (c) a heartbeat
   // (policy hours) lapsed so a standing problem resurfaces once a day, not as
   // a flood. A null lastSig (first-ever brief, or a legacy event) counts as changed.
   const stateSig = [
-    lastPublish?.slug || 'none',
-    `p${pendingAeo?.n || 0}`,
-    `f${failedAeo?.n || 0}`,
-    overdue ? 'overdue' : 'ok',
-    cadenceBlocked ? 'blocked' : '-',
+    interviewNeeded ? 'needsInterview' : 'setupDone',
+    `plugins${activePlugins}`,
     recentFails.map((r) => `${r.channel}:${r.n}`).sort().join(',') || 'noFails',
   ].join('|');
 
@@ -374,13 +239,9 @@ export async function runWakeUp(env, opts = {}) {
         kind:    'wake_up',
         content: lines.join('\n'),
         payload: {
-          pending_aeo:     pendingAeo?.n || 0,
-          failed_aeo:      failedAeo?.n  || 0,
-          last_publish:    lastPublish || null,
-          hours_since:     hoursSincePublish,
-          outbox_fails:    recentFails,
-          catchup_fired:   fired || null,
-          cadence_blocked: cadenceBlocked,
+          interview_needed: interviewNeeded,
+          active_plugins:   activePlugins,
+          outbox_fails:     recentFails,
           actions,
         },
       });
@@ -392,13 +253,13 @@ export async function runWakeUp(env, opts = {}) {
         workflow_slug: 'nyo-wake-up', status: 'succeeded',
         output: { queued: true, reason, actions_n: actions.length },
       }).catch(console.error);
-      return { status: 200, body: { queued: true, message_id: msg.id, reason, fired, actions, summary: lines.join('\n') } };
+      return { status: 200, body: { queued: true, message_id: msg.id, reason, actions, summary: lines.join('\n') } };
     } catch (e) {
       await logWorkflowRun(env, {
         workflow_slug: 'nyo-wake-up', status: 'failed',
         error: String(e?.message || e), output: { queued: false, actions_n: actions.length },
       }).catch(console.error);
-      return { status: 500, body: { queued: false, error: String(e?.message || e), fired, actions } };
+      return { status: 500, body: { queued: false, error: String(e?.message || e), actions } };
     }
   }
 
@@ -412,5 +273,5 @@ export async function runWakeUp(env, opts = {}) {
     workflow_slug: 'nyo-wake-up', status: 'succeeded',
     output: { queued: false, reason: quietReason, actions_n: actions.length },
   }).catch(console.error);
-  return { status: 200, body: { queued: false, reason: quietReason, state_sig: stateSig, fired: null, actions } };
+  return { status: 200, body: { queued: false, reason: quietReason, state_sig: stateSig, actions } };
 }
