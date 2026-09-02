@@ -86,8 +86,26 @@ const lit = (v) =>
 const seedLines = [];
 let seedRows = 0;
 for (const t of rows.filter((r) => r.type === 'table')) {
-  const data = db.prepare(`SELECT * FROM "${t.name}"`).all();
+  let data = db.prepare(`SELECT * FROM "${t.name}"`).all();
   if (!data.length) continue;
+  // A table that references ITSELF (the knowledge tree: parent_slug → slug)
+  // must be emitted parents-first, or the FK check kills the child inserts —
+  // which is exactly how 4 knowledge docs vanished from fresh installs.
+  const selfFk = db.prepare(`PRAGMA foreign_key_list("${t.name}")`).all()
+    .find((fk) => String(fk.table).toLowerCase() === t.name.toLowerCase());
+  if (selfFk) {
+    const from = selfFk.from, to = selfFk.to;
+    const emitted = new Set();
+    const ordered = [];
+    let pool = [...data];
+    while (pool.length) {
+      const ready = pool.filter((r) => r[from] == null || emitted.has(r[from]));
+      if (!ready.length) { ordered.push(...pool); break; }   // cycle or missing parent: emit rest as-is
+      for (const r of ready) { ordered.push(r); emitted.add(r[to]); }
+      pool = pool.filter((r) => !ready.includes(r));
+    }
+    data = ordered;
+  }
   const cols = Object.keys(data[0]);
   for (const r of data) {
     seedLines.push(`INSERT OR IGNORE INTO "${t.name}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${cols.map((c) => lit(r[c])).join(', ')});`);
