@@ -83,6 +83,37 @@ export async function saveAndVerifyLlmKey(env, { key, provider = 'anthropic' }) 
   const clean = String(key || '').trim();
   if (!clean) return { ok: false, error: 'Paste your API key to continue.' };
 
+  // The free path: a Groq key goes into the Free LLM plugin's own table, not
+  // the host's gateway config — the plugin owns that provider end to end. The
+  // host's job here is only to verify it with one real request so a typo
+  // fails NOW, on this screen, not silently in the first interview message.
+  if (provider === 'groq') {
+    try {
+      await env.DB.prepare(
+        `INSERT INTO plugin_free_llm_config (id, provider, api_key, model, account_id, updated_at)
+         VALUES (1, 'groq', ?, NULL, NULL, ?)
+         ON CONFLICT(id) DO UPDATE SET provider='groq', api_key=excluded.api_key, updated_at=excluded.updated_at`,
+      ).bind(clean, Date.now()).run();
+    } catch {
+      return { ok: false, error: 'The Free LLM plugin is not installed on this system, so there is nowhere to keep a Groq key.' };
+    }
+    try {
+      const r = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        signal: AbortSignal.timeout(30_000),
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${clean}` },
+        body: JSON.stringify({ model: 'llama-3.3-70b-versatile', max_tokens: 8, messages: [{ role: 'user', content: 'ok' }] }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok || !data?.choices?.[0]) {
+        return { ok: false, error: `Groq rejected the key: ${String(data?.error?.message || `HTTP ${r.status}`).slice(0, 160)}` };
+      }
+      return { ok: true, provider: 'groq', verified: true };
+    } catch (e) {
+      return { ok: false, error: `Could not reach Groq: ${String(e?.message || e).slice(0, 120)}` };
+    }
+  }
+
   const field = provider === 'openai' ? 'OPENAI_API_KEY' : 'ANTHROPIC_API_KEY';
   await saveGatewayConfig(env, 'llm', { [field]: clean, ...(provider === 'openai' ? { LLM_PROVIDER: 'openai' } : {}) });
 

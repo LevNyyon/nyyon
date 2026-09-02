@@ -16,6 +16,16 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 'anthropic' is the primary path; 'groq' is the free one for people with
+  // no Claude account. Switching clears the field — the keys look nothing
+  // alike and a half-typed one from the other provider only breeds confusion.
+  const [mode, setMode] = useState<'anthropic' | 'groq'>('anthropic');
+  const switchTo = (m: 'anthropic' | 'groq') => {
+    setMode(m); setKey(''); setError(null);
+    // The deep link opens alongside the form, so "set up here" means exactly
+    // that: the key page is already in front of them when they look.
+    if (m === 'groq') window.open('https://console.groq.com/keys', '_blank', 'noopener');
+  };
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -23,7 +33,7 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
     setBusy(true);
     setError(null);
     try {
-      const r = await onboarding.saveLlmKey(key.trim());
+      const r = await onboarding.saveLlmKey(key.trim(), mode);
       if (r?.ok) { onReady(); return; }
       setError(r?.error || 'That key could not be verified.');
     } catch (e) {
@@ -68,17 +78,20 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
 
             <div className="px-5 py-5">
               <p className="text-[13px] leading-relaxed text-mute mb-4">
-                The rest of setup is a conversation, and the conversation runs on a model. Paste an Anthropic API
-                key to begin. It is stored on this install only, and you can change it later in Settings.
+                {mode === 'anthropic'
+                  ? 'The rest of setup is a conversation, and the conversation runs on a model. Paste an Anthropic API key to begin. It is stored on this install only, and you can change it later in Settings.'
+                  : 'Groq is free and needs no card. Create the key in the tab that just opened, paste it here, and setup continues on the free model.'}
               </p>
 
               <label className="block mb-4">
-                <span className="mono text-[9px] uppercase tracking-[0.16em] text-mute">Anthropic API key</span>
+                <span className="mono text-[9px] uppercase tracking-[0.16em] text-mute">
+                  {mode === 'anthropic' ? 'Anthropic API key' : 'Groq API key'}
+                </span>
                 <input
                   type="password"
                   value={key}
                   onChange={(e) => setKey(e.target.value)}
-                  placeholder="sk-ant-..."
+                  placeholder={mode === 'anthropic' ? 'sk-ant-...' : 'gsk_...'}
                   autoFocus
                   autoComplete="off"
                   spellCheck={false}
@@ -90,16 +103,32 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
                     routes this to the system browser (setWindowOpenHandler in
                     desktop/main.cjs), so it never opens a chromeless app window. */}
                 <span className="block mt-1.5 text-[11px] text-mute">
-                  Don't have one?{' '}
-                  <a
-                    href="https://console.anthropic.com/settings/keys"
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    className="underline underline-offset-2 hover:text-ink transition"
-                  >
-                    Create a key at console.anthropic.com
-                  </a>
-                  , then paste it here.
+                  {mode === 'anthropic' ? (
+                    <>
+                      Don't have one?{' '}
+                      <a
+                        href="https://console.anthropic.com/settings/keys"
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="underline underline-offset-2 hover:text-ink transition"
+                      >
+                        Create a key at console.anthropic.com
+                      </a>
+                      , then paste it here.
+                    </>
+                  ) : (
+                    <>
+                      <a
+                        href="https://console.groq.com/keys"
+                        target="_blank"
+                        rel="noreferrer noopener"
+                        className="underline underline-offset-2 hover:text-ink transition"
+                      >
+                        console.groq.com/keys
+                      </a>
+                      {' '}— sign up free (no card), press Create API Key, paste the gsk_ key here. Shown once.
+                    </>
+                  )}
                 </span>
               </label>
 
@@ -123,6 +152,23 @@ export function OnboardingKey({ onReady, onLater, onBack }: { onReady: () => voi
                   Later
                 </button>
               </div>
+              <div className="mt-3 text-[11px] text-mute">
+                {mode === 'anthropic' ? (
+                  <>
+                    No Claude account?{' '}
+                    <button type="button" onClick={() => switchTo('groq')}
+                      className="underline underline-offset-2 hover:text-ink transition">
+                      Use Groq — free, no card
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => switchTo('anthropic')}
+                    className="underline underline-offset-2 hover:text-ink transition">
+                    ← Back to Anthropic
+                  </button>
+                )}
+              </div>
+
               {onBack && (
                 <div className="mt-3">
                   <button
