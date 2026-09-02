@@ -133,13 +133,21 @@ for (let i = 0; i < 20; i++) {
 }
 const packs = JSON.parse(readFileSync(join(ROOT, 'db', 'generated', 'bundled-manifests.json'), 'utf8'));
 for (const m of packs) {
-  const r = await fetch(`${url}/api/plugins/import-bundled`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', authorization: `Bearer ${applierKey}` },
-    body: JSON.stringify({ manifest: m, prematerialized: true }),
-  });
-  const d = await r.json().catch(() => ({}));
-  console.log(`   ${m.name}: ${d.ok ? d.status : (d.errors?.[0] || d.error || `HTTP ${r.status}`)}`);
+  // The first request can race the deploy's edge propagation (the fresh
+  // secrets are not visible everywhere for a few seconds) — retry, don't fail.
+  let last = '';
+  for (let attempt = 1; attempt <= 4; attempt++) {
+    const r = await fetch(`${url}/api/plugins/import-bundled`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${applierKey}` },
+      body: JSON.stringify({ manifest: m, prematerialized: true }),
+    });
+    const d = await r.json().catch(() => ({}));
+    if (d.ok) { last = d.status; break; }
+    last = String(d.errors?.[0] || d.error || `HTTP ${r.status}`);
+    await new Promise((res) => setTimeout(res, attempt * 3000));
+  }
+  console.log(`   ${m.name}: ${last}`);
 }
 
 // ── done ──
