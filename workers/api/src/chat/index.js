@@ -147,12 +147,20 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
   // Low / Mid / High model switch (sent per message; changeable mid-conversation).
   // Models resolve doc > env > default (the llm-models knowledge doc / Settings).
   const mc = await loadModelConfig(env).catch(() => null);
-  const cfg = resolveTier(env, tier, mc);
+  const { findBackupLlm } = await import('../gateways/index.js');
+  const backupSlug = findBackupLlm();
+  let cfg = resolveTier(env, tier, mc, backupSlug);
   const keyMissing =
     (cfg.provider === 'anthropic' && !env.ANTHROPIC_API_KEY) ||
-    (cfg.provider === 'openai'    && !cfg.apiKey);
+    (cfg.provider === 'openai'    && !cfg.apiKey && !cfg.gatewaySlug);
   if (keyMissing) {
-    return new Response(`Missing API key for tier=${cfg.tier} (${cfg.provider} / ${cfg.model})`, { status: 500 });
+    // No main model key. If a backup-brain plugin is installed, an install
+    // with no key is still a working install — that is the entire point of it.
+    const backup = backupSlug ? resolveTier(env, 'low', mc, backupSlug) : null;
+    if (!backup) {
+      return new Response(`Missing API key for tier=${cfg.tier} (${cfg.provider} / ${cfg.model})`, { status: 500 });
+    }
+    cfg = backup;
   }
 
   const convId = conversation_id || uid();
@@ -185,7 +193,7 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
       if (agent === 'daily-planner') tools = tools.filter((t) => !PLANNER_DENY_TOOLS.has(t.name));
       let fellBack = false;   // true once we've swapped mid/high → local this turn
       let notedOk  = false;   // close the credit circuit at most once per turn
-      send('start', { conversation_id: convId, tier: cfg.tier, model: cfg.model, tools: tools.map((t) => t.name) });
+      send('start', { conversation_id: convId, tier: cfg.tier, model: cfg.model || 'free backup model', tools: tools.map((t) => t.name) });
 
       // Per-turn dedup: an identical tool call (same name + inputs) returns the
       // cached result instead of re-running. Kills the "read the same doc / run
@@ -203,12 +211,12 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
           // back to the local model ONCE for the rest of this turn.
           if (cls && !fellBack) {
             await noteLlmDown(env, cls, errText);
-            const low = resolveTier(env, 'low', mc);
-            if (low.baseUrl && low.apiKey) {
+            const low = resolveTier(env, 'low', mc, backupSlug);
+            if (low.gatewaySlug || (low.baseUrl && low.apiKey)) {
               fellBack = true;
               activeCfg = low;
               tools = allTools.filter((t) => low.toolAllow.has(t.name));
-              await send('delta', { text: `\n\n_(The main model is out of credit — switched to the local model. Replies will be simpler until it's topped up.)_\n\n` });
+              await send('delta', { text: `\n\n_(The main model is unavailable, so this is running on the free backup model. Replies will be simpler until the main model is back.)_\n\n` });
               continue;
             }
           }
@@ -323,16 +331,28 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
 //   low  → a fast small API model (Haiku), curated tool
 //          set (LOW_TOOLS: WhatsApp + diagnostics + knowledge).
 //   mid  → Claude Sonnet.    high → Claude Opus.
-function resolveTier(env, tier, mc = null) {
+function resolveTier(env, tier, mc = null, backupSlug = null) {
   const t = String(tier || 'mid').toLowerCase();
   if (t === 'low') {
+    // An installed backup-brain plugin wins: it carries its own key and its own
+    // model choice, so the host neither stores nor names either. A self-hosted
+    // OpenAI-compatible endpoint stays supported for anyone who has one.
+    if (backupSlug) {
+      return {
+        tier: 'low', provider: 'openai',
+        gatewaySlug: backupSlug,
+        model: null,                // the plugin picks: it knows what it connected to
+        tokenParam: 'max_tokens',
+        toolAllow: LOW_TOOLS,
+      };
+    }
     return {
       tier: 'low', provider: 'openai',
       model:   mc?.nyo_low || env.NYO_MODEL_LOW || 'claude-haiku-4-5',
       baseUrl: (env.OLLAMA_BASE_URL || '').replace(/\/+$/, ''),
       apiKey:  env.OLLAMA_API_KEY,
-      tokenParam: 'max_tokens',   // Ollama's OpenAI shim wants max_tokens, not max_completion_tokens
-      toolAllow: LOW_TOOLS,       // curated set — Qwen can't do Claude's tool-search deferral
+      tokenParam: 'max_tokens',   // an OpenAI shim wants max_tokens, not max_completion_tokens
+      toolAllow: LOW_TOOLS,
     };
   }
   if (t === 'high') return { tier: 'high', provider: 'anthropic', model: mc?.nyo_high || env.NYO_MODEL_HIGH || 'claude-opus-4-8' };
@@ -369,6 +389,11 @@ const LOW_TOOLS = new Set([
   'send_whatsapp', 'send_whatsapp_image', 'send_whatsapp_document', 'react_whatsapp',
   // diagnostics — "is everything up?" + recovery
   'check_health', 'probe_linkedin', 'restart_wa_session',
+  // Daily Planner — the whole pack. When the main model is down, planning is
+  // exactly the daily work an install must not lose, and these tools are
+  // small, schema'd CRUD a local model handles fine.
+  'read_daily_plan', 'save_daily_plan', 'update_daily_plan', 'search_daily_plans',
+  'list_recent_plans', 'read_weekly_objectives', 'set_weekly_objectives',
 ]);
 
 const TOOL_SEARCH = { type: 'tool_search_tool_regex_20251119', name: 'tool_search_tool_regex' };
@@ -410,7 +435,10 @@ async function callOpenAI(env, messages, tools, cfg = {}, speech = false, person
   // Works for any OpenAI-compatible endpoint. For tier 'low' the cfg points at the
   // an optional self-hosted OpenAI-compatible base URL; with no cfg it falls
   // back to OpenAI proper.
-  const model  = cfg.model  || env.LLM_MODEL || env.OPENAI_MODEL || 'gpt-4o';
+  // When a backup-brain plugin is the transport it decides its own model
+  // (it knows which provider it connected to), so send null rather than a
+  // host default the provider would reject.
+  const model  = cfg.gatewaySlug ? (cfg.model || null) : (cfg.model || env.LLM_MODEL || env.OPENAI_MODEL || 'gpt-4o');
   const base   = cfg.baseUrl || 'https://api.openai.com/v1';
   const apiKey = cfg.apiKey || env.OPENAI_API_KEY;
   const tokenField = cfg.tokenParam || 'max_completion_tokens';
@@ -453,10 +481,12 @@ async function callOpenAI(env, messages, tools, cfg = {}, speech = false, person
   // OpenAI shim wants max_tokens. cfg.tokenParam selects the right one per tier.
   const reqBody = { model, messages: openaiMessages, tools: openaiTools.length ? openaiTools : undefined };
   reqBody[tokenField] = 4096;
-  const upstream = await llmTransportOpenAICompat(env, {
-    base, apiKey, body: reqBody,
-    timeoutMs: cfg.tier === 'low' ? LOCAL_LLM_TIMEOUT_MS : LLM_TIMEOUT_MS,
-  });
+  const upstream = cfg.gatewaySlug
+    ? await backupBrainTransport(env, cfg.gatewaySlug, reqBody)
+    : await llmTransportOpenAICompat(env, {
+        base, apiKey, body: reqBody,
+        timeoutMs: cfg.tier === 'low' ? LOCAL_LLM_TIMEOUT_MS : LLM_TIMEOUT_MS,
+      });
   if (!upstream.ok) return upstream;
   const data = await upstream.json();
   const choice = data.choices?.[0];
@@ -475,6 +505,32 @@ async function callOpenAI(env, messages, tools, cfg = {}, speech = false, person
   return new Response(JSON.stringify({ stop_reason, content }), {
     status: 200, headers: { 'Content-Type': 'application/json' },
   });
+}
+
+// Send an OpenAI-shaped request through an installed backup-brain plugin and
+// hand back a Response, so callOpenAI's translation is identical either way.
+// The plugin owns the key, the provider and the payload quirks; the host only
+// knows it asked something for a completion.
+async function backupBrainTransport(env, slug, reqBody) {
+  const { callGateway } = await import('../gateways/index.js');
+  const hdr = { 'Content-Type': 'application/json' };
+  let g;
+  try {
+    g = await callGateway(env, slug, 'chat', {
+      messages: reqBody.messages,
+      tools: reqBody.tools,
+      model: reqBody.model || null,
+      max_tokens: reqBody.max_tokens || reqBody.max_completion_tokens || 4096,
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: { message: String(e?.message || e) } }), { status: 502, headers: hdr });
+  }
+  if (!g?.ok || !g?.body) {
+    return new Response(JSON.stringify({ error: { message: g?.error || 'the backup model did not answer' } }), {
+      status: g?.status || 502, headers: hdr,
+    });
+  }
+  return new Response(JSON.stringify(g.body), { status: 200, headers: hdr });
 }
 
 // `firstUserText` titles the row on creation so the history list is readable.

@@ -44,6 +44,11 @@ function pluginIcon(icon?: string | null): Item['Icon'] {
       <span style={{ width: size, height: size }} className="inline-block [&>svg]:w-full [&>svg]:h-full" dangerouslySetInnerHTML={{ __html: icon }} />
     );
   }
+  // Emoji only. A plugin naming an icon this build does not have ("Sparkles"
+  // when the set has "Sparkle") used to render the WORD in the sidebar, which
+  // looks like a bug in the app rather than a typo in the manifest.
+  const emojiish = [...icon].length <= 3 && !/[A-Za-z0-9]/.test(icon);
+  if (!emojiish) return Cube;
   return ({ size = 16 }: { size?: number }) => (
     <span style={{ fontSize: size - 2, lineHeight: 1 }} className="inline-block">{icon}</span>
   );

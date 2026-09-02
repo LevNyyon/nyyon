@@ -105,7 +105,21 @@ export async function skipPrimary(env) {
 // The local model — Ollama's OpenAI-compatible endpoint (Nyo's "Low" tier).
 export async function localComplete(env, { system, prompt, maxTokens = 2000 }) {
   const base = (env.OLLAMA_BASE_URL || '').replace(/\/+$/, '');
-  if (!base) throw new Error('local model unavailable (OLLAMA_BASE_URL unset) — cannot fall back');
+  if (!base) {
+    // No self-hosted endpoint. An installed backup-brain plugin is the other
+    // way a keyless install still has a model, and it covers the non-chat jobs
+    // (light tools, classification) just as much as the chat loop.
+    const { findBackupLlm, callGateway } = await import('../gateways/index.js');
+    const slug = findBackupLlm();
+    if (!slug) throw new Error('no backup model available — install the Free LLM plugin, or add a model key in Settings');
+    const msgs = [];
+    if (system) msgs.push({ role: 'system', content: system });
+    msgs.push({ role: 'user', content: prompt });
+    const g = await callGateway(env, slug, 'chat', { messages: msgs, max_tokens: maxTokens });
+    const out = g?.body?.choices?.[0]?.message?.content;
+    if (!g?.ok || !out) throw new Error(g?.error || 'the backup model returned nothing');
+    return String(out).trim();
+  }
   const messages = [];
   if (system) messages.push({ role: 'system', content: system });
   messages.push({ role: 'user', content: prompt });

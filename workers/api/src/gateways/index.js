@@ -296,6 +296,16 @@ export const GATEWAYS = {
 // Bundled plugin gateways (namespaced plugin-<name>-<slug>) join the registry.
 for (const [slug, gw] of Object.entries(pluginGateways)) GATEWAYS[slug] = gw;
 
+// The host knows no plugin by name. A plugin that ships a model boundary
+// advertises capability:'llm-backup' on its gateway, and this is how the chat
+// fallback finds it. Any future free-model plugin works with no host change.
+export function findBackupLlm() {
+  for (const [slug, g] of Object.entries(GATEWAYS)) {
+    if (g?.capability === 'llm-backup' && g?.modes?.chat) return slug;
+  }
+  return null;
+}
+
 export function listGateways() {
   return Object.values(GATEWAYS).map((g) => ({
     slug: g.slug,
