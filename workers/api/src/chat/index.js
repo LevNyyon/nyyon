@@ -144,6 +144,12 @@ const LLM_TIMEOUT_MS  = 60_000;   // any single provider hop
 const LOCAL_LLM_TIMEOUT_MS = 120_000; // local model (Low) — allow for a cold model load
 
 export async function handleChat(env, { messages, conversation_id, tier, speech = false, agent = null }) {
+  // Credentials are DB-first (Settings stores them in gateway_config; env is
+  // only the fallback). Every check below that reads env.ANTHROPIC_API_KEY
+  // raw was blind to a key pasted through the product's own UI — a fresh
+  // install with a verified key was told 'no model is connected'.
+  const { withResolvedCredentials } = await import('../lib/gateway-config.js');
+  env = await withResolvedCredentials(env);
   // Low / Mid / High model switch (sent per message; changeable mid-conversation).
   // Models resolve doc > env > default (the llm-models knowledge doc / Settings).
   const mc = await loadModelConfig(env).catch(() => null);
