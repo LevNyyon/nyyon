@@ -600,6 +600,20 @@ export function Chat({ onClose, scope = 'nyo', title, onBack, backLabel = 'Back 
       {centered ? (
         <div className="flex-1 min-h-0 flex flex-col items-center justify-center px-6 gap-5">
           <h2 className="text-xl sm:text-2xl font-semibold tracking-tight text-ink text-center">What do you want done today?</h2>
+          {/* The first open must explain itself: what goes in, what comes out.
+              Static copy, zero model calls — it renders instantly and works on
+              a keyless install. It vanishes the moment a conversation exists. */}
+          <div className="w-full max-w-2xl hairline rounded-lg bg-card/50 px-4 py-3">
+            <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute mb-1.5">nyo · how this works</p>
+            <p className="text-[12.5px] leading-relaxed text-mute">
+              Tell me about your day in plain words: what has to get done, any fixed
+              meetings, how you're feeling about it. I'll turn that into the plan on the
+              right: two-hour <span className="text-ink">Focus Sessions</span> as the
+              backbone, supporting blocks around them, and a to-do list. Then we adjust it
+              together: tick things off, shift blocks, add tasks, roll over what didn't
+              happen. Yesterday's unfinished work is where I'll usually start.
+            </p>
+          </div>
           <div className="w-full max-w-2xl">{composer}</div>
           <div className="flex flex-wrap justify-center gap-2 max-w-2xl">
             {suggestions.map((s) => (
