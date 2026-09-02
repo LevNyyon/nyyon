@@ -2,7 +2,7 @@
   "nyyon_plugin": 2,
   "name": "daily-planner",
   "title": "Daily Planner",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Planning workspace: a guided chat produces a persisted, editable day plan (Focus Sessions + to-dos), with weekly objectives, history search and day time-travel. Full module-as-plugin: seven tools, the persona knowledge doc, and the real two-pane page.",
   "origin": {
     "system": "nyyon-app"
