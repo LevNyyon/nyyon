@@ -35,36 +35,16 @@ that dies the moment your account exists. Re-running it later updates the
 app and keeps your data. Add an Anthropic key in Settings when you want the
 AI to answer — everything else works without it.
 
-## Install it on the web (Render, with a disk)
+## Other ways to run it
 
-[![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/LevNyyon/nyyon)
+**Render** (paid: ~$7/month Starter + a 1GB disk — the free tier forgets
+everything on restart). One [deploy link](https://render.com/deploy?repo=https://github.com/LevNyyon/nyyon)
+builds a container instance from [`render.yaml`](render.yaml) with the database
+on a mounted disk and the scheduled work driven in-process. If you deploy it
+without a disk, the app refuses setup and shows exactly what to change —
+nobody configures an install that was going to forget them.
 
-Click the button. Render reads [`render.yaml`](render.yaml), asks you to confirm,
-and builds your own instance: one web service, one 1GB disk, its own https
-address. The first screen is "create your account" — the install belongs to
-whoever opens it first, and that is you.
-
-Everything runs INSIDE that instance: the app, its SQLite database on the
-mounted disk, and the scheduled work (driven from inside the process, no
-external scheduler). Nothing is hosted anywhere else, and you never hand a
-credential to anyone.
-
-**What it costs.** The instance needs a disk to remember anything, and disks
-require Render's Starter plan: about $7/month plus $0.25 for the 1GB disk.
-
-**You cannot set it up wrong.** If you deploy without a disk, the app checks its
-own storage at boot and REFUSES to take you through setup, showing exactly what
-to change instead. Nobody spends an hour configuring an install that was going
-to forget them. (Deliberately want a throwaway demo? `NYYON_ALLOW_EPHEMERAL=1`
-steps the screen aside.)
-
-**What comes with it.** Four modules ship as plugins and are installed and
-active on first boot: Daily Planner, Digest, Editorial (Hot Takes, Blog,
-Social) and GTM (Prospecting, Outreach). Nothing else is pre-loaded — no
-sample data, no keys. Add an Anthropic key in Settings when you want Nyo and
-the writing tools to answer.
-
-## Install it on your own machine
+**Your own machine**
 
 See [INSTALL.md](INSTALL.md) for the one-line installer and exactly what it does to your machine. By hand, from a clone of this repo:
 
