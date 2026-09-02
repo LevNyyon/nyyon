@@ -17,7 +17,8 @@
     "typecheck": "cd web && npx tsc -b",
     "build": "cd web && npm run build",
     "app": "electron desktop/main.cjs",
-    "package": "electron-packager . 'Nyyon Command Center' --icon=desktop/assets/icon.icns --out=desktop/out --overwrite --app-bundle-id=com.nyyon.commandcenter --ignore='^/(web|workers|db|docs|scripts|services|node_modules/(?!electron))'"
+    "package": "electron-packager . 'Nyyon Command Center' --icon=desktop/assets/icon.icns --out=desktop/out --overwrite --app-bundle-id=com.nyyon.commandcenter --ignore='^/(web|workers|db|docs|scripts|services|node_modules/(?!electron))'",
+    "deploy": "node scripts/deploy-cloudflare.mjs"
   },
   "main": "desktop/main.cjs",
   "devDependencies": {

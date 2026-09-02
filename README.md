@@ -2,20 +2,38 @@
 
 An AI command center you own: outreach, writing, and publishing from one place, in your voice. A chat assistant called **Nyo** sits at the center, surrounded by **modules** (product areas with their own pages) and **tools** (granular capabilities Nyo can use). It runs entirely on your own machine: Workers runtime plus a local SQLite (D1) database.
 
-## Install it on the web, free
+## Get your own nyyon (free, ~3 minutes)
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LevNyyon/nyyon)
+Every install is fully independent: your Cloudflare account, your worker,
+your database, your URL — reachable from any device, shared with no one.
+Free tier, no card.
 
-A free Cloudflare account is all it takes — no card, no server to rent. The
-button forks this repo to your GitHub, creates your own database (D1) and
-storage bucket, deploys, and hands you an https address. Open it and create
-your account: the first person through the door within the first hour becomes
-the operator, so there is no code to hunt for.
+Have an AI agent (Claude Code, Cursor, ...)? Paste this:
 
-Everything is yours: your data lives in YOUR database, the four modules
-(Daily Planner, Digest, Editorial, GTM) are installed and active on arrival,
-and nothing is pre-loaded — no sample data, no keys. Add an Anthropic key in
-Settings when you want Nyo to answer.
+```
+Set up my own nyyon:
+git clone https://github.com/LevNyyon/nyyon && cd nyyon
+run `npx wrangler login` and wait for me to click Allow,
+then `npm run deploy` and give me the setup link it prints.
+```
+
+Your part is two moments: click **Allow** when the browser opens (create the
+free Cloudflare account right there if you don't have one — email + password),
+then open the setup link your agent hands you and set your password. Done.
+
+No agent? The same three commands, run by hand:
+
+```
+git clone https://github.com/LevNyyon/nyyon && cd nyyon
+npx wrangler login
+npm run deploy
+```
+
+The installer creates everything in your account, installs the four modules
+(Daily Planner, Digest, Editorial, GTM), and prints a one-time setup link
+that dies the moment your account exists. Re-running it later updates the
+app and keeps your data. Add an Anthropic key in Settings when you want the
+AI to answer — everything else works without it.
 
 ## Install it on the web (Render, with a disk)
 
