@@ -150,6 +150,13 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
   const { pickBackupLlm } = await import('../gateways/index.js');
   const backupSlug = await pickBackupLlm(env);
   let cfg = resolveTier(env, tier, mc, backupSlug);
+  // Low tier with nothing to run it (no backup plugin, no self-hosted
+  // endpoint) is a preference, not a fatal state — a stale 'low' in one
+  // browser was answering a bare 500 on an install with a perfectly good
+  // Anthropic key. Upgrade the turn transparently.
+  if (cfg.tier === 'low' && !cfg.gatewaySlug && !cfg.baseUrl && env.ANTHROPIC_API_KEY) {
+    cfg = resolveTier(env, 'mid', mc, backupSlug);
+  }
   const keyMissing =
     (cfg.provider === 'anthropic' && !env.ANTHROPIC_API_KEY) ||
     (cfg.provider === 'openai'    && !cfg.apiKey && !cfg.gatewaySlug);
@@ -158,7 +165,9 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
     // with no key is still a working install — that is the entire point of it.
     const backup = backupSlug ? resolveTier(env, 'low', mc, backupSlug) : null;
     if (!backup) {
-      return new Response(`Missing API key for tier=${cfg.tier} (${cfg.provider} / ${cfg.model})`, { status: 500 });
+      return new Response(JSON.stringify({ error: 'No model is connected. Add an Anthropic key in Settings — nothing that needs a model can run without one.' }), {
+        status: 400, headers: { 'Content-Type': 'application/json' },
+      });
     }
     cfg = backup;
   }

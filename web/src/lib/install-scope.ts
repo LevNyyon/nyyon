@@ -9,7 +9,7 @@
 // Every install stamps itself once at first boot. When that stamp changes,
 // every scoped cache is dropped exactly once.
 const STAMP_KEY = 'nyyon.install.v1';
-const SCOPED_KEYS = ['nyyon.chat.v1', 'nyyon.planner.v1', 'nyyon.onboarding.v1'];
+const SCOPED_KEYS = ['nyyon.chat.v1', 'nyyon.planner.v1', 'nyyon.onboarding.v1', 'nyyon.nyo.tier.v1', 'nyyon.nyo.speech.v1'];
 
 export function reconcileInstallScope(installId: string | null | undefined): void {
   if (!installId) return;                       // unknown: never destroy on a guess
