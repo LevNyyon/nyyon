@@ -413,7 +413,19 @@ app.get('/api/system/health', async (c) => {
     provider === 'anthropic' ? !!env.ANTHROPIC_API_KEY :
     provider === 'openai'    ? !!env.OPENAI_API_KEY    :
     false;
-  if (!keySet) {
+  // A connected free backup brain is a working model — an install running on
+  // it is degraded-by-choice, not down.
+  const freeBrain = await env.DB.prepare(
+    "SELECT provider, model FROM plugin_free_llm_config WHERE id = 1 AND api_key IS NOT NULL AND api_key != ''",
+  ).first().catch(() => null);
+  if (!keySet && freeBrain) {
+    checks.push({
+      name: `LLM · free backup (${freeBrain.model || freeBrain.provider})`,
+      status: 'green',
+      severity: 'critical',
+      note: 'Running on the connected free model. Add an Anthropic key in Settings whenever you want the full-strength brain.',
+    });
+  } else if (!keySet) {
     checks.push({
       name: `LLM provider · ${provider}`,
       status: 'red',

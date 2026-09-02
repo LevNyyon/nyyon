@@ -72,7 +72,16 @@ import { listGatewayStatus, saveGatewayConfig, resolveCredential } from './gatew
 // verifyLlmKey, which spends a real (tiny) request to find out.
 export async function llmConfigured(env) {
   try {
-    return Boolean(await resolveCredential(env, 'ANTHROPIC_API_KEY'));
+    if (await resolveCredential(env, 'ANTHROPIC_API_KEY')) return true;
+  } catch { /* fall through to the backup check */ }
+  // A connected free backup brain COUNTS. Verifying a Groq key returned ok
+  // while this check still said "no model", so boot bounced the operator back
+  // onto the same screen forever — verified, configured, and stuck.
+  try {
+    const r = await env.DB.prepare(
+      "SELECT 1 AS x FROM plugin_free_llm_config WHERE id = 1 AND api_key IS NOT NULL AND api_key != ''",
+    ).first();
+    return !!r?.x;
   } catch { return false; }
 }
 
