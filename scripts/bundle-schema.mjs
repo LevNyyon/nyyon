@@ -78,11 +78,17 @@ const rows = db.prepare(
 // exist). So: dump every row the replayed reference holds, as one
 // INSERT OR IGNORE per line (D1's exec() parses per line; OR IGNORE keeps
 // re-runs and half-built databases safe).
+// Newlines inside seed values cannot be literal (D1's exec parses one
+// statement per line) and cannot be `|| char(10) ||` chains (a long doc body
+// builds an expression tree past SQLite's depth-100 cap — real D1 rejects it
+// even though node:sqlite happily runs it). So values carry a sentinel and
+// each table gets ONE flat replace() per text column afterwards.
+const NL = '{{~nyyon-nl~}}';
 const lit = (v) =>
   v === null ? 'NULL'
   : typeof v === 'number' ? String(v)
   : typeof v === 'bigint' ? String(v)
-  : `'${String(v).replace(/'/g, "''").replace(/\n/g, "' || char(10) || '").replace(/\r/g, '')}'`;
+  : `'${String(v).replace(/'/g, "''").replace(/\r/g, '').replace(/\n/g, NL)}'`;
 const seedLines = [];
 let seedRows = 0;
 for (const t of rows.filter((r) => r.type === 'table')) {
@@ -107,9 +113,14 @@ for (const t of rows.filter((r) => r.type === 'table')) {
     data = ordered;
   }
   const cols = Object.keys(data[0]);
+  const sentinelCols = new Set();
   for (const r of data) {
     seedLines.push(`INSERT OR IGNORE INTO "${t.name}" (${cols.map((c) => `"${c}"`).join(', ')}) VALUES (${cols.map((c) => lit(r[c])).join(', ')});`);
+    for (const c of cols) if (typeof r[c] === 'string' && r[c].includes('\n')) sentinelCols.add(c);
     seedRows++;
+  }
+  for (const c of sentinelCols) {
+    seedLines.push(`UPDATE "${t.name}" SET "${c}" = replace("${c}", '${NL}', char(10)) WHERE "${c}" LIKE '%${NL}%';`);
   }
 }
 db.close();
