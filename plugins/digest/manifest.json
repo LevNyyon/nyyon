@@ -2,7 +2,7 @@
   "nyyon_plugin": 2,
   "name": "digest",
   "title": "Digest",
-  "version": "3.1.3",
+  "version": "3.1.4",
   "description": "The morning brief: two sources, search and calendar. Search files fresh headlines for the operator's topics through any installed search provider; calendar mirrors the coming week's events. Everything lands in one urgency-sorted feed of cards the operator opens, stars, snoozes, marks read or keeps a draft note on. It learns continuously: dismissals tune the interest filter, and score feedback grows taste rules the prioritizer reads.",
   "origin": {
     "system": "cmd.nyyon.com",

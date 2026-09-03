@@ -1,7 +1,7 @@
 // The opening screen of a new Digest: Nyo asks four questions and derives the
 // watched topics; beside it, the sources this install has, the ones it can
 // install in one click, and a prompt for building a new one.
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Chat } from '../../components/Chat';
 import { sources, type DigestSources, type CatalogEntry } from './digest-data';
 
@@ -13,6 +13,36 @@ export function DigestOnboarding({ onDone }: { onDone: () => void }) {
   const [err, setErr] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<string>('');
   const [copied, setCopied] = useState(false);
+  // A cached thread that the server no longer has (the digest was reset) must
+  // not be resumed: Nyo would sit where it left off instead of starting.
+  const [threadChecked, setThreadChecked] = useState(false);
+  useEffect(() => {
+    (async () => {
+      try {
+        const raw = localStorage.getItem('nyyon.agent.digest.v1');
+        const cached = raw ? JSON.parse(raw)?.conversationId : null;
+        if (cached) {
+          const r = await fetch('/api/chat/conversations?agent=digest&limit=100').then((x) => x.json()).catch(() => null);
+          const ids = new Set(((r?.conversations || []) as { id: string }[]).map((c) => c.id));
+          if (!ids.has(cached)) localStorage.removeItem('nyyon.agent.digest.v1');
+        }
+      } catch { /* cache unreadable: start fresh */ }
+      setThreadChecked(true);
+    })();
+  }, []);
+  // When a provider becomes ready after the chat started, tell Nyo so it
+  // continues instead of waiting for a click it cannot see.
+  const readyCount = src ? src.providers.filter((p) => p.connected).length : null;
+  const lastReady = useRef<number | null>(null);
+  useEffect(() => {
+    if (readyCount === null) return;
+    if (lastReady.current !== null && readyCount > lastReady.current) {
+      const names = (src?.providers || []).filter((p) => p.connected).map((p) => p.label).join(', ');
+      window.dispatchEvent(new CustomEvent('nyyon:agent-send', { detail: { agent: 'digest', text: `Sources ready now: ${names}.` } }));
+    }
+    lastReady.current = readyCount;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [readyCount]);
 
   const load = async () => {
     const [s, c, i] = await Promise.all([sources.read().catch(() => null), sources.catalog(), sources.installed().catch(() => ({}))]);
@@ -46,12 +76,14 @@ export function DigestOnboarding({ onDone }: { onDone: () => void }) {
             onClick={() => { try { localStorage.removeItem('nyyon.agent.digest.v1'); } catch { /* ignore */ } window.location.reload(); }}
             className="mono text-[9px] uppercase tracking-[0.14em] text-mute hover:text-ink">start over</button>
         </div>
-        <Chat
-          agent="digest"
-          autoStart="Let's set up my digest."
-          placeholder="Answer in plain words"
-          suggestions={[]}
-        />
+        {threadChecked && (
+          <Chat
+            agent="digest"
+            autoStart="Let's set up my digest."
+            placeholder="Answer in plain words"
+            suggestions={[]}
+          />
+        )}
       </div>
 
       <aside className="w-full lg:w-[280px] shrink-0 overflow-y-auto p-4 space-y-5">

@@ -298,6 +298,19 @@ export function Chat({ onClose, scope = 'nyo', agent, autoStart, suggestions: su
     clearAll();
   }
 
+  // A page can push a turn into its persona's thread (e.g. "News Search is
+  // installed now") so the conversation continues after an out-of-band event.
+  useEffect(() => {
+    if (!agent) return;
+    const h = (e: Event) => {
+      const d = (e as CustomEvent<{ agent?: string; text?: string }>).detail || {};
+      if (d.agent === agent && d.text) setPendingSend(d.text);
+    };
+    window.addEventListener('nyyon:agent-send', h);
+    return () => window.removeEventListener('nyyon:agent-send', h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent]);
+
   // A persona can open the conversation: the page hands in the first user turn.
   const autoStarted = useRef(false);
   useEffect(() => {
