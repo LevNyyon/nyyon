@@ -1,0 +1,26 @@
+{
+  "plugins": [
+    {
+      "name": "brave-search",
+      "title": "Brave Search",
+      "version": "1.0.0",
+      "description": "Web search via the Brave Search API (free key). Gives Nyo a search_web tool and advertises the search capability, which the Digest discovers for its search source.",
+      "capabilities": [
+        "search"
+      ],
+      "needs_key": true,
+      "file": "/plugin-catalog/brave-search.json"
+    },
+    {
+      "name": "news-search",
+      "title": "News Search",
+      "version": "1.0.0",
+      "description": "Keyless news search (Google News RSS). Gives Nyo a search_news tool and advertises the search capability, which the Digest discovers for its search channel. Zero setup.",
+      "capabilities": [
+        "search"
+      ],
+      "needs_key": false,
+      "file": "/plugin-catalog/news-search.json"
+    }
+  ]
+}

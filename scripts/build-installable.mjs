@@ -12,6 +12,11 @@ const SRC = join(REPO, 'plugins-installable');
 const DIST = join(REPO, 'plugins-dist');
 mkdirSync(DIST, { recursive: true });
 const DESK = join(homedir(), 'Desktop', 'nyyon-plugins');
+// The in-app catalog: manifests served as static files so a page (the digest's
+// opening screen) can offer one-click install through /api/plugins/import.
+const CATALOG = join(REPO, 'web', 'public', 'plugin-catalog');
+mkdirSync(CATALOG, { recursive: true });
+const catalog = [];
 for (const name of readdirSync(SRC).filter((n) => existsSync(join(SRC, n, 'manifest.json')))) {
   const dir = join(SRC, name);
   const m = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
@@ -31,5 +36,9 @@ for (const name of readdirSync(SRC).filter((n) => existsSync(join(SRC, n, 'manif
   writeFileSync(join(DIST, `${base}.json`), JSON.stringify(json.manifest, null, 2) + '\n');
   execSync(`cd ${SRC} && rm -f ${join(DIST, base)}.zip && zip -qr ${join(DIST, base)}.zip ${name} -x "*.DS_Store"`);
   if (existsSync(DESK)) { copyFileSync(join(DIST, `${base}.zip`), join(DESK, `${base}.zip`)); copyFileSync(join(DIST, `${base}.json`), join(DESK, `${base}.json`)); }
+  writeFileSync(join(CATALOG, `${name}.json`), JSON.stringify(json.manifest) + '\n');
+  catalog.push({ name, title: m.title, version: m.version, description: m.description, capabilities: (m.provides.gateways || []).map((g) => g.capability).filter(Boolean), needs_key: !!(m.requires.tables || []).length, file: `/plugin-catalog/${name}.json` });
   console.log(`✓ ${base}: ${tools.length} tools, ${(m.provides.gateways || []).length} gateway(s), ${(m.provides.knowledge || []).length} doc(s)`);
 }
+writeFileSync(join(CATALOG, 'index.json'), JSON.stringify({ plugins: catalog }, null, 2) + '\n');
+console.log(`catalog: ${catalog.length} installable plugin(s) → web/public/plugin-catalog/`);

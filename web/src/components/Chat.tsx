@@ -2,11 +2,18 @@ import { useEffect, useRef, useState, Fragment, type ReactNode } from 'react';
 import { chat, ChatEvent, api, type ConversationSummary } from '../lib/api';
 import { useChatState, type Msg } from '../lib/chat';
 import { usePlannerChat } from '../lib/planner-chat';
+import { useAgentChat } from '../lib/agent-chat';
 import { X, Trash, Volume, Mic, Clock } from './Icons';
 
 type Props = {
   onClose?: () => void;
   scope?: 'nyo' | 'daily-planner';
+  /** a plugin persona: its plugin-<agent>-persona doc is the system prompt, its tools the toolset */
+  agent?: string;
+  /** sent as the first user turn when the thread is empty (lets the persona open the conversation) */
+  autoStart?: string;
+  suggestions?: { send: string; label: string }[];
+  placeholder?: string;
   title?: string;
   // When set, the compact title header is replaced by a single full-width "Back"
   // bar and the ✕ is dropped — one obvious way out instead of a small glyph in
@@ -110,15 +117,17 @@ function fmtStamp(ts: number): string {
   return `${d.toLocaleDateString(undefined, { day: 'numeric', month: 'short' })}, ${time}`;
 }
 
-export function Chat({ onClose, scope = 'nyo', title, onBack, backLabel = 'Back to plan' }: Props) {
+export function Chat({ onClose, scope = 'nyo', agent, autoStart, suggestions: suggestionsProp, placeholder: placeholderProp, title, onBack, backLabel = 'Back to plan' }: Props) {
+  const isPersona = scope === 'daily-planner' || !!agent;
   // State source. Nyo (⌘J drawer + full-screen page) shares one ChatProvider
   // conversation; the Daily Planner surface uses its own isolated thread
   // (usePlannerChat) so planning never mixes into the Nyo command chat. Both
   // expose the same shape, so the rest of this component is source-agnostic.
   const shared  = useChatState();
   const planner = usePlannerChat(scope === 'daily-planner');
+  const agentStore = useAgentChat(agent && scope !== 'daily-planner' ? agent : null);
   const { messages, setMessages, conversationId, setConversationId, streaming, setStreaming, clearAll, pendingSend, setPendingSend, markSeen, bumpAssistantActivity } =
-    scope === 'daily-planner' ? planner : shared;
+    scope === 'daily-planner' ? planner : agent ? agentStore : shared;
   const [input, setInput] = useState(''); // local — typing in one surface shouldn't bleed into the other
   // Conversation history. Nyo persists every thread server-side; this panel is
   // the way back into one. Daily Planner keeps its own isolated thread, so the
@@ -237,7 +246,7 @@ export function Chat({ onClose, scope = 'nyo', title, onBack, backLabel = 'Back 
   useEffect(() => () => { try { recRef.current?.stop(); } catch { /* noop */ } }, []);
 
   // Per-surface copy — empty-state prompt starters + input placeholder.
-  const suggestions = scope === 'daily-planner'
+  const suggestions = suggestionsProp ? suggestionsProp : scope === 'daily-planner'
     ? [
         { send: 'plan my day', label: 'plan my day' },
         { send: "what's on my calendar today?", label: "what's on today?" },
@@ -250,7 +259,7 @@ export function Chat({ onClose, scope = 'nyo', title, onBack, backLabel = 'Back 
         { send: 'add a roadmap node: openai image gen wiring, status next, area website', label: 'add a roadmap node for openai image gen' },
         { send: 'what changed in the last hour?', label: 'what changed in the last hour?' },
       ];
-  const placeholder = scope === 'daily-planner'
+  const placeholder = placeholderProp ? placeholderProp : scope === 'daily-planner'
     ? 'Describe your day or ask a question'
     : 'Ask: "register a new module", "what shipped", "write a knowledge doc on X"';
 
@@ -288,6 +297,15 @@ export function Chat({ onClose, scope = 'nyo', title, onBack, backLabel = 'Back 
     if (!confirm('Clear local chat history? (Server messages stay logged.)')) return;
     clearAll();
   }
+
+  // A persona can open the conversation: the page hands in the first user turn.
+  const autoStarted = useRef(false);
+  useEffect(() => {
+    if (!autoStart || autoStarted.current || messages.length || streaming) return;
+    autoStarted.current = true;
+    void send(autoStart);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, messages.length]);
 
   async function send(textArg?: string) {
     // textArg lets the handoff useEffect (and any future caller) bypass the
@@ -365,7 +383,7 @@ export function Chat({ onClose, scope = 'nyo', title, onBack, backLabel = 'Back 
           setMessages([...next, assistant]);
           bumpAssistantActivity();
         }
-      }, controller.signal, scope === 'daily-planner' ? 'mid' : tier, scope === 'daily-planner' ? false : speech, scope === 'daily-planner' ? 'daily-planner' : undefined);
+      }, controller.signal, isPersona ? 'mid' : tier, isPersona ? false : speech, scope === 'daily-planner' ? 'daily-planner' : (agent || undefined));
       if (speech && assistant.content.trim()) void speak(assistant.content);
     } finally {
       abortRef.current = null;
@@ -427,7 +445,7 @@ export function Chat({ onClose, scope = 'nyo', title, onBack, backLabel = 'Back 
               ))}
             </div>
           )}
-          {scope !== 'daily-planner' && (
+          {!isPersona && (
             <span className="mono text-[10px] tracking-wider text-mute truncate hidden lg:inline">
               {TIERS.find((t) => t.id === tier)?.sub}
             </span>
@@ -448,7 +466,7 @@ export function Chat({ onClose, scope = 'nyo', title, onBack, backLabel = 'Back 
             </button>
           )}
           {/* Voice / text toggle (Nyo only) — voice makes Nyo terse + reads replies aloud */}
-          {scope !== 'daily-planner' && (
+          {!isPersona && (
             <button
               type="button"
               onClick={toggleSpeech}
@@ -509,7 +527,7 @@ export function Chat({ onClose, scope = 'nyo', title, onBack, backLabel = 'Back 
             {conversationId && <span className="mono text-[10px] text-mute">{conversationId.slice(0, 8)}</span>}
           </div>
           <div className="flex items-center gap-1">
-            {scope !== 'daily-planner' && (
+            {!isPersona && (
               <button
                 onClick={openHistory}
                 title="Past conversations"
