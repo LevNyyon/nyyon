@@ -3,8 +3,8 @@
     {
       "name": "brave-search",
       "title": "Brave Search",
-      "version": "1.0.0",
-      "description": "Web search via the Brave Search API (free key). Gives Nyo a search_web tool and advertises the search capability, which the Digest discovers for its search source.",
+      "version": "1.0.1",
+      "description": "Web search via the Brave Search API (free key). Gives Nyo a search_web tool and advertises the search capability, which the Digest discovers for its search source. Connect the key by pasting it to Nyo (connect_brave_search); no page.",
       "capabilities": [
         "search"
       ],

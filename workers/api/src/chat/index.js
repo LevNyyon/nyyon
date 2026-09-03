@@ -171,10 +171,20 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
       // Daily Planner is disconnected from the calendar + task list for now.
       if (agent === 'daily-planner') tools = tools.filter((t) => !PLANNER_DENY_TOOLS.has(t.name));
       else if (agent && personaSystem) {
-        // A plugin persona sees its own tools and the knowledge readers, nothing else.
-        const { pluginTools } = await import('../plugins/index.js');
-        const own = new Set(Object.entries(pluginTools).filter(([, t]) => t?.plugin === agent).map(([n]) => n));
-        tools = tools.filter((t) => own.has(t.name) || t.name === 'list_knowledge' || t.name === 'read_knowledge');
+        // A plugin persona sees: its own tools, the knowledge readers,
+        // list_providers, and the tools of every plugin that PROVIDES a
+        // capability this pack declared (so the digest persona can connect a
+        // search provider's key with that provider's own connect tool). Never
+        // the whole pool.
+        const { pluginTools, pluginGateways, pluginCapabilities } = await import('../plugins/index.js');
+        const wants = new Set((pluginCapabilities?.[agent] || []).map((c) => c.capability));
+        const providerPlugins = new Set(Object.entries(pluginGateways || {})
+          .filter(([, g]) => g?.capability && wants.has(g.capability))
+          .map(([slug]) => slug.split('__')[1]).filter(Boolean));
+        const allowed = new Set(Object.entries(pluginTools)
+          .filter(([, t]) => t?.plugin === agent || providerPlugins.has(t?.plugin))
+          .map(([n]) => n));
+        tools = tools.filter((t) => allowed.has(t.name) || ['list_knowledge', 'read_knowledge', 'list_providers'].includes(t.name));
       }
       let notedOk  = false;   // close the credit circuit at most once per turn
       send('start', { conversation_id: convId, tier: cfg.tier, model: cfg.model, tools: tools.map((t) => t.name) });

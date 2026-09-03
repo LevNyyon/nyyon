@@ -4,4 +4,4 @@ One tool: `search_web(query, limit?)`. General web search with titles, links and
 
 Use it when the operator wants to look something up, find a specific page, or see what exists on a topic beyond the news. For fresh headlines prefer `search_news` when it is installed.
 
-Setup: a Brave Search API key (free tier) pasted on the Brave Search page or via `connect_brave_search`. The Digest discovers this provider on its own and uses it for the topics in `plugin-digest-search-topics`.
+Setup, in conversation: the operator creates a free key at https://api-dashboard.search.brave.com/app/keys (register at https://api-dashboard.search.brave.com/register) and pastes it to Nyo; call `connect_brave_search` with it. The key is verified with a real query before it is stored. `brave_search_status` says whether it is connected; `disconnect_brave_search` forgets it. The Digest discovers this provider on its own.

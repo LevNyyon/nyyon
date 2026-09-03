@@ -699,6 +699,8 @@ export function generateIndex(rows) {
     ...gwRefs,
     '};',
     '',
+    'export const pluginCapabilities = CAPABILITIES;',
+    '',
   ];
   return lines.join('\n');
 }

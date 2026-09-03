@@ -1,6 +1,6 @@
 export const def = {
   name: 'connect_brave_search',
-  description: 'Connect Brave Search as a web search provider (key from api.search.brave.com, free tier). The key is verified with a real query before it is stored.',
+  description: 'Connect Brave Search as a web search provider. The operator creates a free key at https://api-dashboard.search.brave.com/app/keys and pastes it in chat; pass it here. Verified with a real query before it is stored.',
   input_schema: { type: 'object', properties: { api_key: { type: 'string' } }, required: ['api_key'] },
 };
 export async function run(api, input) {
