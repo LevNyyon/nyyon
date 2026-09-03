@@ -86,8 +86,17 @@ function BriefPane() {
   // A new digest opens on Nyo: until topics exist and a search source is
   // installed, the onboarding screen IS the page.
   const [src, setSrc] = useState<DigestSources | null>(null);
+  const [srcFailed, setSrcFailed] = useState(false);
   const [skipOnboarding, setSkipOnboarding] = useState(false);
-  useEffect(() => { sourcesApi.read().then(setSrc).catch(() => setSrc(null)); }, []);
+  // Keep asking. A plugin install rebuilds and reloads the app, and one failed
+  // read during that window used to pin the page on the brief for good.
+  useEffect(() => {
+    let alive = true;
+    const tick = () => sourcesApi.read().then((r) => { if (alive) { setSrc(r); setSrcFailed(false); } }).catch(() => { if (alive) setSrcFailed(true); });
+    void tick();
+    const t = setInterval(tick, 8000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
   // Active category filters (multi-select). Empty set = show everything.
   // Deliberately NOT persisted: a category filter is a transient view.
   const [cats, setCats] = useState<Set<CatKey>>(new Set());
@@ -230,6 +239,15 @@ function BriefPane() {
   // unread toggle does not apply and its control goes inert.
   const hasExplicit = cats.size > 0 || timeWin === '24h';
 
+  // Sources unknown yet (first read, or the app is mid-rebuild): a quiet
+  // holding state, never the brief pretending to be the answer.
+  if (!src && !skipOnboarding && (items?.length ?? 0) === 0) {
+    return (
+      <div className="flex-1 min-h-0 grid place-items-center text-[12px] text-mute">
+        {srcFailed ? 'Reconnecting…' : 'Loading…'}
+      </div>
+    );
+  }
   if (src && !src.ready && !skipOnboarding && (items?.length ?? 0) === 0) {
     return (
       <div className="flex-1 min-h-0 flex flex-col">
@@ -425,31 +443,9 @@ function BriefPane() {
               </div>
             ) : (
               // Genuinely empty brief (fresh install / everything cleared).
-              // First open explains itself: what feeds it, what comes out.
-              <div className="max-w-xl mx-auto py-12 space-y-3">
-                <div className="hairline rounded-lg bg-card/50 px-4 py-3.5 text-left space-y-2.5">
-                  <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">nyo · how this works</p>
-                  <p className="text-[12.5px] leading-relaxed text-mute">
-                    The Digest is your morning brief: everything that piled up across your
-                    sources, already read and sorted so you do not have to do it yourself.
-                  </p>
-                  <ul className="text-[12.5px] leading-relaxed text-mute space-y-1 pl-4 list-disc">
-                    <li>It reads what this install has: news for your topics and your calendar.</li>
-                    <li>It sorts everything into three piles: <span className="text-ink">Action needed</span>, <span className="text-ink">This week</span>, <span className="text-ink">Background</span>.</li>
-                    <li>It fills on its own every morning, or right now with <span className="text-ink">Generate</span>.</li>
-                    <li>Everything stays on this install; nothing is sent anywhere.</li>
-                  </ul>
-                  <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute pt-1">from you</p>
-                  <ul className="text-[12.5px] leading-relaxed text-mute space-y-1 pl-4 list-disc">
-                    <li>Set your topics once: edit the Digest search topics doc in Knowledge.</li>
-                    <li>Glance at the brief daily and open what matters.</li>
-                    <li>Clear <span className="text-ink">Action needed</span> first; mark the rest read as you go.</li>
-                  </ul>
-                </div>
-                <div className="text-center text-sm text-mute pt-2">
-                  <span className="text-4xl block mb-2">☕</span>
-                  Nothing in the brief yet. Hit <span className="text-ink">Generate</span>.
-                </div>
+              <div className="text-center py-16 space-y-3">
+                <div className="text-4xl">☕</div>
+                <div className="text-sm text-mute">Nothing in the brief yet. Hit <span className="text-ink">Generate</span>.</div>
               </div>
             )
           )}

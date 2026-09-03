@@ -40,8 +40,11 @@ export function DigestOnboarding({ onDone }: { onDone: () => void }) {
   return (
     <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
       <div className="flex-1 min-h-0 flex flex-col border-b lg:border-b-0 lg:border-r border-line">
-        <div className="px-4 pt-4 pb-2 shrink-0">
+        <div className="px-4 pt-4 pb-2 shrink-0 flex items-center justify-between">
           <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">nyo · digest setup</p>
+          <button
+            onClick={() => { try { localStorage.removeItem('nyyon.agent.digest.v1'); } catch { /* ignore */ } window.location.reload(); }}
+            className="mono text-[9px] uppercase tracking-[0.14em] text-mute hover:text-ink">start over</button>
         </div>
         <Chat
           agent="digest"
