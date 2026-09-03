@@ -298,7 +298,7 @@ export const tools = {
   list_calendar_events: {
     def: {
       name: 'list_calendar_events',
-      description: 'List calendar events in a time range. from/to are ms-epoch. Filter by kind (meeting/social_post/blog_publish/campaign/deadline/other) or source (manual/nyo/blog/aeo/social/external). Returns events sorted by starts_at ascending.',
+      description: 'List calendar events in a time range. from/to are ms-epoch. Filter by kind or source. Returns events sorted by starts_at ascending.',
       input_schema: {
         type: 'object',
         properties: {

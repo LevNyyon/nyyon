@@ -93,21 +93,8 @@ const SLOW_TOOLS = new Set([
   // pipeline (write → save → figures → cover), so it needs the long budget
   // even though it is one tool call from the model's side.
   'run_workflow',
-  // the writer LLM
-  'draft_article', 'expand_article', 'append_faq_schema',
-  // publish + edge verify + rebuild
-  'publish_blog_post',
-  // figure + image pipelines: N candidates (+ optional vision judge) ~30-90s
-  'draft_figures', 'render_figures', 'embed_figures',
-  'draft_visual_brief', 'render_images', 'judge_images',
-  'draft_cover', 'render_cover', 'draft_card', 'render_card',
-  // the per-channel social writer
-  'draft_social_post',
-  // the awareness sweep's heavy legs
-  'scrape_osint_targets', 'ingest_signals', 'enrich_signals',
-  'synthesize_pulse', 'synthesize_hot_topics', 'generate_digest',
-  // Hot Takes reasoning steps
-  'draft_hottake_take', 'build_hottake_brief', 'scan_hottake_article',
+  // digest synthesis reads a day of channels through one model pass
+  'generate_digest',
 ]);
 const SLOW_TOOL_TIMEOUT_MS = 150_000;   // writer/deploy pipelines
 

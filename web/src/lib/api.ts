@@ -108,7 +108,7 @@ export const api = {
   saveNyoModels: (patch: Partial<NyoModelMap>) =>
     j<{ models: NyoModelMap }>('/api/nyo/models', { method: 'PUT', body: JSON.stringify(patch) }).then((r) => r.models),
 
-  // Nyo pending-message queue — background workers (AEO cron, image gen, etc)
+  // Nyo pending-message queue — background workers (pack crons, image gen, etc)
   // queue assistant turns; Chat polls + injects them.
   listNyoPending: () =>
     j<{ messages: Array<{ id: string; content: string; kind: string | null; ref_kind: string | null; ref_id: string | null; payload: unknown; created_at: number }> }>(
@@ -130,8 +130,8 @@ export const api = {
     }),
   deleteConversation: (id: string) =>
     j<{ ok: boolean; id: string }>(`/api/chat/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  // Proactive wake-up — surveys state, autofires missed AEO publish, queues a
-  // morning briefing as a Nyo message. Idempotent server-side (skips when
+  // Proactive wake-up — surveys setup state + failures, queues a briefing or
+  // the interview invitation as a Nyo message. Idempotent server-side (skips when
   // nothing changed since last wake-up).
   systemWakeUp: (autofire = true) =>
     j<{ queued: boolean; message_id?: string; fired?: unknown; summary?: string; reason?: string }>(

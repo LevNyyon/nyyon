@@ -7,7 +7,7 @@
 //
 // Fields:
 //   nyo_low / nyo_mid / nyo_high — the chat tier switch (Low = local Ollama)
-//   writer        — the heavy background writers (digest synthesis, AEO
+//   writer        — the heavy background writers from installed modules
 //                   articles, GTM angles) — the old ANTHROPIC_MODEL
 //   writer_small  — cheap utility mapping for "mini/haiku" call sites
 //   vision        — image judging (OpenAI vision)
@@ -86,7 +86,7 @@ function seedBody(models) {
   return `Which model each surface runs on. The code reads the JSON block below at run time (\`loadModelConfig\` in lib/model-config.js) — edit here or in Settings, no deploy. Invalid or missing fields fall back to the wrangler.jsonc env vars, then the coded defaults.
 
 - \`nyo_low\` / \`nyo_mid\` / \`nyo_high\` — the chat tier switch (Low = fast + cheap, High = deep reasoning)
-- \`writer\` — heavy background writers: digest synthesis, AEO articles, GTM outreach angles
+- \`writer\` — heavy background writers from installed modules (digest synthesis, article writers)
 - \`writer_small\` — the cheap utility model "mini/haiku" call sites map to
 - \`vision\` — image judging (featured-image picker)
 - \`writer_fallback\` — the Hugging Face model heavy writers use while Anthropic credit is out (empty = writers pause instead)

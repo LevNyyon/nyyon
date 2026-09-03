@@ -398,7 +398,7 @@ const MODEL_FIELDS: { key: keyof Omit<import('../lib/api').NyoModelMap, 'source'
   { key: 'nyo_low',      label: 'Nyo · Low',   hint: 'the fast, cheap chat tier' },
   { key: 'nyo_mid',      label: 'Nyo · Mid',   hint: 'the default chat tier' },
   { key: 'nyo_high',     label: 'Nyo · High',  hint: 'hard reasoning in chat' },
-  { key: 'writer',       label: 'Writers',      hint: 'digest synthesis · AEO articles · GTM angles' },
+  { key: 'writer',       label: 'Writers',      hint: 'heavy background writers from installed modules' },
   { key: 'writer_small', label: 'Utility',      hint: 'cheap "mini/haiku" call sites' },
   { key: 'vision',       label: 'Vision',       hint: 'image judging (featured-image picker)' },
   { key: 'writer_fallback', label: 'Fallback writer', hint: 'Hugging Face model used while Anthropic credit is out (blank = writers pause)' },

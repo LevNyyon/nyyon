@@ -11,7 +11,7 @@ type Item = {
 };
 
 const SURFACE_ITEMS: Record<SurfaceSlug, Item> = {
-  // Hot Takes / Blog / Social ship as the editorial plugin now — their pages
+  // Pack pages ship with their plugins — their pages
   // arrive through pluginSurfaces below, not this static table.
   nyo:      { key: 'nyo',      label: 'Nyo',      Icon: MessageSquare },
 };

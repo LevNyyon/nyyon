@@ -13,9 +13,7 @@
 
 export const EVENT_KINDS = Object.freeze({
   // Wake-up daily-publish cap: stamped once/UTC-day, read back to block re-fire.
-  AEO_AUTOFIRE:      'aeo_autofire',
   // Sunday-brain offer dedup: claimed before sending, read back to avoid re-nag.
-  BRAIN_OFFER_SENT:  'brain_offer_sent',
   // Wake-up throttle: the last-wake marker the gating logic reads.
   NYO_WAKE_UP_SENT:  'nyo_wake_up_sent',
   // Social sends (used by post_to_social + approveAndPush; surfaced in Activity).

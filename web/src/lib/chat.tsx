@@ -7,7 +7,7 @@
 // previous in-component cache so existing history survives the upgrade.
 //
 // ChatProvider also runs a background poller against /api/nyo/pending — any
-// queued assistant turn from a worker hook (AEO publish, image gen, etc.)
+// queued assistant turn from a worker hook (a pack cron, image gen, etc.)
 // gets injected as an assistant message + bumps `hasUnseen` so the floating
 // Nyo button badges, even when the user is on a different surface.
 
@@ -29,7 +29,7 @@ const STORAGE_KEY = 'nyyon.chat.v1';
 // instance, and drops any run of byte-identical consecutive assistant messages,
 // so the chat reads as a conversation again. Real user/assistant turns are
 // preserved; the underlying work still lives in its module (dashboard state,
-// pending interviews in AEO). Runs on every hydrate; a no-op once clean.
+// their module). Runs on every hydrate; a no-op once clean.
 const NOTIFICATION_CLASSES: ((c: string) => boolean)[] = [
   (c) => c.includes("here's where we stand"),                                    // wake-up morning briefing
   (c) => c.includes('i need your take') || c.includes('before i write the next article'), // AEO interview nag

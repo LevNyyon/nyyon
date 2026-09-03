@@ -1,7 +1,7 @@
 // LLM credit circuit-breaker + local fallback.
 //
 // "Our LM" = the primary reasoning provider (Anthropic — Nyo mid/high, the
-// digest, GTM angles, AEO). When it runs OUT OF CREDIT (HTTP 400 "credit balance
+// digest synthesis, module writers). When it runs OUT OF CREDIT (HTTP 400 "credit balance
 // is too low" / 402) or REJECTS THE KEY (401/403), we OPEN a circuit:
 //   • the operator is alerted once — the sidebar health dot + a Nyo message;
 //   • chat + LIGHT jobs (digest extraction, OSINT/ICP scoring, company lookups)
@@ -69,8 +69,8 @@ export async function noteLlmDown(env, reason, lastError) {
         content: `⚠️ **The main model (Anthropic) is ${reason === 'credit' ? 'out of credit' : 'rejecting the API key'}.**\n\n`
           + `I've switched **chat + light jobs** (digest, OSINT / ICP scoring, company lookups) to the **local model** so you can keep working — replies will be simpler and a bit slower.\n\n`
           + (env.HF_TOKEN
-              ? `The **heavy writers** (AEO articles, GTM outreach, digest synthesis) are running on the **Hugging Face fallback writer** — prose quality stays close, tool-heavy work does not run there.\n\n`
-              : `The **heavy writers are paused**: AEO articles and GTM outreach won't run until it's back (a 3B model would write poorly there).\n\n`)
+              ? `The **heavy writer jobs** from installed modules are running on the **Hugging Face fallback writer** — prose quality stays close, tool-heavy work does not run there.\n\n`
+              : `The **heavy writer jobs are paused** until it's back (a small local model would write poorly there).\n\n`)
           + (reason === 'credit' ? `Top up the Anthropic credit` : `Fix the ANTHROPIC_API_KEY`) + ` and I'll switch back automatically — I'll tell you when.`,
         payload: { reason },
       });
@@ -87,7 +87,7 @@ export async function noteLlmOk(env) {
     await logEvent(env, { kind: 'llm_recovered', actor: 'system', payload: { down_since: cur.since } });
     await queueNyoMessage(env, {
       kind: 'llm_recovered',
-      content: `✅ **The main model is back.** Chat + jobs are back on Anthropic, and the heavy writers (AEO, GTM outreach) are live again.`,
+      content: `✅ **The main model is back.** Chat + jobs are back on Anthropic, and the heavy writer jobs are live again.`,
       payload: {},
     });
   } catch { /* best-effort */ }

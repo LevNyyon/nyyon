@@ -33,7 +33,7 @@ import { listGatewayStatus } from './gateway-config.js';
 // resolver the gateways themselves read through.
 const GATEWAY_META = {
   llm:      { kind: 'saas',       knowledge: [] },
-  social:   { kind: 'saas',       knowledge: ['brand-voice', 'personal-voice'] },
+  social:   { kind: 'saas',       knowledge: [] },
   linkedin: { kind: 'tunnel',     knowledge: [] },
   image:    { kind: 'saas',       knowledge: [] },
   assets:   { kind: 'binding',    knowledge: [] },
@@ -58,9 +58,8 @@ const GATEWAY_META = {
 // `has_last_run` = has an observable last-run timestamp (attached below).
 const WORKFLOWS = [
   // ── automated (cron) ──
-  // The awareness sweep, AEO publisher and Hot Takes scheduler moved into the
-  // editorial plugin — the cron slots still fire, but they run the pack's
-  // wrapper tools/workflows by name, and the pack describes them.
+  // Pack cron legs run by tool name with a pack-missing guard — an installed
+  // pack's legs fire, an absent pack's skip silently. The pack describes them.
   { name: 'Meeting reminders', kind: 'automated', trigger: 'cron · 0 * * * *',
     steps: 'scan calendar_events, WhatsApp the operator a reminder N minutes before a meeting (no-op until a reminder chat is set)',
     touches: 'calendar_events, wa (via outbox)', knowledge: [], run_slug: 'meeting-reminders' },
@@ -70,8 +69,8 @@ const WORKFLOWS = [
     steps: 'poll /api/nyo/pending, inject any queued Nyo message into the chat, mark it delivered',
     touches: 'nyo_messages', knowledge: [] },
   { name: 'Nyo wake-up', kind: 'continuous', trigger: 'client · on mount + tab focus',
-    steps: 'pull WhatsApp from the gateway → survey pending / failed / missed publishes → queue a morning briefing (idempotent; skips if nothing changed)',
-    touches: 'wa_messages, nyo_messages, plugin_editorial_aeo_questions', knowledge: [], run_slug: 'nyo-wake-up' },
+    steps: 'pull WhatsApp from the gateway → survey setup state + failures + actions → queue a briefing or the interview invitation (idempotent; skips if nothing changed)',
+    touches: 'wa_messages, nyo_messages, plugins, knowledge_docs', knowledge: ['wake-up-policy'], run_slug: 'nyo-wake-up' },
 
   // ── event-driven ──
   { name: 'WhatsApp inbound', kind: 'event', trigger: 'event · per inbound message (webhook)',
@@ -82,21 +81,14 @@ const WORKFLOWS = [
     touches: 'outbound_log', knowledge: [] },
 
   // ── on-demand (operator / Nyo) ──
-  // The digest generator, Hot Takes first ingest, AEO interview & write, the
-  // Sunday editorial brain and Blog publish→prod all moved into the editorial
-  // plugin; its manifest ships those workflows and their descriptions.
+  // Pack workflows ship in their pack's manifest with their descriptions.
 ];
 
 // ── Modules — the machine-readable product-area registry (mirrors the SPA
 // sidebar; the page IS the module per nyyon-lite layer 4). area: module =
 // day-to-day surface; system = operator plumbing.
-// Seven product modules + five pinned system pages. Everything cut in the
-// productization strip (tasks, digest, outbox, website, funnel, channels, CRM,
-// pipeline, the old GTM page, li-outreach, finance, aeo, calendar, osint, the
-// workflows page) is gone from here because the PAGE is gone — several of their
-// engines are still running headless (the AEO writer behind Blog, the OSINT +
-// heartbeat + digest sweep behind the Hot Takes topic feed, the outbox behind
-// every send, the calendar store behind reminders and publish mirrors).
+// The static list is the HOST's own surfaces; installed plugins contribute
+// their pages through the plugins registry, not here.
 const MODULES = [
   { key: 'nyo',       title: 'Nyo',       area: 'module', description: 'AI command chat — the tool pool\'s operator interface, wake-up briefings, voice mode' },
   { key: 'plugins',   title: 'Plugins',   area: 'system', description: 'trade capabilities between nyyon systems — import/export signed manifests; code travels verbatim, gateways bind mechanically' },
@@ -114,15 +106,13 @@ const MODULES = [
 // each comment below names the collision the position resolves. Adding a tool
 // whose name matches nothing here renders it ungrouped, not missing.
 const TOOL_GROUPS = [
-  // The Digest / Hot Takes & Signals / Editorial (Blog + AEO) / Social groups
-  // went with the editorial plugin — its tools land in "Other" now, honestly
-  // labeled as pool tools a pack provides.
+  // Pack tools land in "Other", honestly labeled as pool tools a pack provides.
   { group: 'WhatsApp',            re: /whatsapp|wa_chat|wa_group|wa_session|backfill_wa_messages|backfill_lid_map|read_group_participants|set_chat_listening/, knowledge: [] },
   { group: 'LinkedIn',            re: /linkedin/,                                          knowledge: [] },
   { group: 'Calendar & Reminders', re: /calendar|meeting|reminder/,                        knowledge: ['meeting-reminders'] },
   { group: 'Conversations',       re: /conversation/,                                      knowledge: [] },
   { group: 'Workflows',           re: /workflow/,                                          knowledge: [] },
-  { group: 'Web',                 re: /web_page|website|funnel|deploy/,                    knowledge: [] },
+  { group: 'Web',                 re: /web_page|deploy/,                    knowledge: [] },
   { group: 'Knowledge',           re: /knowledge|log_note|list_events|notify_operator/,    knowledge: [] },
   { group: 'System & Outbox',     re: /health|registry|restart|feature_flag|outbox|system|telegram|plugin/, knowledge: [] },
 ];

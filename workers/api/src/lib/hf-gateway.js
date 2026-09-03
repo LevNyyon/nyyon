@@ -2,7 +2,7 @@
 // (router.huggingface.co, OpenAI-compatible chat completions, HF_TOKEN auth).
 //
 // Role in the system: the WRITING fallback. When the Anthropic credit breaker
-// opens, heavy prose writers (AEO articles, GTM angles, digest synthesis) run
+// opens, heavy prose writers from installed modules run
 // here instead of pausing — the model is picked for community-attested
 // long-form writing quality, not code or tool-use. Chat fallback stays on the
 // local Ollama model (chat needs the tool loop; this path is plain text).

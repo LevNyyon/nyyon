@@ -52,7 +52,7 @@ const navTitle = (n: Nav) => NAV_TITLES[n] ?? n.charAt(0).toUpperCase() + n.slic
 // The voice interview used to be step three, and boot used to land on it. It
 // no longer does. Nothing about the interview changed — same engine, same
 // playbook, same server — but it is now a PREREQUISITE rather than a stage:
-// Hot Takes asks for the voice documents when you open Hot Takes, Outreach asks
+// a module asks for what it needs the moment you open it, and Settings asks
 // for WhatsApp when you open Outreach (components/ModuleSetupGate.tsx). Asking
 // for fifteen minutes of someone's writing before they have seen the product is
 // asking them to describe a voice for a machine they have not met.
