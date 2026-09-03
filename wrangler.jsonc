@@ -1,0 +1,56 @@
+// Root config for Cloudflare's "Deploy to Workers" button.
+//
+// The button reads wrangler config from the REPO ROOT and runs the build and
+// deploy from there, so this file exists for that path alone. It mirrors
+// workers/api/wrangler.jsonc with root-relative paths, and it deliberately
+// carries NO database_id: on a one-click deploy Cloudflare creates the D1
+// database and the bucket in the visitor's own account and binds them.
+//
+// The everyday local and CI paths still use workers/api/wrangler.jsonc.
+{
+  "name": "nyyon",
+  "main": "workers/api/src/index.js",
+  "workers_dev": true,
+  "compatibility_date": "2026-04-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+
+  "build": {
+    "command": "npm install && npm --prefix web install && npm --prefix web run build"
+  },
+
+  "rules": [
+    { "type": "CompiledWasm", "globs": ["**/*.wasm"], "fallthrough": true },
+    { "type": "Data", "globs": ["**/*.ttf"], "fallthrough": true },
+    { "type": "Text", "globs": ["**/*.sql"], "fallthrough": true }
+  ],
+
+  "d1_databases": [
+    { "binding": "DB", "database_name": "nyyon" }
+  ],
+
+  "r2_buckets": [
+    { "binding": "ASSETS", "bucket_name": "nyyon-assets" }
+  ],
+
+  "vars": {
+    "LLM_PROVIDER": "anthropic",
+    "ANTHROPIC_MODEL": "claude-opus-4-8",
+    "NYO_MODEL_LOW": "claude-haiku-4-5",
+    "NYO_MODEL_MID": "claude-sonnet-5",
+    "NYO_MODEL_HIGH": "claude-opus-4-8",
+    "WA_BASE_URL": "",
+    "WA_SESSION_ID": "default",
+    "WEBSITE_BASE_URL": "",
+    "ASSETS_BASE_URL": ""
+  },
+
+  "triggers": { "crons": ["0 * * * *", "45 * * * *", "0 6 * * *"] },
+
+  "assets": {
+    "directory": "web/dist",
+    "binding": "STATIC",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": true
+  }
+}
