@@ -22,10 +22,14 @@ export function DigestOnboarding({ onDone }: { onDone: () => void }) {
   useEffect(() => { void load(); const t = setInterval(() => { void load(); }, 8000); return () => clearInterval(t); }, []);
   useEffect(() => { if (src?.configured && src?.ready) onDone(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [src?.configured, src?.ready]);
 
+  const [note, setNote] = useState<string | null>(null);
   const install = async (e: CatalogEntry) => {
-    setBusy(e.name); setErr(null);
-    try { const r = await sources.install(e); if (!r.ok) setErr((r.errors || [r.error || 'install refused']).join('; ')); }
-    catch (x) { setErr(String((x as Error)?.message || x)); }
+    setBusy(e.name); setErr(null); setNote(`Adding ${e.title}…`);
+    try {
+      const r = await sources.install(e);
+      if (!r.ok) { setErr(`${e.title}: ${(r.errors || [r.error || 'install refused']).join('; ')}`); setNote(null); }
+      else setNote(`${e.title} accepted (${r.status || 'bound'}). Building it now; this takes about a minute.`);
+    } catch (x) { setErr(`${e.title}: ${String((x as Error)?.message || x)}`); setNote(null); }
     finally { setBusy(null); void load(); }
   };
   const openPrompt = async () => { if (!prompt) setPrompt(await sources.buildPrompt()); setShowPrompt((v) => !v); };
@@ -68,6 +72,7 @@ export function DigestOnboarding({ onDone }: { onDone: () => void }) {
 
         <section className="space-y-2">
           <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">add a source</p>
+          {note && <p className="text-[12px] text-emerald-700 dark:text-emerald-400">{note}</p>}
           {err && <p className="text-[12px] text-rose-700 dark:text-rose-400">{err}</p>}
           {catalog.map((e) => {
             const st = installed[e.name];

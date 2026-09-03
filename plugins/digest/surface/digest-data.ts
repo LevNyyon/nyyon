@@ -128,6 +128,13 @@ export const api = {
 };
 
 // ── sources + onboarding ─────────────────────────────────────
+// Every data fetch must answer JSON. An HTML answer (the SPA fallback, a
+// login page) is reported as what it is instead of a parse error.
+async function jsonOrThrow(r: Response, what: string) {
+  const text = await r.text();
+  try { return JSON.parse(text); }
+  catch { throw new Error(`${what}: server answered ${r.status} with ${text.trim().startsWith('<') ? 'HTML, not JSON (are you signed in? is the route deployed?)' : 'something that is not JSON'}`); }
+}
 export type DigestSources = {
   providers: { slug: string; label: string; connected: boolean; note: string | null }[];
   calendar: boolean; topics: string[]; configured: boolean; ready: boolean;
@@ -136,19 +143,20 @@ export type CatalogEntry = { name: string; title: string; version: string; descr
 export const sources = {
   read: () => invoke<DigestSources>('digest_sources', {}),
   catalog: async (): Promise<CatalogEntry[]> => {
-    try { const r = await fetch('/plugin-catalog/index.json'); const d = await r.json(); return (d?.plugins || []).filter((p: CatalogEntry) => p.capabilities?.includes('search')); }
-    catch { return []; }
+    const d = await jsonOrThrow(await fetch('/api/plugins/catalog'), 'catalog');
+    return (d?.plugins || []).filter((p: CatalogEntry) => p.capabilities?.includes('search'));
   },
   installed: async (): Promise<Record<string, string>> => {
-    const r = await fetch('/api/plugins'); const d = await r.json();
+    const d = await jsonOrThrow(await fetch('/api/plugins'), 'plugins');
     const out: Record<string, string> = {};
     for (const p of (d?.plugins || d || [])) if (p?.name) out[p.name] = p.status;
     return out;
   },
   install: async (entry: CatalogEntry) => {
-    const manifest = await fetch(entry.file).then((r) => r.json());
-    const r = await fetch('/api/plugins/import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ manifest }) });
-    return r.json() as Promise<{ ok: boolean; status?: string; errors?: string[]; error?: string }>;
+    const m = await jsonOrThrow(await fetch(`/api/plugins/catalog/${entry.name}`), `catalog entry ${entry.name}`);
+    if (!m?.manifest) throw new Error(m?.error || `catalog entry ${entry.name} has no manifest`);
+    const r = await fetch('/api/plugins/import', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ manifest: m.manifest }) });
+    return jsonOrThrow(r, 'import') as Promise<{ ok: boolean; status?: string; errors?: string[]; error?: string }>;
   },
   buildPrompt: async (): Promise<string> => {
     try { const r = await fetch('/api/knowledge/plugin-digest-build-a-source'); const d = await r.json(); return String(d?.doc?.body || d?.body || ''); }

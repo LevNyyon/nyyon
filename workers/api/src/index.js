@@ -702,6 +702,31 @@ app.post('/api/plugins/import-url', async (c) => {
     return c.json({ ok: false, error: String(e?.message || e) }, 400);
   }
 });
+// Installable-plugin catalog. Data never comes from a static path: the SPA
+// fallback answers HTTP 200 + index.html for anything it cannot serve, which
+// turns a missing file into "unexpected token <" in a page. Through /api the
+// answer is JSON or an explicit error — the static files are read here,
+// server-side, through the STATIC binding.
+async function readCatalogFile(env, name) {
+  try {
+    const r = await env.STATIC.fetch(new Request(`https://static.local/plugin-catalog/${name}`));
+    if (!r.ok) return { ok: false, error: `catalog file ${name}: HTTP ${r.status}` };
+    const text = await r.text();
+    try { return { ok: true, data: JSON.parse(text) }; }
+    catch { return { ok: false, error: `catalog file ${name} is not JSON (got ${text.slice(0, 40).replace(/\s+/g, ' ')}…)` }; }
+  } catch (e) { return { ok: false, error: String(e?.message || e) }; }
+}
+app.get('/api/plugins/catalog', async (c) => {
+  const r = await readCatalogFile(c.env, 'index.json');
+  return r.ok ? c.json(r.data) : c.json({ plugins: [], error: r.error }, 500);
+});
+app.get('/api/plugins/catalog/:name', async (c) => {
+  const name = String(c.req.param('name') || '');
+  if (!/^[a-z][a-z0-9-]{1,40}$/.test(name)) return c.json({ error: 'bad name' }, 400);
+  const r = await readCatalogFile(c.env, `${name}.json`);
+  return r.ok ? c.json({ manifest: r.data }) : c.json({ error: r.error }, 404);
+});
+
 // Bundled packs (the repo's plugins/ folders) are seeded by the APPLIER on
 // boot with the install's own key — a fresh install comes up with its standard
 // modules installed, no operator import step. Same pipeline as any import.

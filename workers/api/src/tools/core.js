@@ -26,6 +26,34 @@ import { checkWaHealth, probeWaGateway } from '../lib/whatsapp.js';
 import { buildRegistry } from '../lib/registry.js';
 
 export const tools = {
+  // Providers by capability, from the live gateway registry. This is how any
+  // persona answers "who can search / which backup brains exist" without a
+  // hardcoded list: install a plugin whose gateway advertises a capability and
+  // it appears here. Read-only.
+  list_providers: {
+    def: {
+      name: 'list_providers',
+      description: 'List installed providers by capability (e.g. search, llm-backup), read live from the gateway registry, with each one\'s connection state. Call this before saying whether a source or provider exists; never assume.',
+      input_schema: {
+        type: 'object',
+        properties: { capability: { type: 'string', description: 'filter to one capability; omit for all' } },
+        required: [],
+      },
+    },
+    run: async (env, input) => {
+      const { GATEWAYS, callGateway } = await import('../gateways/index.js');
+      const want = String(input?.capability || '').trim();
+      const out = [];
+      for (const [slug, g] of Object.entries(GATEWAYS)) {
+        if (!g?.capability) continue;
+        if (want && g.capability !== want) continue;
+        let status = null;
+        if (g.modes?.status) { try { status = await callGateway(env, slug, 'status', {}); } catch { status = null; } }
+        out.push({ capability: g.capability, slug, service: g.service || slug, connected: status ? !!status.connected : true, note: status?.note || null, plugin: slug.startsWith('plugin__') ? slug.split('__')[1] : null });
+      }
+      return { providers: out, capabilities: [...new Set(out.map((p) => p.capability))] };
+    },
+  },
   // ── knowledge ───────────────────────────────────────────────
   list_knowledge: {
     def: {
