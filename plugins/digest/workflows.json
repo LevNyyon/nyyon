@@ -2,7 +2,7 @@
   {
     "slug": "digest-generate",
     "name": "Digest · generate + prioritize",
-    "goal": "The digest tick as one named chain: prune stale items, pull every enabled channel (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT, content signals, calendar), deliver due scheduled WhatsApp sends, then score fresh LI signals so the brief reads most-relevant first. Same pass the :30 cron runs; also runnable manually or by Nyo via run_workflow.",
+    "goal": "The digest tick as one named chain: prune stale items, pull every source this install has (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT, content signals, calendar), deliver due scheduled WhatsApp sends, then score fresh LI signals so the brief reads most-relevant first. Same pass the :30 cron runs; also runnable manually or by Nyo via run_workflow.",
     "steps": [
       { "tool": "run_digest" },
       { "tool": "prioritize_signals", "optional": true }

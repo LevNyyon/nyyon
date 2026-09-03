@@ -6,7 +6,7 @@ import { generateDigest } from './digest.mjs';
 
 export const def = {
   name: 'generate_digest',
-  description: 'Scan recent activity and materialize new digest items. Prunes what has gone stale, then pulls every enabled channel (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT mentions, content signals, calendar), deduping against existing items. Run when the operator says "give me today\'s brief", "what\'s new?", or first thing each morning.',
+  description: 'Scan recent activity and materialize new digest items. Prunes what has gone stale, then pulls every source this install has (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT mentions, content signals, calendar), deduping against existing items. Run when the operator says "give me today\'s brief", "what\'s new?", or first thing each morning.',
   input_schema: {
     type: 'object',
     properties: { since_ms: { type: 'number', description: 'lookback window in ms; default 86_400_000 (24h)' } },

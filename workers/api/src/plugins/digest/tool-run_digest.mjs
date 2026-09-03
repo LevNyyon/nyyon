@@ -9,7 +9,7 @@ import { flushDueWaQueue } from './wa-queue.mjs';
 
 export const def = {
   name: 'run_digest',
-  description: 'Run the digest tick the cron runs at :30: prune what has gone stale, pull every enabled channel, dedupe against what is already there, then deliver any due scheduled WhatsApp sends from the digest queue. Safe to run by hand to refresh the morning digest now.',
+  description: 'Run the digest tick the cron runs at :30: prune what has gone stale, pull every source this install has, dedupe against what is already there, then deliver any due scheduled WhatsApp sends from the digest queue. Safe to run by hand to refresh the morning digest now.',
   input_schema: {
     type: 'object',
     properties: {

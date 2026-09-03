@@ -10,7 +10,7 @@
 // from that table. Operator marks read/starred to dismiss or pin.
 //
 // Tables written (plugin-owned):
-//   plugin_digest_items, plugin_digest_channels
+//   plugin_digest_items
 // Host tables (SELECT-only, declared in requires.host_reads):
 //   wa_messages, wa_chats, contacts, calendar_events, events, li_signals,
 //   plugin_editorial_osint_{targets,mentions,signals,topics},
@@ -1066,51 +1066,6 @@ function actionableOf(text) {
 }
 
 // ─── channels (the data sources feeding the digest) ─────────
-export async function listDigestChannels(api) {
-  const r = await api.db.prepare('SELECT * FROM plugin_digest_channels ORDER BY enabled DESC, source ASC').all();
-  return r.results || [];
-}
-export async function readDigestChannel(api, source) {
-  return api.db.prepare('SELECT * FROM plugin_digest_channels WHERE source = ?').bind(source).first();
-}
-export async function patchDigestChannel(api, source, patch) {
-  const existing = await readDigestChannel(api, source);
-  if (!existing) throw new Error(`unknown digest channel ${source}`);
-  const t = now();
-  await api.db.prepare(`
-    UPDATE plugin_digest_channels
-       SET enabled = ?, cadence = ?, notes = ?, updated_at = ?
-     WHERE source = ?
-  `).bind(
-    patch.enabled !== undefined ? (patch.enabled ? 1 : 0) : existing.enabled,
-    patch.cadence ?? existing.cadence,
-    patch.notes   ?? existing.notes,
-    t,
-    source,
-  ).run();
-  await api.log('digest_channel_updated', { source, enabled: patch.enabled !== undefined ? !!patch.enabled : !!existing.enabled });
-  return readDigestChannel(api, source);
-}
-async function recordChannelRun(api, source, { ok, added, error }) {
-  const t = now();
-  await api.db.prepare(`
-    UPDATE plugin_digest_channels
-       SET last_run_at = ?, last_status = ?, last_error = ?,
-           total_runs  = total_runs + 1,
-           total_added = total_added + ?,
-           updated_at  = ?
-     WHERE source = ?
-  `).bind(t, ok ? 'ok' : 'error', error || null, added || 0, t, source).run();
-}
-async function isChannelEnabled(api, source) {
-  const row = await readDigestChannel(api, source);
-  // No row = no backing on this install (seedAvailableChannels erased or never
-  // created it). An absent capability must not run — the old missing-row-means-
-  // enabled default made every cmd-era puller fire on installs that lack the
-  // tables behind them.
-  return row ? !!row.enabled : false;
-}
-
 // ─── per-source pulls ───────────────────────────────────────
 // LLM-driven WhatsApp digest. Instead of dumping every inbound message
 // (the v1 regex-urgency approach), we feed the last 7 days of conversation
@@ -1129,6 +1084,7 @@ const WA_DIGEST_LOOKBACK_MS = 5 * 24 * 60 * 60 * 1000;
 // no deploy. The constants above/below stay as the seeded defaults; a missing
 // or broken doc falls back to them.
 const DIGEST_POLICY_DEFAULTS = Object.freeze({
+  sources_off: [],             // sources to skip even when present, e.g. ["calendar"]
   search_topics_cap: 5,        // most topics looked up per run
   search_per_topic_limit: 5,   // most headlines kept per topic per provider
   search_urgency: 2,           // where search items land in the brief
@@ -1739,8 +1695,8 @@ async function pullSearch(api) {
       }
     }
   }
-  // Nothing landed AND a provider was failing: that is a channel problem, not
-  // a quiet news day — surface it so the Channels tab shows the real state.
+  // Nothing landed AND a provider was failing: that is a source problem, not
+  // a quiet news day — surface it in the generate result.
   if (!ids.length && lastErr) return { ids, error: `search provider failing: ${lastErr.slice(0, 160)}` };
   return ids;
 }
@@ -1879,66 +1835,38 @@ export async function generateDigest(api, { since_ms = 24 * 60 * 60 * 1000 } = {
   // alongside the per-source +N adds.
   const prune = await pruneStaleDigestItems(api);
 
-  // A channel row EXISTS only while its backing exists on THIS install —
-  // probed live, every run. A search row appears when a search provider is
-  // installed; the editorial-backed channels appear only when the editorial
-  // pack's tables are actually here; a backing that disappears takes its row
-  // (and its toggle) with it. No row for a capability this install does not
-  // have — the Channels tab is a control panel, not a museum.
+  // A source runs only while its backing exists on THIS install — probed
+  // live, every run. No toggle grid, no channel rows: a search provider
+  // installed means search runs; editorial's tables present means its
+  // sources run; WhatsApp once messages have actually synced. The knobs that
+  // matter (topics, caps) live in Knowledge.
   const probeTable = async (table) => {
     try { await api.db.prepare(`SELECT 1 FROM ${table} LIMIT 1`).all(); return true; }
     catch { return false; }
   };
-  const availability = {
+  const hasRows = async (table) => {
+    try { const r = await api.db.prepare(`SELECT 1 FROM ${table} LIMIT 1`).all(); return (r?.results || []).length > 0; }
+    catch { return false; }
+  };
+  const available = {
     search: async () => { try { return (await api.discoverGateways('search')).length > 0; } catch { return false; } },
     calendar: () => probeTable('calendar_events'),
-    whatsapp: async () => {
-      // The table ships with the host and sits empty until a WhatsApp
-      // connection actually syncs — rows are the proof, not the table.
-      try { const r = await api.db.prepare('SELECT 1 FROM wa_messages LIMIT 1').all(); return (r?.results || []).length > 0; }
-      catch { return false; }
-    },
+    whatsapp: () => hasRows('wa_messages'),
     osint: () => probeTable('plugin_editorial_osint_mentions'),
     osint_insights: () => probeTable('plugin_editorial_osint_topics'),
     heartbeat: () => probeTable('plugin_editorial_osint_signals'),
     attention: async () => (await probeTable('plugin_gtm_li_prospects')) || (await probeTable('plugin_editorial_hot_take_packages')),
-    li_signals: async () => {
-      // The table ships with the host; the FEED is what makes it a channel.
-      try { const r = await api.db.prepare('SELECT 1 FROM li_signals LIMIT 1').all(); return (r?.results || []).length > 0; }
-      catch { return false; }
-    },
+    li_signals: () => hasRows('li_signals'),
   };
-  const CHANNEL_DEFS = [
-    ['search', 'Search', 1, 'headlines for the topics in the Digest search topics doc'],
-    ['attention', 'System attention', 1, null],
-    ['li_signals', 'LinkedIn signals', 0, 'a LinkedIn signal feed exists on this install'],
-    ['osint_insights', 'OSINT insights', 1, null],
-    ['whatsapp', 'WhatsApp', 1, 'reads the WhatsApp messages this install has synced'],
-    ['osint', 'OSINT mentions', 1, null],
-    ['heartbeat', 'Content signals', 1, null],
-    ['calendar', 'Calendar', 1, null],
-  ];
-  for (const [src, label, on, note] of CHANNEL_DEFS) {
-    let available = false;
-    try { available = await availability[src](); } catch { available = false; }
-    try {
-      if (!available) {
-        await api.db.prepare('DELETE FROM plugin_digest_channels WHERE source = ?').bind(src).run();
-        continue;
-      }
-      const t = Date.now();
-      await api.db.prepare(
-        'INSERT OR IGNORE INTO plugin_digest_channels (source, label, enabled, cadence, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      ).bind(src, label, on, 'daily', note, t, t).run();
-    } catch { /* older schema: the tolerant reads cope */ }
-  }
-  // email was never a channel — no puller ever existed. Erase the vestige.
-  try { await api.db.prepare("DELETE FROM plugin_digest_channels WHERE source = 'email'").run(); } catch {}
-
-  // Run each enabled channel. Record stats per channel (even on partial fail).
+  // Run each source this install has. Record stats per source (even on partial fail).
+  const policy = await loadDigestPolicy(api);
+  const off = new Set(Array.isArray(policy.sources_off) ? policy.sources_off.map(String) : []);
   async function maybeRun(source, runFn) {
-    if (!(await isChannelEnabled(api, source))) {
-      perSource[source] = { count: 0, skipped: 'disabled' };
+    if (off.has(source)) { perSource[source] = { count: 0, skipped: 'off in policy' }; return; }
+    let on = false;
+    try { on = await available[source](); } catch { on = false; }
+    if (!on) {
+      perSource[source] = { count: 0, skipped: 'not on this install' };
       return;
     }
     let added = 0, softErr = null, hardErr = null;
@@ -1958,8 +1886,6 @@ export async function generateDigest(api, { since_ms = 24 * 60 * 60 * 1000 } = {
     }
     const error = hardErr || softErr;
     perSource[source] = { count: added, error };
-    // 'ok' unless a HARD error was thrown — a soft warning stays green + noted.
-    try { await recordChannelRun(api, source, { ok: !hardErr, added, error }); } catch {}
   }
 
   await maybeRun('search',    () => pullSearch(api));

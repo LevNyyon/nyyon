@@ -1,4 +1,4 @@
-// Digest plugin — list_watched_chats. NEW tool for the Channels tab's
+// Digest plugin — list_watched_chats. NEW tool for the digest's
 // followed-chats panel (cmd used GET /api/wa/chats). wa_chats is a declared
 // SELECT-only host read; the follow toggle goes through the whatsapp
 // gateway (watch_wa_chat).

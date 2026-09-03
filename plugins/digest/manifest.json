@@ -2,7 +2,7 @@
   "nyyon_plugin": 2,
   "name": "digest",
   "title": "Digest",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "The morning brief: scans followed WhatsApp chats, OSINT mentions and synthesized insights, content signals, the calendar mirror, LinkedIn signals and system-attention checks into one urgency-sorted feed of actionable cards. Each card drafts its own WhatsApp reply (group-vs-private routed, quote-replies in thread), schedules through slot picks, saves interesting people to Contacts, and learns continuously: dismissals tune the interest filter, score feedback grows taste rules, draft edits teach the operator's voice, and lead heat stays stamped on every signal.",
   "origin": {
     "system": "cmd.nyyon.com",
@@ -419,7 +419,7 @@
         "code_file": "tools/generate_digest.mjs",
         "def": {
           "name": "generate_digest",
-          "description": "Scan recent activity and materialize new digest items. Prunes what has gone stale, then pulls every enabled channel (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT mentions, content signals, calendar), deduping against existing items. Run when the operator says \"give me today's brief\", \"what's new?\", or first thing each morning.",
+          "description": "Scan recent activity and materialize new digest items. Prunes what has gone stale, then pulls every source this install has (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT mentions, content signals, calendar), deduping against existing items. Run when the operator says \"give me today's brief\", \"what's new?\", or first thing each morning.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -577,7 +577,7 @@
         "code_file": "tools/run_digest.mjs",
         "def": {
           "name": "run_digest",
-          "description": "Run the digest tick the cron runs at :30: prune what has gone stale, pull every enabled channel, dedupe against what is already there, then deliver any due scheduled WhatsApp sends from the digest queue. Safe to run by hand to refresh the morning digest now.",
+          "description": "Run the digest tick the cron runs at :30: prune what has gone stale, pull every source this install has, dedupe against what is already there, then deliver any due scheduled WhatsApp sends from the digest queue. Safe to run by hand to refresh the morning digest now.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -818,7 +818,7 @@
       {
         "slug": "digest-generate",
         "name": "Digest \u00b7 generate + prioritize",
-        "goal": "The digest tick as one named chain: prune stale items, pull every enabled channel (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT, content signals, calendar), deliver due scheduled WhatsApp sends, then score fresh LI signals so the brief reads most-relevant first. Same pass the :30 cron runs; also runnable manually or by Nyo via run_workflow.",
+        "goal": "The digest tick as one named chain: prune stale items, pull every source this install has (attention, LinkedIn signals, OSINT insights, WhatsApp, OSINT, content signals, calendar), deliver due scheduled WhatsApp sends, then score fresh LI signals so the brief reads most-relevant first. Same pass the :30 cron runs; also runnable manually or by Nyo via run_workflow.",
         "steps": [
           {
             "tool": "run_digest"

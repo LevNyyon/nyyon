@@ -1,5 +1,5 @@
 // Digest plugin — list_watched_targets. NEW read-only tool for the
-// Channels tab's OSINT panel. The targets belong to the editorial pack
+// digest's OSINT watch list. The targets belong to the editorial pack
 // (plugin_editorial_osint_targets, declared SELECT-only host read) — adding,
 // scraping and removing them stays in that pack; this just shows what feeds
 // the digest's OSINT channel.

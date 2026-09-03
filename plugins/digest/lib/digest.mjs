@@ -1084,6 +1084,7 @@ const WA_DIGEST_LOOKBACK_MS = 5 * 24 * 60 * 60 * 1000;
 // no deploy. The constants above/below stay as the seeded defaults; a missing
 // or broken doc falls back to them.
 const DIGEST_POLICY_DEFAULTS = Object.freeze({
+  sources_off: [],             // sources to skip even when present, e.g. ["calendar"]
   search_topics_cap: 5,        // most topics looked up per run
   search_per_topic_limit: 5,   // most headlines kept per topic per provider
   search_urgency: 2,           // where search items land in the brief
@@ -1694,8 +1695,8 @@ async function pullSearch(api) {
       }
     }
   }
-  // Nothing landed AND a provider was failing: that is a channel problem, not
-  // a quiet news day — surface it so the Channels tab shows the real state.
+  // Nothing landed AND a provider was failing: that is a source problem, not
+  // a quiet news day — surface it in the generate result.
   if (!ids.length && lastErr) return { ids, error: `search provider failing: ${lastErr.slice(0, 160)}` };
   return ids;
 }
@@ -1857,12 +1858,11 @@ export async function generateDigest(api, { since_ms = 24 * 60 * 60 * 1000 } = {
     attention: async () => (await probeTable('plugin_gtm_li_prospects')) || (await probeTable('plugin_editorial_hot_take_packages')),
     li_signals: () => hasRows('li_signals'),
   };
-  // The channels control plane is gone; an install upgraded from it drops
-  // the orphan table once (own namespace, idempotent).
-  try { await api.db.prepare('DROP TABLE IF EXISTS plugin_digest_channels').run(); } catch { /* fine */ }
-
-  // Run each enabled channel. Record stats per channel (even on partial fail).
+  // Run each source this install has. Record stats per source (even on partial fail).
+  const policy = await loadDigestPolicy(api);
+  const off = new Set(Array.isArray(policy.sources_off) ? policy.sources_off.map(String) : []);
   async function maybeRun(source, runFn) {
+    if (off.has(source)) { perSource[source] = { count: 0, skipped: 'off in policy' }; return; }
     let on = false;
     try { on = await available[source](); } catch { on = false; }
     if (!on) {
