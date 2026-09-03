@@ -109,7 +109,15 @@ const lit = (v) =>
   : `'${String(v).replace(/'/g, "''").replace(/\r/g, '').replace(/\n/g, NL)}'`;
 const seedLines = [];
 let seedRows = 0;
+// Identity and session state are NEVER seeded. The row that says who owns an
+// install is per-install by definition, and capturing it shipped the
+// developer's own account in the bundle: a fresh install booted already
+// "owned" by someone else, sat at a sign-in it could not pass, and showed a
+// signed-out shell. Data that belongs to a person does not travel with code.
+const NEVER_SEED = new Set(['install_state', 'sessions', 'users', 'gateway_config', 'setup_tokens']);
+
 for (const t of rows.filter((r) => r.type === 'table')) {
+  if (NEVER_SEED.has(t.name)) continue;
   let data = db.prepare(`SELECT * FROM "${t.name}"`).all();
   if (t.name === 'knowledge_docs') data = data.filter((r) => keepDocSlug(r.slug));
   if (!data.length) continue;

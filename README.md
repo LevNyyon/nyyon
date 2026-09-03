@@ -1,11 +1,24 @@
 # nyyon
 
-**Your own AI command center. Three minutes. Free. Nothing shared with anyone.**
+**Your own AI command center. One click. Free. Nothing shared with anyone.**
 
-## Install
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LevNyyon/nyyon)
 
-1. **Log in to Cloudflare — or create the free account**: [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up). Email and password, no card.
-2. **Verify your email** — click the link Cloudflare sends you.
+A free Cloudflare account is all it takes: no card, no server to rent. The button
+forks this repo to your GitHub, creates your own database and storage bucket,
+deploys, and hands you an https address. Open it, create your account on the
+first screen, and you are in, from any device, forever.
+
+Four modules arrive installed and active: **Daily Planner, Digest, Editorial
+(Blog, Hot Takes, Social), GTM (Prospecting, Outreach)**. Nothing is pre-loaded:
+no sample data, no keys, no other person's history. Add an Anthropic key when
+setup asks and the assistant starts answering.
+
+<details>
+<summary><b>Prefer to have an agent do it?</b></summary>
+
+1. **Log in to Cloudflare, or create the free account**: [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up). Email and password, no card.
+2. **Verify your email** by clicking the link Cloudflare sends.
 3. **Paste this to your AI agent** (Claude Code, Cursor, any agent that runs commands):
 
 ```
@@ -14,12 +27,12 @@ Install nyyon for me: clone https://github.com/LevNyyon/nyyon, cd into it, run
 and give me the setup link it prints.
 ```
 
-4. Your browser opens once — click **Allow**. That connects the deploy to **your** account: your app, your database, your https address.
-5. Your agent hands you a setup link. Open it, set your password, you're in — from any device, forever.
+4. Your browser opens once. Click **Allow**: that connects the deploy to your account.
+5. Your agent hands you a setup link. Open it, set your password, you are in.
 
-Four modules come installed: **Daily Planner, Digest, Editorial, GTM**. Add an
-Anthropic key in Settings when you want the AI to answer; everything else works
-without it. Re-running the install updates the app and keeps your data.
+Re-running the install updates the app and keeps your data.
+
+</details>
 
 <details>
 <summary><b>No agent? Install by hand</b></summary>
