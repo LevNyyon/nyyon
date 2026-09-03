@@ -540,9 +540,9 @@ app.get('/api/system/health', async (c) => {
 
 // ─── Nyo wake-up — proactive survey + catchup ───────────────
 // Called by the Chat component on mount + tab refocus. Thin caller — the
-// business rules (Sunday brain offer, stats survey, cadence gating, the
-// once-per-day AEO autofire cap, outbox auto-retry) live in lib/wake-up.js,
-// and the tunable thresholds live in the `wake-up-policy` knowledge doc.
+// business rules (setup-state survey, the interview invitation, outbox
+// auto-retry) live in lib/wake-up.js, and the tunable thresholds live in
+// the `wake-up-policy` knowledge doc.
 //
 // Body: { autofire?: boolean } — if true (default), any auto-fireable pack
 // cron catchup actually runs. If false, just reports what would be done.
