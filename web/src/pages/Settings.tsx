@@ -8,56 +8,42 @@ import {
 } from '../lib/theme';
 import { Sun, Moon, Monitor, Check } from '../components/Icons';
 
-// One button, one deep link. Cloudflare's Deploy to Workers page reads the
-// repo and walks the person through creating the worker, the database and the
-// bucket in THEIR OWN account. No credential of theirs passes through here.
+// Putting a local install online: the same flow the README leads with. A free
+// Cloudflare account, then an agent runs the deploy and the only thing the
+// person does is click Allow on Cloudflare's own authorize screen. No token to
+// copy and no variables to invent.
 const REPO_URL = 'https://github.com/LevNyyon/nyyon';
-const DEPLOY_URL = `https://deploy.workers.cloudflare.com/?url=${encodeURIComponent(REPO_URL)}`;
-// The token path is the one an AI agent can actually use: the operator creates
-// a scoped token on a pre-filled Cloudflare page and pastes it to the agent,
-// which deploys headless. `wrangler login` needs a human at a browser.
-const TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens/create?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%5D&name=nyyon-deploy&accountId=%2A&zoneId=all';
-const AGENT_PROMPT = `Install nyyon for me. Clone ${REPO_URL}, cd into it, then deploy it to my Cloudflare account using this token:
-
-CLOUDFLARE_API_TOKEN=<paste your token here>
-
-Run \`npm install\`, then \`CLOUDFLARE_API_TOKEN=<token> npm run deploy\`.
-When it finishes, give me the URL and the setup link it prints.`;
+const SIGNUP_URL = 'https://dash.cloudflare.com/sign-up';
+const AGENT_PROMPT = `Install nyyon for me: clone ${REPO_URL}, cd into it, run \`npx wrangler login\` and wait while I approve it, then run \`npm run deploy\` and give me the setup link it prints.`;
 
 function DeployCard() {
+  const [copied, setCopied] = useState(false);
   return (
     <section className="hairline rounded-sm p-4 space-y-2.5">
       <h2 className="text-[13px] font-semibold">Running this locally? Put it online</h2>
       <p className="text-[12px] text-mute leading-relaxed">
-        If this install is running on your own machine, this puts a copy in your own Cloudflare
-        account: your worker, your database, your data. The free tier is enough and no card is
-        asked for. A deployed install is already online, so this is only useful locally.
+        A copy in your own Cloudflare account: your worker, your database, your data. The free
+        tier is enough and no card is asked for. A deployed install is already online, so this
+        is only useful locally.
       </p>
       <ol className="text-[12px] text-mute leading-relaxed pl-4 list-decimal space-y-1">
-        <li>Create a Cloudflare token. The link opens the page with the right permissions already ticked.</li>
-        <li>Paste the prompt below to Claude, with your token in it. It deploys and gives you the address.</li>
+        <li>Create the free Cloudflare account, or sign in, and verify the email.</li>
+        <li>Paste the prompt below to your AI agent.</li>
+        <li>Your browser opens once: click Allow. The agent hands you a setup link.</li>
       </ol>
       <div className="flex items-center gap-3 flex-wrap">
-        <a href={TOKEN_URL} target="_blank" rel="noreferrer noopener"
+        <a href={SIGNUP_URL} target="_blank" rel="noreferrer noopener"
            className="text-[12px] px-3 h-8 inline-flex items-center rounded-sm bg-ink text-paper">
-          Create the token
+          Cloudflare account
         </a>
         <button
-          onClick={() => { navigator.clipboard.writeText(AGENT_PROMPT).catch(() => {}); }}
+          onClick={() => { navigator.clipboard.writeText(AGENT_PROMPT).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }).catch(() => {}); }}
           className="text-[12px] px-3 h-8 inline-flex items-center rounded-sm hairline bg-paper hover:bg-card">
-          copy the prompt
+          {copied ? 'copied' : 'copy the prompt'}
         </button>
-        <a href={DEPLOY_URL} target="_blank" rel="noreferrer noopener"
-           className="text-[12px] text-mute hover:text-ink underline underline-offset-2">
-          or use the one-click button
-        </a>
         <a href={REPO_URL} target="_blank" rel="noreferrer noopener"
            className="text-[12px] text-mute hover:text-ink underline underline-offset-2">see the code</a>
       </div>
-      <p className="text-[11px] text-mute leading-relaxed">
-        Cloudflare opens in a new tab and gives you a live address plus a one-time setup link when
-        it finishes. The new copy starts empty; nothing here travels with it.
-      </p>
     </section>
   );
 }
