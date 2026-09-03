@@ -27,11 +27,11 @@ When it finishes, give me the URL and the setup link it prints.`;
 function DeployCard() {
   return (
     <section className="hairline rounded-sm p-4 space-y-2.5">
-      <h2 className="text-[13px] font-semibold">Run this on the internet</h2>
+      <h2 className="text-[13px] font-semibold">Running this locally? Put it online</h2>
       <p className="text-[12px] text-mute leading-relaxed">
-        Put a copy of this install in your own Cloudflare account: your worker, your database,
-        your data. The free tier is enough and no card is asked for. Cloudflare handles the
-        sign-in, so nothing about your account passes through here.
+        If this install is running on your own machine, this puts a copy in your own Cloudflare
+        account: your worker, your database, your data. The free tier is enough and no card is
+        asked for. A deployed install is already online, so this is only useful locally.
       </p>
       <ol className="text-[12px] text-mute leading-relaxed pl-4 list-decimal space-y-1">
         <li>Create a Cloudflare token. The link opens the page with the right permissions already ticked.</li>
