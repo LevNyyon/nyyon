@@ -2,7 +2,7 @@
   "nyyon_plugin": 2,
   "name": "digest",
   "title": "Digest",
-  "version": "1.2.0",
+  "version": "2.0.1",
   "description": "The morning brief: scans followed WhatsApp chats, OSINT mentions and synthesized insights, content signals, the calendar mirror, LinkedIn signals and system-attention checks into one urgency-sorted feed of actionable cards. Each card drafts its own WhatsApp reply (group-vs-private routed, quote-replies in thread), schedules through slot picks, saves interesting people to Contacts, and learns continuously: dismissals tune the interest filter, score feedback grows taste rules, draft edits teach the operator's voice, and lead heat stays stamped on every signal.",
   "origin": {
     "system": "cmd.nyyon.com",
@@ -158,10 +158,6 @@
       {
         "name": "plugin_digest_items",
         "ddl": "CREATE TABLE IF NOT EXISTS plugin_digest_items (id TEXT PRIMARY KEY, kind TEXT NOT NULL, ref_kind TEXT, ref_id TEXT, title TEXT NOT NULL, summary TEXT, source_label TEXT, source_url TEXT, urgency INTEGER NOT NULL DEFAULT 2, actionable INTEGER NOT NULL DEFAULT 0, suggested_action TEXT, starred INTEGER NOT NULL DEFAULT 0, read_at INTEGER, created_at INTEGER NOT NULL, meta_json TEXT); CREATE INDEX IF NOT EXISTS idx_plugin_digest_items_created_at ON plugin_digest_items (created_at); CREATE INDEX IF NOT EXISTS idx_plugin_digest_items_read_at ON plugin_digest_items (read_at)"
-      },
-      {
-        "name": "plugin_digest_channels",
-        "ddl": "CREATE TABLE IF NOT EXISTS plugin_digest_channels (source TEXT PRIMARY KEY, label TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, cadence TEXT NOT NULL DEFAULT 'manual', notes TEXT, last_run_at INTEGER, last_status TEXT, last_error TEXT, total_runs INTEGER NOT NULL DEFAULT 0, total_added INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
       },
       {
         "name": "plugin_digest_signal_snoozes",
@@ -506,19 +502,6 @@
         }
       },
       {
-        "name": "list_digest_channels",
-        "code_file": "tools/list_digest_channels.mjs",
-        "def": {
-          "name": "list_digest_channels",
-          "description": "List the data sources feeding the digest (attention, li_signals, osint_insights, whatsapp, osint, heartbeat, calendar, email) with their enabled state, cadence, last-run, and lifetime totals. Use to answer \"where does my brief pull from?\" or before flipping a channel on/off.",
-          "input_schema": {
-            "type": "object",
-            "properties": {},
-            "required": []
-          }
-        }
-      },
-      {
         "name": "list_watched_chats",
         "code_file": "tools/list_watched_chats.mjs",
         "def": {
@@ -774,49 +757,6 @@
             },
             "required": [
               "id"
-            ]
-          }
-        }
-      },
-      {
-        "name": "toggle_digest_channel",
-        "code_file": "tools/toggle_digest_channel.mjs",
-        "def": {
-          "name": "toggle_digest_channel",
-          "description": "Enable, disable, or re-cadence one of the digest data channels. Use when the operator says \"stop reading calendar into the brief\", \"turn on LinkedIn signals\", or \"switch whatsapp to daily\".",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "source": {
-                "type": "string",
-                "enum": [
-                  "search",
-                  "attention",
-                  "li_signals",
-                  "osint_insights",
-                  "whatsapp",
-                  "calendar",
-                  "osint",
-                  "heartbeat"
-                ]
-              },
-              "enabled": {
-                "type": "boolean"
-              },
-              "cadence": {
-                "type": "string",
-                "enum": [
-                  "manual",
-                  "daily",
-                  "hourly"
-                ]
-              },
-              "notes": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "source"
             ]
           }
         }

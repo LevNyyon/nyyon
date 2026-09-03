@@ -112,22 +112,6 @@ export type DigestActionsResponse = {
   actions: DigestAction[];
 };
 
-export type DigestChannelSource = 'attention' | 'li_signals' | 'whatsapp' | 'calendar' | 'osint' | 'osint_insights' | 'heartbeat' | 'email';
-export type DigestChannel = {
-  source: DigestChannelSource;
-  label: string;
-  enabled: number;          // 1 | 0
-  cadence: 'manual' | 'daily' | 'hourly';
-  notes: string | null;
-  last_run_at: number | null;
-  last_status: 'ok' | 'error' | null;
-  last_error: string | null;
-  total_runs: number;
-  total_added: number;
-  created_at: number;
-  updated_at: number;
-};
-
 export type Contact = {
   id: string;
   full_name: string | null;
@@ -197,14 +181,6 @@ export const api = {
     if (patch.read !== undefined) return invoke<{ item: DigestItem }>('mark_digest_read', { id, read: patch.read }).then((r) => r.item);
     return invoke<{ item: DigestItem }>('star_digest_item', { id, starred: !!patch.starred }).then((r) => r.item);
   },
-  listDigestChannels: () => invoke<{ channels: DigestChannel[] }>('list_digest_channels', {}).then((r) => r.channels),
-  patchDigestChannel: (source: string, patch: { enabled?: number; cadence?: string; notes?: string }) =>
-    invoke<{ channel: DigestChannel }>('toggle_digest_channel', {
-      source,
-      ...(patch.enabled !== undefined ? { enabled: !!patch.enabled } : {}),
-      ...(patch.cadence ? { cadence: patch.cadence } : {}),
-      ...(patch.notes !== undefined ? { notes: patch.notes } : {}),
-    }).then((r) => r.channel),
   digestContext: (id: string) => invoke<DigestContext>('digest_context', { id }),
   digestActions: (id: string) => invoke<DigestActionsResponse>('digest_actions', { id }),
   executeDigestAction: (id: string, action: Record<string, unknown>) =>

@@ -10,12 +10,12 @@
 // clear action, the source, and one-click mark-read / star / open.
 
 import { useEffect, useMemo, useState } from 'react';
-import { api, type DigestItem, type DigestStats, type DigestKind, type DigestChannel, type DigestChannelSource, type WaChat, type WatchedTarget } from './digest-data';
+import { api, type DigestItem, type DigestStats, type DigestKind } from './digest-data';
 import { DigestItemDrawer } from './DigestItemDrawer';
 import { fmtWhen } from './wa-time';
 import { WaSlotPicker } from './WaSlotPicker';
 import { HeatBar } from './HeatBar';
-import { Coffee, Star, X, Sparkle, Radio, Calendar as CalendarIcon, Search, Newspaper, Clock, LinkedIn } from '../../components/Icons';
+import { Coffee, Star, X, Sparkle, Clock } from '../../components/Icons';
 import {
   getDigestGenState,
   subscribeDigestGen,
@@ -23,8 +23,6 @@ import {
   type DigestGenState,
 } from './digestBackground';
 
-type Tab = 'brief' | 'channels';
-const TAB_KEY = 'nyyon.digest.tab.v1';
 
 const KIND_TONE: Record<DigestKind, string> = {
   wa_message:          'bg-emerald-100 text-emerald-800',
@@ -109,34 +107,12 @@ function todayLabel(): string {
 }
 
 export default function Digest() {
-  const [tab, setTab] = useState<Tab>(() => (localStorage.getItem(TAB_KEY) as Tab) || 'brief');
-  useEffect(() => { localStorage.setItem(TAB_KEY, tab); }, [tab]);
-  // The selector is hidden on mobile (cards own the screen there), so a
-  // phone visitor persisted onto 'channels' must land on the brief instead.
-  useEffect(() => {
-    if (tab === 'channels' && window.matchMedia('(max-width: 639px)').matches) setTab('brief');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // The digest IS the brief. There is no channels tab: what feeds the brief is
+  // whatever this install actually has (probed at generate time), and the
+  // knobs that matter live in Knowledge (topics, policy), not in a toggle grid.
   return (
     <div className="h-full flex flex-col">
-      <div className="hidden sm:block px-4 sm:px-6 pt-4 border-b border-line bg-paper/60 shrink-0">
-        <div className="flex items-center gap-1 hairline rounded-sm p-1 bg-card w-fit mb-3">
-          {(['brief', 'channels'] as Tab[]).map((k) => (
-            <button
-              key={k}
-              onClick={() => setTab(k)}
-              className={
-                'h-7 px-3 rounded-sm mono text-[10px] uppercase tracking-[0.18em] transition ' +
-                (tab === k ? 'bg-ink text-paper' : 'text-mute hover:text-ink')
-              }
-            >
-              {k}
-            </button>
-          ))}
-        </div>
-      </div>
-      {tab === 'brief'    && <BriefPane />}
-      {tab === 'channels' && <ChannelsPane />}
+      <BriefPane />
     </div>
   );
 }
@@ -388,7 +364,7 @@ function BriefPane() {
               }
             >
               <Sparkle size={12} className={generating ? 'animate-spin' : ''} />
-              {generating ? 'scanning channels…' : 'generate'}
+              {generating ? 'scanning…' : 'generate'}
             </button>
           </div>
         </div>
@@ -455,7 +431,7 @@ function BriefPane() {
             {generating ? (
               <span className="inline-flex items-center gap-1.5 text-ink">
                 <span className="h-1.5 w-1.5 rounded-full bg-ink animate-pulse" />
-                Scanning enabled channels{genStartedAt ? <span className="text-mute mono"> · {Math.max(0, Math.floor((Date.now() - genStartedAt) / 1000))}s</span> : null}
+                Scanning sources{genStartedAt ? <span className="text-mute mono"> · {Math.max(0, Math.floor((Date.now() - genStartedAt) / 1000))}s</span> : null}
               </span>
             ) : lastGen?.onboarding_needed ? (
               <span className="text-ink">
@@ -531,24 +507,24 @@ function BriefPane() {
                   <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">nyo · how this works</p>
                   <p className="text-[12.5px] leading-relaxed text-mute">
                     The Digest is your morning brief: everything that piled up across your
-                    channels, already read and sorted so you don't have to do it yourself.
+                    sources, already read and sorted so you don't have to do it yourself.
                   </p>
                   <ul className="text-[12.5px] leading-relaxed text-mute space-y-1 pl-4 list-disc">
-                    <li>It reads what you connect: WhatsApp chats and groups, news and web sources.</li>
+                    <li>It reads what this install has: news for your topics, your calendar, and any source you connect later.</li>
                     <li>It sorts everything into three piles: <span className="text-ink">Action needed</span>, <span className="text-ink">Worth knowing</span>, <span className="text-ink">Can wait</span>.</li>
                     <li>It fills on its own every morning, or right now with <span className="text-ink">Generate</span>.</li>
                     <li>Everything stays on this install; nothing is sent anywhere.</li>
                   </ul>
                   <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute pt-1">from you</p>
                   <ul className="text-[12.5px] leading-relaxed text-mute space-y-1 pl-4 list-disc">
-                    <li>Connect WhatsApp and pick your sources once: Nyo walks you through it.</li>
+                    <li>Set your topics once: edit the Digest search topics doc in Knowledge.</li>
                     <li>Glance at the brief daily and open what matters.</li>
                     <li>Clear <span className="text-ink">Action needed</span> first; mark the rest read as you go.</li>
                   </ul>
                 </div>
                 <div className="text-center text-sm text-mute pt-2">
                   <span className="text-4xl block mb-2">☕</span>
-                  Nothing in the brief yet. Connect channels via Nyo, then hit <span className="text-ink">Generate</span>.
+                  Nothing in the brief yet. Hit <span className="text-ink">Generate</span>.
                 </div>
               </div>
             )
@@ -1052,322 +1028,3 @@ function Card({
 }
 
 // Prelude construction moved to DigestItemDrawer.buildPreludeFromContext.
-
-// ─── Channels pane ──────────────────────────────────────────
-// Mirrors the OSINT Listeners aesthetic — toggle, cadence, last run, totals.
-const CH_ICON: Record<DigestChannelSource, (p: { size?: number }) => React.ReactNode> = {
-  attention:      (p) => <Sparkle {...p} />,
-  li_signals:     (p) => <LinkedIn {...p} />,
-  whatsapp:       (p) => <Radio {...p} />,
-  calendar:       (p) => <CalendarIcon {...p} />,
-  osint:          (p) => <Search {...p} />,
-  osint_insights: (p) => <Sparkle {...p} />,
-  heartbeat:      (p) => <Search {...p} />,
-  email:          (p) => <Newspaper {...p} />,
-};
-
-function ChannelsPane() {
-  const [channels, setChannels] = useState<DigestChannel[] | null>(null);
-  const [saving, setSaving]     = useState<DigestChannelSource | null>(null);
-
-  async function refresh() { setChannels(await api.listDigestChannels()); }
-  useEffect(() => { refresh(); }, []);
-
-  async function toggle(source: DigestChannelSource, enabled: boolean) {
-    setSaving(source);
-    try { await api.patchDigestChannel(source, { enabled: enabled ? 1 : 0 }); await refresh(); }
-    finally { setSaving(null); }
-  }
-  async function setCadence(source: DigestChannelSource, cadence: DigestChannel['cadence']) {
-    setSaving(source);
-    try { await api.patchDigestChannel(source, { cadence }); await refresh(); }
-    finally { setSaving(null); }
-  }
-
-  const enabledCount = (channels || []).filter((c) => c.enabled).length;
-
-  return (
-    <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 max-w-4xl space-y-4">
-      <div className="space-y-1">
-        <h2 className="text-lg font-semibold tracking-tight">Channels</h2>
-        <p className="text-xs text-mute">
-          Sources the digest pulls from when you hit <span className="text-ink">Generate</span>. Disable a channel to skip it.
-          {channels && <span> · <span className="text-ink">{enabledCount} of {channels.length}</span> enabled</span>}
-        </p>
-      </div>
-
-      {!channels && <div className="text-sm text-mute">Loading…</div>}
-      {channels && (
-        <div className="overflow-x-auto">
-        <ul className="hairline rounded-sm bg-card/80 divide-y divide-line min-w-[720px]">
-          <li className="px-4 py-2 grid grid-cols-12 gap-3 mono text-[10px] uppercase tracking-[0.18em] text-mute border-b border-line">
-            <span className="col-span-1">on</span>
-            <span className="col-span-3">channel</span>
-            <span className="col-span-2">cadence</span>
-            <span className="col-span-2 text-right">last pull</span>
-            <span className="col-span-2 text-right">runs · added</span>
-            <span className="col-span-2 text-right">status</span>
-          </li>
-          {channels.map((ch) => (
-            <li key={ch.source} className="px-4 py-3 grid grid-cols-12 gap-3 items-baseline text-[13px] hover:bg-card transition">
-              <span className="col-span-1">
-                <button
-                  onClick={() => toggle(ch.source, !ch.enabled)}
-                  disabled={saving === ch.source}
-                  aria-pressed={!!ch.enabled}
-                  className={
-                    'relative h-5 w-9 rounded-full transition ' +
-                    (ch.enabled ? 'bg-ink' : 'bg-line') +
-                    (saving === ch.source ? ' opacity-40' : '')
-                  }
-                >
-                  <span className={'absolute top-0.5 h-4 w-4 rounded-full bg-paper transition ' + (ch.enabled ? 'left-[18px]' : 'left-0.5')} />
-                </button>
-              </span>
-              <span className="col-span-3 min-w-0 flex items-center gap-2">
-                <span className="text-mute">{(CH_ICON[ch.source] ?? CH_ICON.osint)({ size: 14 })}</span>
-                <span className="min-w-0">
-                  <div className="font-medium text-ink truncate">{ch.label}</div>
-                  <div className="mono text-[10px] text-mute truncate">{ch.source} · {ch.notes || ''}</div>
-                </span>
-              </span>
-              <span className="col-span-2">
-                <select
-                  value={ch.cadence}
-                  onChange={(e) => setCadence(ch.source, e.target.value as DigestChannel['cadence'])}
-                  disabled={saving === ch.source}
-                  className="h-7 px-2 rounded-sm hairline bg-paper text-[12px] mono uppercase tracking-[0.04em] focus:border-ink focus:outline-none"
-                >
-                  <option value="manual">manual</option>
-                  <option value="hourly">hourly</option>
-                  <option value="daily">daily</option>
-                </select>
-              </span>
-              <span className="col-span-2 text-right mono text-[10px] text-mute">{ch.last_run_at ? timeAgo(ch.last_run_at) + ' ago' : '—'}</span>
-              <span className="col-span-2 text-right mono text-[11px] tabular-nums">{ch.total_runs} · +{ch.total_added}</span>
-              <span className="col-span-2 text-right mono text-[10px]">
-                {ch.last_status === 'ok'    && <span className="text-emerald-700">ok</span>}
-                {ch.last_status === 'error' && <span className="text-rose-700">err</span>}
-                {!ch.last_status            && <span className="text-mute">—</span>}
-                {ch.last_error              && <span className="text-mute"> · {ch.last_error.slice(0, 30)}</span>}
-              </span>
-            </li>
-          ))}
-        </ul>
-        </div>
-      )}
-
-      <FollowedChatsPanel />
-      <WatchedTargetsPanel />
-    </div>
-  );
-}
-
-// Watched-targets panel — sits below the WA followed-chats panel inside
-// the Channels tab. Same intent as FollowedChatsPanel but for OSINT: the
-// operator can see at-a-glance which brands/topics the OSINT cron is
-// scraping (HN, Reddit, DuckDuckGo) and how many mentions each target has
-// produced. Add/remove flows live in Nyo (write_osint_target / delete_osint_target)
-// so the operator can say "start watching Mistral" or "stop watching Gemini"
-// from chat. The panel surfaces state + per-row scrape-now + remove.
-function WatchedTargetsPanel() {
-  const [targets, setTargets] = useState<WatchedTarget[] | null>(null);
-  const [note, setNote]       = useState<string | null>(null);
-
-  async function refresh() {
-    const r = await api.listWatchedTargets();
-    setTargets(r.targets);
-    setNote(r.note || null);
-  }
-  useEffect(() => { refresh(); }, []);
-
-  if (!targets) {
-    return <div className="mt-6 text-sm text-mute">Loading watched targets…</div>;
-  }
-
-  const sorted = [...targets].sort((a, b) => (b.last_mention_at || 0) - (a.last_mention_at || 0));
-
-  return (
-    <div className="mt-6 space-y-3">
-      <div className="space-y-1">
-        <h3 className="text-sm font-semibold tracking-tight">OSINT targets watched</h3>
-        <p className="text-xs text-mute">
-          {targets.length} target{targets.length === 1 ? '' : 's'} sweep daily across HN, Reddit, DuckDuckGo.
-          {' '}
-          <span className="text-mute">Targets belong to the editorial pack — manage them there, or ask Nyo to use its osint tools.</span>
-        </p>
-      </div>
-
-      {targets.length === 0 ? (
-        <div className="hairline rounded-sm bg-card/60 px-4 py-3 text-xs text-mute italic">
-          {note || 'No OSINT targets yet. Add one from the editorial pack (or ask Nyo).'}
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-        <ul className="hairline rounded-sm bg-card/80 divide-y divide-line min-w-[560px]">
-          <li className="px-4 py-2 grid grid-cols-12 gap-3 mono text-[10px] uppercase tracking-[0.18em] text-mute border-b border-line">
-            <span className="col-span-6">target</span>
-            <span className="col-span-3 text-right">mentions</span>
-            <span className="col-span-3 text-right">last hit</span>
-          </li>
-          {sorted.map((t) => (
-            <li key={t.id} className="px-4 py-2.5 grid grid-cols-12 gap-3 items-baseline text-[13px]">
-              <span className="col-span-6 min-w-0 truncate">
-                <span className="font-medium">{t.name}</span>
-                {t.domain && (
-                  <span className="ml-2 mono text-[10px] text-mute uppercase tracking-[0.12em]">{t.domain}</span>
-                )}
-              </span>
-              <span className="col-span-3 text-right mono text-[11px] tabular-nums">
-                {t.mentions_count ?? 0}
-              </span>
-              <span className="col-span-3 text-right mono text-[10px] text-mute">
-                {t.last_mention_at ? timeAgo(t.last_mention_at) + ' ago' : '—'}
-              </span>
-            </li>
-          ))}
-        </ul>
-        </div>
-      )}
-    </div>
-  );
-}
-
-// Followed-chats panel — sits under the channel toggles inside the
-// Channels tab. Shows every WhatsApp chat with auto_listen=1 (what the
-// digest actually pulls from), plus a one-click unfollow toggle. The
-// add-chat path lives in Nyo (pack tool: watch_wa_chat) on purpose so
-// "follow the IEC group" works as a natural request; the panel just
-// surfaces the current state + lets the operator turn things OFF when
-// the listener gets noisy.
-function FollowedChatsPanel() {
-  const [chats, setChats]     = useState<WaChat[] | null>(null);
-  const [busy, setBusy]       = useState<string | null>(null);
-  const [showAll, setShowAll] = useState(false);
-  const [filter, setFilter]   = useState('');
-
-  async function refresh() {
-    setChats(await api.listWaChats());
-  }
-  useEffect(() => { refresh(); }, []);
-
-  async function toggleListen(id: string, on: boolean) {
-    setBusy(id);
-    try { await api.watchWaChat(id, on); await refresh(); }
-    finally { setBusy(null); }
-  }
-
-  if (!chats) {
-    return <div className="mt-4 text-sm text-mute">Loading chats…</div>;
-  }
-
-  const followed = chats.filter((c) => c.auto_listen);
-  const others   = chats.filter((c) => !c.auto_listen);
-
-  const q = filter.trim().toLowerCase();
-  const candidates = q
-    ? others.filter((c) => (c.name || c.id).toLowerCase().includes(q))
-    // No filter typed → show the most-recently-active 12 so the operator
-    // can pick from "what's actually moving" without wading through 391
-    // dormant group memberships.
-    : [...others]
-        .sort((a, b) => (b.last_message_at || 0) - (a.last_message_at || 0))
-        .slice(0, 12);
-
-  return (
-    <div className="mt-6 space-y-3">
-      <div className="flex items-baseline justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold tracking-tight">WhatsApp chats followed</h3>
-          <p className="text-xs text-mute">
-            {followed.length} of {chats.length} chats. The digest only pulls from these.
-            {' '}
-            <span className="text-mute">Ask Nyo "follow the IEC group" or "unfollow X" to change this from chat.</span>
-          </p>
-        </div>
-        <button
-          onClick={() => setShowAll((v) => !v)}
-          className="mono text-[10px] uppercase tracking-[0.18em] text-mute hover:text-ink"
-        >
-          {showAll ? 'hide candidates ↑' : '+ add chat ↓'}
-        </button>
-      </div>
-
-      {followed.length === 0 ? (
-        <div className="hairline rounded-sm bg-card/60 px-4 py-3 text-xs text-mute italic">
-          No chats followed yet. Open the candidates list or ask Nyo to follow the chat by name.
-        </div>
-      ) : (
-        <div className="overflow-x-auto">
-        <ul className="hairline rounded-sm bg-card/80 divide-y divide-line min-w-[480px]">
-          {followed
-            .sort((a, b) => (b.last_message_at || 0) - (a.last_message_at || 0))
-            .map((c) => (
-              <li key={c.id} className="px-4 py-2.5 grid grid-cols-12 gap-3 items-baseline text-[13px]">
-                <span className="col-span-7 min-w-0 truncate" dir="auto">
-                  {c.name || <span className="mono text-mute">{c.id}</span>}
-                  {c.is_group ? <span className="ml-2 mono text-[10px] text-mute uppercase tracking-[0.18em]">group</span> : null}
-                </span>
-                <span className="col-span-3 text-right mono text-[10px] text-mute">
-                  {c.last_message_at ? timeAgo(c.last_message_at) + ' ago' : 'no msgs'}
-                </span>
-                <span className="col-span-2 text-right">
-                  <button
-                    onClick={() => toggleListen(c.id, false)}
-                    disabled={busy === c.id}
-                    className="mono text-[10px] uppercase tracking-[0.18em] text-mute hover:text-rose-700 transition disabled:opacity-40"
-                    title="Stop following this chat"
-                  >
-                    {busy === c.id ? '…' : 'unfollow'}
-                  </button>
-                </span>
-              </li>
-            ))}
-        </ul>
-        </div>
-      )}
-
-      {showAll && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2">
-            <input
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filter candidates by name…"
-              className="flex-1 h-8 px-3 rounded-sm hairline bg-paper text-[12px] focus:border-ink focus:outline-none"
-            />
-            <span className="mono text-[10px] uppercase tracking-[0.18em] text-mute shrink-0">
-              {q ? `${candidates.length} match` : 'top 12 active'}
-            </span>
-          </div>
-          <ul className="hairline rounded-sm bg-card/60 divide-y divide-line max-h-72 overflow-y-auto overflow-x-auto">
-            {candidates.length === 0 && (
-              <li className="px-4 py-3 text-xs text-mute italic">No matches.</li>
-            )}
-            {candidates.map((c) => (
-              <li key={c.id} className="px-4 py-2 grid grid-cols-12 gap-3 items-baseline text-[12px] min-w-[480px]">
-                <span className="col-span-7 min-w-0 truncate" dir="auto">
-                  {c.name || <span className="mono text-mute">{c.id}</span>}
-                  {c.is_group ? <span className="ml-2 mono text-[10px] text-mute uppercase tracking-[0.18em]">group</span> : null}
-                </span>
-                <span className="col-span-3 text-right mono text-[10px] text-mute">
-                  {c.last_message_at ? timeAgo(c.last_message_at) + ' ago' : '—'}
-                </span>
-                <span className="col-span-2 text-right">
-                  <button
-                    onClick={() => toggleListen(c.id, true)}
-                    disabled={busy === c.id}
-                    className="mono text-[10px] uppercase tracking-[0.18em] text-mute hover:text-emerald-700 transition disabled:opacity-40"
-                    title="Start following this chat"
-                  >
-                    {busy === c.id ? '…' : 'follow'}
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
-}

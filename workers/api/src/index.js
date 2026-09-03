@@ -531,27 +531,6 @@ app.get('/api/system/health', async (c) => {
     checks.push(await probeGateway('Website', env.WEBSITE_BASE_URL, 'WEBSITE_BASE_URL', { deployed }));
   }
 
-  // 6. Digest channels — any enabled channel whose last_status is 'error'
-  //    is degraded. Skipped channels (disabled) don't count.
-  try {
-    const rows = await env.DB.prepare(
-      "SELECT source, enabled, last_status FROM plugin_editorial_digest_channels WHERE enabled = 1",
-    ).all();
-    const bad = (rows.results || []).filter((r) => r.last_status === 'error');
-    if (bad.length) {
-      checks.push({
-        name: `Digest channels (${bad.length} erroring)`,
-        status: 'yellow',
-        severity: 'degraded',
-        note: bad.map((b) => b.source).join(', ') + ' — clears once the source gateway/session is live (fix the matching gateway check above)',
-      });
-    } else if ((rows.results || []).length === 0) {
-      checks.push({ name: 'Digest channels', status: 'off', severity: 'degraded', note: 'none enabled yet' });
-    } else {
-      checks.push({ name: `Digest channels (${rows.results.length} on)`, status: 'green', severity: 'degraded', note: null });
-    }
-  } catch { /* plugin_editorial_digest_channels table may not exist yet — skip */ }
-
   // 7. OSINT sources (DuckDuckGo, Reddit, HN, GitHub, …) — surface per-source
   //    failures, and when the recorded error looks like rate-limiting, say so
   //    and what to do about it (rather than a bare "error").
