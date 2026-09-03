@@ -231,7 +231,7 @@ async function generateSocialDrafts(api, slug) {
     };
     const image_url = post.featured_image_url || null;
 
-    const brandVoice    = (await api.knowledge('brand-voice').catch(() => null))?.body || '';
+    const brandVoice    = (await api.knowledge('plugin-editorial-brand-voice').catch(() => null))?.body || '';
     const personalVoice = (await api.knowledge('personal-voice').catch(() => null))?.body || '';
     const styleRules    = (await api.knowledge('writing-style-rules').catch(() => null))?.body || '';
 

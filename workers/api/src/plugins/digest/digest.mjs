@@ -21,7 +21,7 @@
 // Knowledge (own docs, seeded on first read): plugin-digest-policy,
 //   plugin-digest-interests, plugin-digest-prompt-wa-reply,
 //   plugin-digest-prompt-wa-delivery, plugin-digest-wa-send-slots,
-//   plugin-digest-wa-pitches, plugin-digest-attention,
+//   plugin-gtm-wa-pitches, plugin-digest-attention,
 //   plugin-digest-li-signals. Declared host-doc reads:
 //   plugin-editorial-heartbeat-priorities, plugin-gtm-outreach-first-touch.
 //
@@ -1104,9 +1104,11 @@ async function recordChannelRun(api, source, { ok, added, error }) {
 }
 async function isChannelEnabled(api, source) {
   const row = await readDigestChannel(api, source);
-  // If the row doesn't exist yet (pre-migration env) treat as enabled so
-  // generator stays backwards-compatible.
-  return row ? !!row.enabled : true;
+  // No row = no backing on this install (seedAvailableChannels erased or never
+  // created it). An absent capability must not run — the old missing-row-means-
+  // enabled default made every cmd-era puller fire on installs that lack the
+  // tables behind them.
+  return row ? !!row.enabled : false;
 }
 
 // ─── per-source pulls ───────────────────────────────────────
@@ -1127,6 +1129,9 @@ const WA_DIGEST_LOOKBACK_MS = 5 * 24 * 60 * 60 * 1000;
 // no deploy. The constants above/below stay as the seeded defaults; a missing
 // or broken doc falls back to them.
 const DIGEST_POLICY_DEFAULTS = Object.freeze({
+  search_topics_cap: 5,        // most topics looked up per run
+  search_per_topic_limit: 5,   // most headlines kept per topic per provider
+  search_urgency: 2,           // where search items land in the brief
   wa_lookback_days: 5,           // WA chat scan window (operator-tuned from 7, 2026-06-07)
   wa_max_messages_per_chat: 400, // per-chat cap fed to the LLM (raised from 120, 2026-06-07)
   osint_per_target_cap: 6,       // OSINT mentions per target per digest
@@ -1672,6 +1677,74 @@ async function pullOsintInsights(api) {
   return inserted;
 }
 
+// ── search: operator topics × every installed search provider ──────────────
+// The provider is DISCOVERED, never named: any plugin whose gateway advertises
+// capability 'search' (news-search ships one) is queried for each topic in the
+// plugin-digest-search-topics doc. No providers or no topics = a soft note,
+// not an error — the channel simply has nothing to say yet.
+const SEARCH_TOPICS_DEFAULT = `# Digest search topics
+
+One topic per line. The digest's search channel looks each of these up every
+run and files fresh headlines into the brief. Lines starting with # are
+ignored. Keep it to a handful — the brief should stay a brief.
+
+AI agents
+`;
+
+async function pullSearch(api) {
+  const providers = await api.discoverGateways('search');
+  if (!providers.length) return { ids: [], error: 'no search provider installed — add one (e.g. the News Search plugin)' };
+  const policy = await loadDigestPolicy(api);
+
+  let doc = null;
+  try { doc = await api.knowledge('plugin-digest-search-topics'); } catch { doc = null; }
+  if (!doc) {
+    try {
+      await api.saveKnowledge('plugin-digest-search-topics', { title: 'Digest search topics', body: SEARCH_TOPICS_DEFAULT });
+      doc = { body: SEARCH_TOPICS_DEFAULT };
+    } catch { doc = { body: SEARCH_TOPICS_DEFAULT }; }
+  }
+  const topics = String(doc.body || '').split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith('#'))
+    .slice(0, policy.search_topics_cap);
+  if (!topics.length) return { ids: [], error: 'no topics listed — edit the "Digest search topics" doc in Knowledge' };
+
+  const ids = [];
+  const seen = new Set();
+  const now = Date.now();
+  let lastErr = null;
+  for (const topic of topics) {
+    for (const p of providers) {
+      let r = null;
+      try { r = await p.call({ query: topic, limit: policy.search_per_topic_limit }); }
+      catch (e) { lastErr = String(e?.message || e); r = null; }
+      if (!r?.ok) { if (r?.error) lastErr = String(r.error); continue; }
+      for (const hit of r.results || []) {
+        if (!hit?.url || seen.has(hit.url)) continue;
+        seen.add(hit.url);
+        // One stable id per URL: a headline that was read or dismissed stays
+        // read on every later run (INSERT OR IGNORE semantics).
+        let h = 0;
+        for (let i = 0; i < hit.url.length; i++) h = ((h << 5) - h + hit.url.charCodeAt(i)) | 0;
+        const id = 'srch_' + (h >>> 0).toString(36);
+        const inserted = await insertDigestItem(api, {
+          id, kind: 'news', ref_kind: 'search', ref_id: topic,
+          title: hit.title,
+          summary: [hit.source, hit.published_at, `topic: ${topic}`].filter(Boolean).join(' · '),
+          source_label: hit.source || p.label, source_url: hit.url,
+          urgency: policy.search_urgency, actionable: 0, suggested_action: null, created_at: now,
+        });
+        if (inserted) ids.push(id);
+      }
+    }
+  }
+  // Nothing landed AND a provider was failing: that is a channel problem, not
+  // a quiet news day — surface it so the Channels tab shows the real state.
+  if (!ids.length && lastErr) return { ids, error: `search provider failing: ${lastErr.slice(0, 160)}` };
+  return ids;
+}
+
 async function pullCalendar(api, nowMs /*, sinceMs */) {
   // Look-AHEAD window — events in the next 7 days. Calendar items are
   // forward-looking so we always use a wider window than WA/OSINT (which
@@ -1806,6 +1879,57 @@ export async function generateDigest(api, { since_ms = 24 * 60 * 60 * 1000 } = {
   // alongside the per-source +N adds.
   const prune = await pruneStaleDigestItems(api);
 
+  // A channel row EXISTS only while its backing exists on THIS install —
+  // probed live, every run. A search row appears when a search provider is
+  // installed; the editorial-backed channels appear only when the editorial
+  // pack's tables are actually here; a backing that disappears takes its row
+  // (and its toggle) with it. No row for a capability this install does not
+  // have — the Channels tab is a control panel, not a museum.
+  const probeTable = async (table) => {
+    try { await api.db.prepare(`SELECT 1 FROM ${table} LIMIT 1`).all(); return true; }
+    catch { return false; }
+  };
+  const availability = {
+    search: async () => { try { return (await api.discoverGateways('search')).length > 0; } catch { return false; } },
+    calendar: () => probeTable('calendar_events'),
+    whatsapp: () => probeTable('wa_messages'),
+    osint: () => probeTable('plugin_editorial_osint_mentions'),
+    osint_insights: () => probeTable('plugin_editorial_osint_topics'),
+    heartbeat: () => probeTable('plugin_editorial_osint_signals'),
+    attention: async () => (await probeTable('plugin_gtm_li_prospects')) || (await probeTable('plugin_editorial_hot_take_packages')),
+    li_signals: async () => {
+      // The table ships with the host; the FEED is what makes it a channel.
+      try { const r = await api.db.prepare('SELECT 1 FROM li_signals LIMIT 1').all(); return (r?.results || []).length > 0; }
+      catch { return false; }
+    },
+  };
+  const CHANNEL_DEFS = [
+    ['search', 'Search', 1, 'headlines for the topics in the Digest search topics doc'],
+    ['attention', 'System attention', 1, null],
+    ['li_signals', 'LinkedIn signals', 0, 'a LinkedIn signal feed exists on this install'],
+    ['osint_insights', 'OSINT insights', 1, null],
+    ['whatsapp', 'WhatsApp', 1, 'reads the WhatsApp messages this install has synced'],
+    ['osint', 'OSINT mentions', 1, null],
+    ['heartbeat', 'Content signals', 1, null],
+    ['calendar', 'Calendar', 1, null],
+  ];
+  for (const [src, label, on, note] of CHANNEL_DEFS) {
+    let available = false;
+    try { available = await availability[src](); } catch { available = false; }
+    try {
+      if (!available) {
+        await api.db.prepare('DELETE FROM plugin_digest_channels WHERE source = ?').bind(src).run();
+        continue;
+      }
+      const t = Date.now();
+      await api.db.prepare(
+        'INSERT OR IGNORE INTO plugin_digest_channels (source, label, enabled, cadence, notes, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      ).bind(src, label, on, 'daily', note, t, t).run();
+    } catch { /* older schema: the tolerant reads cope */ }
+  }
+  // email was never a channel — no puller ever existed. Erase the vestige.
+  try { await api.db.prepare("DELETE FROM plugin_digest_channels WHERE source = 'email'").run(); } catch {}
+
   // Run each enabled channel. Record stats per channel (even on partial fail).
   async function maybeRun(source, runFn) {
     if (!(await isChannelEnabled(api, source))) {
@@ -1833,6 +1957,7 @@ export async function generateDigest(api, { since_ms = 24 * 60 * 60 * 1000 } = {
     try { await recordChannelRun(api, source, { ok: !hardErr, added, error }); } catch {}
   }
 
+  await maybeRun('search',    () => pullSearch(api));
   await maybeRun('attention', () => pullAttention(api));
   await maybeRun('li_signals', () => pullLiSignals(api));
   await maybeRun('osint_insights', () => pullOsintInsights(api));
@@ -1926,9 +2051,9 @@ export async function waSendSlots(api) {
 // ── pitch templates: canned openers for the card composer ──────
 // The BASIC pitch is the operator's real first-touch message and lives in
 // the gtm pack's plugin-gtm-outreach-first-touch doc (single source of
-// truth, declared host-doc read). plugin-digest-wa-pitches holds EXTRA
+// truth, declared host-doc read). plugin-gtm-wa-pitches holds EXTRA
 // pitches only.
-const PITCHES_SLUG = 'plugin-digest-wa-pitches';
+const PITCHES_SLUG = 'plugin-gtm-wa-pitches';
 const PITCHES_SEED = `# WhatsApp pitches
 
 EXTRA canned openers for the Digest card's WhatsApp composer. The basic

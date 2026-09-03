@@ -8,8 +8,22 @@ export const def = {
   input_schema: { type: 'object', properties: { query: { type: 'string' }, limit: { type: 'number', description: 'default 20, max 100' } }, required: [] },
 };
 
+// Smaller models (and any model under pressure) routinely pass an array
+// parameter as a JSON STRING. Treating that as "not an array" saved an EMPTY
+// plan and reported success, which is worse than an error: the operator sees
+// a blank day and no reason. Parse the string, then carry on.
+function asArray(v) {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (!t) return [];
+    try { const p = JSON.parse(t); return Array.isArray(p) ? p : [p]; } catch { return []; }
+  }
+  if (v && typeof v === 'object') return [v];
+  return [];
+}
 function normalizePlanBody(plan = {}) {
-  const schedule = (Array.isArray(plan.schedule) ? plan.schedule : []).map((b, i) => ({
+  const schedule = asArray(plan.schedule).map((b, i) => ({
     id: b.id || `b${i + 1}`,
     start: b.start ? String(b.start).slice(0, 10) : null,
     end: b.end ? String(b.end).slice(0, 10) : null,
@@ -18,7 +32,7 @@ function normalizePlanBody(plan = {}) {
     done: !!b.done,
     focus: !!b.focus,
   }));
-  const todos = (Array.isArray(plan.todos) ? plan.todos : []).map((tk, i) => ({
+  const todos = asArray(plan.todos).map((tk, i) => ({
     id: tk.id || `t${i + 1}`,
     text: String(tk.text || '').slice(0, 400),
     done: !!tk.done,

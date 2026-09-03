@@ -6,7 +6,7 @@
 // built from what actually happened between us and them: did they reply,
 // did they accept, are they talking to us on WhatsApp, are they active,
 // have we engaged with their content. Every weight lives in the
-// plugin-digest-lead-heat knowledge doc, so the definition of "hot" is
+// plugin-gtm-lead-heat knowledge doc, so the definition of "hot" is
 // editable without a deploy.
 //
 // The score is deliberately explainable: computeHeat returns the factors
@@ -23,7 +23,7 @@
 const now = () => Date.now();
 const DAY = 24 * 60 * 60 * 1000;
 
-const DOC_SLUG = 'plugin-digest-lead-heat';
+const DOC_SLUG = 'plugin-gtm-lead-heat';
 
 const DEFAULTS = {
   // points awarded per fact; the total is capped at 100

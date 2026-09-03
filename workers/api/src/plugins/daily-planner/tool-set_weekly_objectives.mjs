@@ -18,6 +18,18 @@ export const def = {
 // kpi-outreach is the host note holding the operator timezone + workweek —
 // declared in requires.knowledge so the read is visible at import time.
 const KPI_DEFAULTS = { tz: 'UTC', work_days: [0, 1, 2, 3, 4] };
+// A model may pass this array as a JSON string; parse rather than silently
+// storing an empty week.
+function asArray(v) {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (!t) return [];
+    try { const p = JSON.parse(t); return Array.isArray(p) ? p : [p]; } catch { return [t]; }
+  }
+  if (v && typeof v === 'object') return [v];
+  return [];
+}
 async function kpiCfg(api) {
   try {
     const doc = await api.knowledge('kpi-outreach');
@@ -59,7 +71,7 @@ async function readObjectives(api, weekStart) {
 export async function run(api, input) {
   const week_start = input?.week_start || (await weekAnchor(api, await todayLocal(api)));
   const t = Date.now();
-  const norm = (Array.isArray(input?.objectives) ? input.objectives : [])
+  const norm = asArray(input?.objectives)
     .map((o, i) => ({
       id: (o && o.id) || `o${i + 1}`,
       text: String((o && o.text) || o || '').slice(0, 400),
