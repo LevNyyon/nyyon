@@ -1892,7 +1892,12 @@ export async function generateDigest(api, { since_ms = 24 * 60 * 60 * 1000 } = {
   const availability = {
     search: async () => { try { return (await api.discoverGateways('search')).length > 0; } catch { return false; } },
     calendar: () => probeTable('calendar_events'),
-    whatsapp: () => probeTable('wa_messages'),
+    whatsapp: async () => {
+      // The table ships with the host and sits empty until a WhatsApp
+      // connection actually syncs — rows are the proof, not the table.
+      try { const r = await api.db.prepare('SELECT 1 FROM wa_messages LIMIT 1').all(); return (r?.results || []).length > 0; }
+      catch { return false; }
+    },
     osint: () => probeTable('plugin_editorial_osint_mentions'),
     osint_insights: () => probeTable('plugin_editorial_osint_topics'),
     heartbeat: () => probeTable('plugin_editorial_osint_signals'),

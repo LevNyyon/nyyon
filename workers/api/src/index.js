@@ -1377,37 +1377,10 @@ app.post('/api/nyo/tts', async (c) => {
 // Cron handler — fires on the schedule defined in wrangler.jsonc triggers.crons.
 async function handleScheduled(event, env, ctx) {
   // Two cron slots (wrangler.jsonc triggers.crons):
-  //   "0 * * * *" (hourly) → the awareness sweep: OSINT scrape → heartbeat →
-  //                          regenerate the digest → fire meeting reminders.
-  //   "0 6 * * *" (daily)  → AEO article publisher ONLY (never hourly — it would
-  //                          double-post to the public site).
-  // At 06:00 both expressions fire, but each invocation carries its own
-  // event.cron, so we branch and never double-run the sweep.
-  const cron = event.cron || '';
+  //   "0 * * * *" (hourly) → pack cron legs (each guarded: a leg whose pack
+  //                          is not installed skips silently) + host jobs.
   const isDaily = cron.startsWith('0 6 ');
-
-  if (isDaily) {
-    ctx.waitUntil((async () => {
-      try {
-        // "ready only" is now claim_aeo_question's own contract: with no slug
-        // it claims the next due question whose interview is ready and never
-        // starts one. The runner writes the workflow_runs row itself.
-        const result = await runWorkflow(env, 'aeo-write', {}, { trigger_kind: 'cron' });
-        console.log('[aeo-cron]', cron, JSON.stringify({ ok: result.ok, blog_slug: result.output?.blog_slug, error: result.error }));
-      } catch (e) { console.error('[aeo-cron] unhandled', e?.message || e); }
-    })());
-    // Second leg, same tick: refill the AEO suggestion queue from OSINT
-    // signals (capped by aeo-suggestion-policy — never floods the pile).
-    ctx.waitUntil((async () => {
-      try {
-        const result = await runWorkflow(env, 'aeo-suggestion-generator', {}, { trigger_kind: 'cron' });
-        console.log('[aeo-suggestions-cron]', cron, JSON.stringify({ ok: result.ok, created: result.output?.created, reason: result.output?.reason, error: result.error }));
-      } catch (e) {
-        console.error('[aeo-suggestions-cron] unhandled', e?.message || e);
-      }
-    })());
-    return;
-  }
+  if (isDaily) return;   // the daily slot belongs to packs that register for it; none bundled do
 
   // ── Hourly awareness sweep — one LEG per invocation. The three legs used to
   // chain inside one invocation and together blew the Worker subrequest budget
