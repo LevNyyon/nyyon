@@ -129,7 +129,19 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
   // Daily Planner is Nyo's planning-desk persona — same tools + loop, a
   // different system prompt sourced from the editable `daily-planner-persona`
   // knowledge note. Any other agent (or none) keeps the default Nyo persona.
+  // Any installed plugin can be a chat persona: agent = its name, the system
+  // prompt = its plugin-<name>-persona doc, the toolset = its own tools plus
+  // knowledge reads. Daily Planner keeps its dedicated loader (with a default
+  // persona); everything else is generic, so a pack ships a conversation the
+  // same way it ships a page — no host change per pack.
   let personaSystem = agent === 'daily-planner' ? await loadPlannerPersona(env) : null;
+  if (!personaSystem && agent && agent !== 'daily-planner') {
+    try {
+      const { readKnowledge } = await import('../lib/db.js');
+      const doc = await readKnowledge(env, `plugin-${agent}-persona`);
+      personaSystem = String(doc?.body || '').trim() || null;
+    } catch { personaSystem = null; }
+  }
   // Every composition carries the don't-sound-AI rules — welded into the
   // system prompt here, the one choke point all personas pass through, so no
   // persona doc's wording can drop them. The doc itself is editable knowledge.
@@ -158,6 +170,12 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
       let tools = allTools;
       // Daily Planner is disconnected from the calendar + task list for now.
       if (agent === 'daily-planner') tools = tools.filter((t) => !PLANNER_DENY_TOOLS.has(t.name));
+      else if (agent && personaSystem) {
+        // A plugin persona sees its own tools and the knowledge readers, nothing else.
+        const { pluginTools } = await import('../plugins/index.js');
+        const own = new Set(Object.entries(pluginTools).filter(([, t]) => t?.plugin === agent).map(([n]) => n));
+        tools = tools.filter((t) => own.has(t.name) || t.name === 'list_knowledge' || t.name === 'read_knowledge');
+      }
       let notedOk  = false;   // close the credit circuit at most once per turn
       send('start', { conversation_id: convId, tier: cfg.tier, model: cfg.model, tools: tools.map((t) => t.name) });
 

@@ -662,7 +662,7 @@ export function generateIndex(rows) {
       const v = `p${i++}`;
       imports.push(`import * as ${v} from './${m.name}/tool-${t.name}.mjs';`);
       toolRefs.push(
-        `  ${JSON.stringify(t.name)}: { def: ${v}.def, run: (env, input, ctx) => `
+        `  ${JSON.stringify(t.name)}: { def: ${v}.def, plugin: ${JSON.stringify(m.name)}, run: (env, input, ctx) => `
         + `${v}.run(pluginApi(env, ${JSON.stringify(m.name)}, BINDINGS[${JSON.stringify(m.name)}], TABLES[${JSON.stringify(m.name)}], KNOWLEDGE[${JSON.stringify(m.name)}], HOST_READS[${JSON.stringify(m.name)}], CAPABILITIES[${JSON.stringify(m.name)}]), input, ctx) },`,
       );
     }
