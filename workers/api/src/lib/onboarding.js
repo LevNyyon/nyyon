@@ -55,7 +55,7 @@
 // operator has seen the draft).
 
 import { callGateway } from '../gateways/index.js';
-import { llmTransportAnthropic } from './openai.js';
+import { llmTransportAnthropic } from './anthropic.js';
 import { noteLlmOk } from './llm.js';
 import { writeKnowledge, logEvent } from './db.js';
 import { uid, now, safeJSON } from './util.js';

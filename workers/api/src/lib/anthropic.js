@@ -1,7 +1,8 @@
-// Text LLM client used outside the Nyo SSE chat (pack writers through the llm
-// gateway). Anthropic is the only provider. Function names keep the historic
-// `callOpenAI*` spelling so pack call sites don't change. Returns the
-// assistant message content as a single string.
+// The Anthropic client. Two jobs: the raw streaming transport the chat loop
+// uses (llmTransportAnthropic) and the text/json completion the llm gateway
+// hands to pack writers. The exported names callOpenAIText/callOpenAIJson are
+// historic and kept only because installed packs call the gateway modes by
+// those shapes; there is no OpenAI here.
 
 import { guardLlm, handleLlmFailure, noteLlmOk } from './llm.js';
 import { loadModelConfig } from './model-config.js';

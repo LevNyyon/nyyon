@@ -49,42 +49,12 @@ export async function markFailed(env, id, err) {
   try { await logEvent(env, { kind: 'outbox_failed', actor: 'system', payload: { outbox_id: id, error: text.slice(0, 300) } }); } catch {}
 }
 
-// ─── helpers used by the route layer ──────────────────────────
-export async function listOutbox(env, { channel = null, status = null, source = null, limit = 200 } = {}) {
-  const where = [];
-  const args  = [];
-  if (channel) { where.push('channel = ?'); args.push(channel); }
-  if (status)  { where.push('status = ?');  args.push(status);  }
-  if (source)  { where.push('source = ?');  args.push(source);  }
-  const sql = `SELECT * FROM outbound_log ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY created_at DESC LIMIT ?`;
-  args.push(Math.min(Math.max(parseInt(limit, 10) || 200, 1), 1000));
-  const r = await env.DB.prepare(sql).bind(...args).all();
-  return (r.results || []).map(decorate);
-}
 
-export async function getOutboxRow(env, id) {
+async function getOutboxRow(env, id) {
   const r = await env.DB.prepare('SELECT * FROM outbound_log WHERE id = ?').bind(id).first();
   return r ? decorate(r) : null;
 }
 
-export async function outboxStats(env) {
-  const r = await env.DB.prepare(`
-    SELECT
-      channel,
-      status,
-      COUNT(*) AS n
-    FROM outbound_log
-    WHERE created_at > ?
-    GROUP BY channel, status
-  `).bind(now() - 7 * 24 * 3600 * 1000).all();
-  // Reshape into { wa: { sent: 12, failed: 2 }, li: { ... }, ... }.
-  const out = {};
-  for (const row of r.results || []) {
-    if (!out[row.channel]) out[row.channel] = { sent: 0, failed: 0, queued: 0 };
-    out[row.channel][row.status] = row.n;
-  }
-  return out;
-}
 
 // ─── retry ────────────────────────────────────────────────────
 // Re-fire an existing failed (or even sent — operator's call) row. We re-read

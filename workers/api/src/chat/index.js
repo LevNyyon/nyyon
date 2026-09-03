@@ -4,7 +4,7 @@
 import { visibleToolDefs, runTool } from '../tools/index.js';
 import { uid, now } from '../lib/util.js';
 import { classifyLlmError, noteLlmDown, noteLlmOk } from '../lib/llm.js';
-import { llmTransportAnthropic } from '../lib/openai.js';
+import { llmTransportAnthropic } from '../lib/anthropic.js';
 import { loadModelConfig } from '../lib/model-config.js';
 import { loadPlannerPersona } from '../lib/planner-persona.js';
 import { loadDontSoundAi } from '../lib/dont-sound-ai.js';

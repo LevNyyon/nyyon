@@ -11,7 +11,7 @@
 
 import {
   callOpenAIText, callOpenAIJson,
-} from '../lib/openai.js';
+} from '../lib/anthropic.js';
 import { getLlmHealth } from '../lib/llm.js';
 import {
   checkWaHealth, listChats, searchWaChats, listWaGroups, readWaGroupInfo,
