@@ -12,7 +12,6 @@ export function DigestOnboarding({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [prompt, setPrompt] = useState<string>('');
-  const [showPrompt, setShowPrompt] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const load = async () => {
@@ -32,14 +31,17 @@ export function DigestOnboarding({ onDone }: { onDone: () => void }) {
     } catch (x) { setErr(`${e.title}: ${String((x as Error)?.message || x)}`); setNote(null); }
     finally { setBusy(null); void load(); }
   };
-  const openPrompt = async () => { if (!prompt) setPrompt(await sources.buildPrompt()); setShowPrompt((v) => !v); };
-  const copy = async () => { try { await navigator.clipboard.writeText(prompt); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ } };
+  const copyPrompt = async () => {
+    const text = prompt || await sources.buildPrompt();
+    if (!prompt) setPrompt(text);
+    try { await navigator.clipboard.writeText(text); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ }
+  };
 
   return (
     <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
       <div className="flex-1 min-h-0 flex flex-col border-b lg:border-b-0 lg:border-r border-line">
         <div className="px-4 pt-4 pb-2 shrink-0">
-          <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">nyo · set up your digest</p>
+          <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">nyo · digest setup</p>
         </div>
         <Chat
           agent="digest"
@@ -49,59 +51,42 @@ export function DigestOnboarding({ onDone }: { onDone: () => void }) {
         />
       </div>
 
-      <aside className="w-full lg:w-[360px] shrink-0 overflow-y-auto p-4 space-y-4">
-        <section className="space-y-2">
-          <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">watched topics</p>
-          {src?.configured ? (
-            <ul className="text-[12.5px] text-ink space-y-0.5">{src.topics.map((t) => <li key={t}>· {t}</li>)}</ul>
-          ) : (
-            <p className="text-[12px] text-mute leading-relaxed">None yet. Answer Nyo's four questions and they land here.</p>
-          )}
+      <aside className="w-full lg:w-[280px] shrink-0 overflow-y-auto p-4 space-y-5">
+        <section className="space-y-1.5">
+          <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">topics</p>
+          {src?.configured
+            ? src.topics.map((t) => <div key={t} className="text-[12.5px] text-ink truncate">{t}</div>)
+            : <div className="text-[12px] text-mute">none yet</div>}
         </section>
 
-        <section className="space-y-2">
-          <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">sources on this install</p>
-          {src?.providers.length ? src.providers.map((p) => (
-            <div key={p.slug} className="flex items-center justify-between text-[12.5px]">
-              <span className="text-ink">{p.label}</span>
-              <span className={'mono text-[9px] uppercase tracking-[0.14em] ' + (p.connected ? 'text-emerald-700 dark:text-emerald-400' : 'text-mute')}>{p.connected ? 'ready' : 'needs a key'}</span>
+        <section className="space-y-1.5">
+          <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">sources</p>
+          {src?.providers.map((p) => (
+            <div key={p.slug} className="flex items-center justify-between gap-2 text-[12.5px]">
+              <span className="text-ink truncate">{p.label}</span>
+              <span className={'mono text-[9px] uppercase tracking-[0.14em] shrink-0 ' + (p.connected ? 'text-emerald-700 dark:text-emerald-400' : 'text-rose-700 dark:text-rose-400')}>{p.connected ? 'ready' : 'needs key'}</span>
             </div>
-          )) : <p className="text-[12px] text-mute leading-relaxed">No search source yet. Add one below; the brief stays empty without it.</p>}
+          ))}
           {src?.calendar && <div className="flex items-center justify-between text-[12.5px]"><span className="text-ink">Calendar</span><span className="mono text-[9px] uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-400">ready</span></div>}
-        </section>
-
-        <section className="space-y-2">
-          <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">add a source</p>
-          {note && <p className="text-[12px] text-emerald-700 dark:text-emerald-400">{note}</p>}
-          {err && <p className="text-[12px] text-rose-700 dark:text-rose-400">{err}</p>}
-          {catalog.map((e) => {
+          {catalog.filter((e) => installed[e.name] !== 'active').map((e) => {
             const st = installed[e.name];
-            const on = st === 'active';
-            const working = st && st !== 'active' && st !== 'blocked' && st !== 'removed';
+            const working = st && st !== 'blocked' && st !== 'removed';
             return (
-              <div key={e.name} className="hairline rounded-sm p-3 space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-[12.5px] font-medium">{e.title}</span>
-                  {on ? <span className="mono text-[9px] uppercase tracking-[0.14em] text-emerald-700 dark:text-emerald-400">installed</span>
-                    : working ? <span className="mono text-[9px] uppercase tracking-[0.14em] text-mute">{st}…</span>
-                    : <button onClick={() => void install(e)} disabled={busy === e.name} className="text-[11px] px-2 py-0.5 rounded-sm bg-ink text-paper disabled:opacity-40">{busy === e.name ? 'adding…' : 'add'}</button>}
-                </div>
-                <p className="text-[11px] text-mute leading-relaxed">{e.description}</p>
-                {e.needs_key && !on && <p className="text-[10px] text-mute">Needs a free key; its page opens in the sidebar once added.</p>}
+              <div key={e.name} className="flex items-center justify-between gap-2 text-[12.5px]">
+                <span className="text-mute truncate">{e.title}{e.needs_key ? <span className="mono text-[9px] uppercase tracking-[0.14em] ml-1.5">key</span> : null}</span>
+                {working
+                  ? <span className="mono text-[9px] uppercase tracking-[0.14em] text-mute shrink-0">{st}…</span>
+                  : <button onClick={() => void install(e)} disabled={busy === e.name} className="text-[11px] px-2.5 py-0.5 rounded-sm bg-ink text-paper disabled:opacity-40 shrink-0">{busy === e.name ? '…' : 'add'}</button>}
               </div>
             );
           })}
-          {!catalog.length && <p className="text-[12px] text-mute">No installable sources are listed in this build.</p>}
+          {note && <p className="text-[11px] text-emerald-700 dark:text-emerald-400 leading-snug">{note}</p>}
+          {err && <p className="text-[11px] text-rose-700 dark:text-rose-400 leading-snug">{err}</p>}
         </section>
 
-        <section className="space-y-2">
+        <section className="space-y-1.5">
           <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">build your own</p>
-          <p className="text-[12px] text-mute leading-relaxed">Any service with search can feed the digest. This prompt walks an assistant through building it as a plugin.</p>
-          <div className="flex gap-2">
-            <button onClick={() => void openPrompt()} className="text-[11px] px-2 py-0.5 rounded-sm hairline bg-paper hover:bg-card">{showPrompt ? 'hide prompt' : 'show prompt'}</button>
-            {showPrompt && <button onClick={() => void copy()} className="text-[11px] px-2 py-0.5 rounded-sm bg-ink text-paper">{copied ? 'copied' : 'copy'}</button>}
-          </div>
-          {showPrompt && <pre className="text-[10.5px] leading-relaxed text-mute whitespace-pre-wrap hairline rounded-sm p-3 max-h-72 overflow-y-auto">{prompt || 'Loading…'}</pre>}
+          <button onClick={() => void copyPrompt()} className="text-[11px] px-2.5 py-0.5 rounded-sm hairline bg-paper hover:bg-card">{copied ? 'copied' : 'copy the prompt'}</button>
         </section>
       </aside>
     </div>
