@@ -105,7 +105,7 @@ export async function saveAndVerifyLlmKey(env, { key, provider = 'anthropic' }) 
     // operator out of the step with an error about a fallback they have never
     // heard of. A key check is a probe, not production traffic.
     const r = await llmTransportAnthropic(env, {
-      model: env.ANTHROPIC_MODEL || 'claude-opus-4-8',
+      model: env.ANTHROPIC_MODEL || 'claude-opus-5',
       max_tokens: 8,
       messages: [{ role: 'user', content: 'ok' }],
     }, { timeoutMs: 30_000 });

@@ -317,7 +317,7 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
 function resolveTier(env, tier, mc = null) {
   const t = String(tier || 'mid').toLowerCase();
   if (t === 'low')  return { tier: 'low',  provider: 'anthropic', model: mc?.nyo_low  || env.NYO_MODEL_LOW  || 'claude-haiku-4-5' };
-  if (t === 'high') return { tier: 'high', provider: 'anthropic', model: mc?.nyo_high || env.NYO_MODEL_HIGH || 'claude-opus-4-8' };
+  if (t === 'high') return { tier: 'high', provider: 'anthropic', model: mc?.nyo_high || env.NYO_MODEL_HIGH || 'claude-opus-5' };
   return { tier: 'mid', provider: 'anthropic', model: mc?.nyo_mid || env.NYO_MODEL_MID || 'claude-sonnet-5' };
 }
 

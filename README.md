@@ -103,7 +103,7 @@ Under everything sits an activity bus: every meaningful mutation logs an event. 
 | LLM | Anthropic Claude (model choices live in the `llm-models` knowledge doc) |
 | Runtime | Workers runtime (Hono), run locally via wrangler |
 | DB | D1 (SQLite), local |
-| Assets | R2 binary store (local simulation via wrangler) |
+
 | Frontend | Vite + React + Tailwind |
 
 ## Modules

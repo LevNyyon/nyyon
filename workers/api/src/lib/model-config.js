@@ -20,8 +20,8 @@ export function modelDefaults(env) {
   return {
     nyo_low:      env.NYO_MODEL_LOW  || 'claude-haiku-4-5',
     nyo_mid:      env.NYO_MODEL_MID  || 'claude-sonnet-5',
-    nyo_high:     env.NYO_MODEL_HIGH || 'claude-opus-4-8',
-    writer:       env.ANTHROPIC_MODEL || 'claude-opus-4-8',
+    nyo_high:     env.NYO_MODEL_HIGH || 'claude-opus-5',
+    writer:       env.ANTHROPIC_MODEL || 'claude-opus-5',
     writer_small: env.ANTHROPIC_SMALL_MODEL || 'claude-haiku-4-5-20251001',
     // HF Inference Providers model the heavy writers fall back to when the
     // Anthropic credit breaker is open. Picked for prose quality, not code.

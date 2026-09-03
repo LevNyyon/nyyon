@@ -52,9 +52,6 @@
   // demands a Cloudflare login before the app will even boot, which would put
   // an account signup in front of the first run. Locally it simulates; once
   // deployed it is the real bucket.
-  "r2_buckets": [
-    { "binding": "ASSETS", "bucket_name": "nyyon-street-assets" }
-  ],
 
   // Workers AI: deliberately NOT bound. The VM/server edition runs with no
   // Cloudflare account at all; image generation degrades gracefully without
@@ -62,36 +59,16 @@
   // operator's own LLM key.
 
   "vars": {
-    // LLM_PROVIDER picks the brain for Nyo chat + digest synthesis + AEO writer.
-    // Per-provider model lives in ANTHROPIC_MODEL / OPENAI_MODEL. Do NOT set a
-    // global LLM_MODEL — it overrides both branches, so a gpt-* value would get
-    // sent to the Claude endpoint and 400.
-    "LLM_PROVIDER":    "anthropic",
-    "ANTHROPIC_MODEL": "claude-opus-4-8",
-    "OPENAI_MODEL":    "gpt-5.5",
-    // Nyo chat Low/Mid/High switch (chat only; digest/AEO still use ANTHROPIC_MODEL).
-    // Low routes to the local Qwen through the Ollama proxy tunnel; needs the
-    // Low=Haiku, Mid=Sonnet, High=Opus — all through the one Anthropic key.
+    // Deliberately near-empty. Credentials and endpoints are stored in the
+    // database through Settings (a person pastes them once, in the app), and
+    // the model tiers live in the llm-models knowledge doc with code
+    // defaults. An empty var here is worse than none: a one-click deploy
+    // prompts a stranger to invent a value for a service this build does not
+    // even ship, and there is no answer they could give.
+    "ANTHROPIC_MODEL": "claude-opus-5",
     "NYO_MODEL_LOW":   "claude-haiku-4-5",
     "NYO_MODEL_MID":   "claude-sonnet-5",
-    "NYO_MODEL_HIGH":  "claude-opus-4-8",
-    // Deliberately EMPTY, even though the service ships with this app and
-    // always lands on 127.0.0.1:2785.
-    //
-    // A gateway counts as configured the moment its required fields resolve,
-    // from D1 *or* env (lib/gateway-config.js), and Outreach's gate opens as
-    // soon as the gateway is configured. Shipping the URL here would therefore
-    // declare WhatsApp connected on a machine where the daemon is not
-    // installed and no phone has been paired: the operator would open Outreach
-    // to an empty inbox and sends that silently fail. The URL is written to D1
-    // once the service is actually installed and running.
-    "WA_BASE_URL":     "",
-    // 'default', not a session id copied from whoever built this.
-    "WA_SESSION_ID":   "default",
-    "UNIPILE_DSN":     "",
-    "UNIPILE_ACCOUNT_ID": "",
-    "WEBSITE_BASE_URL": "",
-    "ASSETS_BASE_URL": ""
+    "NYO_MODEL_HIGH":  "claude-opus-5"
   },
 
   // Static assets — serves the built React SPA (web/dist). The Worker handles

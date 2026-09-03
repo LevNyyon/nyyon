@@ -47,7 +47,7 @@ if (!hasToken && (who.code !== 0 || /not authenticated|please run.*login/i.test(
 No Cloudflare access yet. Two ways to give it:
 
   1. A token (works for an AI agent, no browser needed). Create one here, with
-     Workers, D1 and R2 permissions already ticked:
+     Workers and D1 permissions already ticked:
 
      https://dash.cloudflare.com/profile/api-tokens/create
 

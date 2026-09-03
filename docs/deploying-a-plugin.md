@@ -80,11 +80,11 @@ validator refused it — the `errors` array says exactly why.
 # PART B — deploy the nyyon app itself to the web (Cloudflare)
 
 The app is a Cloudflare Worker: `workers/api/` serves the API AND the built
-SPA from `web/dist`, with D1 for data and R2 for assets.
+SPA from `web/dist`, with D1 for data.
 
 ## Preconditions (ask the operator, do not guess)
 
-- A Cloudflare account + an API token with Workers, D1, and R2 permissions.
+- A Cloudflare account + an API token with Workers and D1 permissions.
 - Decide the worker name (`wrangler.jsonc` → `name`). Two people deploying
   the same name overwrite each other.
 
@@ -112,7 +112,6 @@ SPA from `web/dist`, with D1 for data and R2 for assets.
    done
    ```
 
-4. **Create the R2 bucket** named in `wrangler.jsonc` (`nyyon-assets`).
 
 5. **Deploy:**
    ```

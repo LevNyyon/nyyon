@@ -10,7 +10,7 @@ A self-owned AI command center. One install per person: the app, its database, i
 4. Extend without touching core. Modules arrive as plugins: install, remove, export, import from the Plugins page. A plugin can add a gateway (e.g. news search) and existing modules pick it up by capability.
 
 ## Shape
-- Host: Cloudflare Worker (Hono) + D1 + a React SPA. Crons at :00, :45, 06:00. Optional R2 for images.
+- Host: Cloudflare Worker (Hono) + D1 + a React SPA. Crons at :00, :45, 06:00. No object storage: this build ships no image rendering.
 - Self-hosted alternative: `npm run server` runs the worker locally plus sidecars (plugin applier, telegram poll, whatsapp).
 - Bundled plugins: daily-planner, digest. Everything else is a zip.
 - Credentials are database-first (Settings), env is fallback. Anthropic key is the only model requirement.
