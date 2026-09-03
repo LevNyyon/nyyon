@@ -200,7 +200,7 @@ function tablesFromTokens(toks) {
 // Throws unless the statement is one the plugin may run, against tables it
 // declared. `allowed` is the EXACT set of table names from requires.tables —
 // exact membership, never a prefix test.
-export function assertScopedSql(sql, pluginName, allowed, hostReads) {
+function assertScopedSql(sql, pluginName, allowed, hostReads) {
   const allow = allowed instanceof Set ? allowed : new Set(allowed || []);
   const reads = hostReads instanceof Set ? hostReads : new Set(hostReads || []);
   const toks = tokenize(sql);

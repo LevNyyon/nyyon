@@ -92,7 +92,7 @@ export async function listConversations(env, { limit = 40, offset = 0, agent = n
 
 // ── read ────────────────────────────────────────────────────────────────────
 // Fold persisted rows back into the flat UI message shape.
-export function toUiMessages(rows = []) {
+function toUiMessages(rows = []) {
   const out = [];
   // A model hop that ONLY calls tools persists an assistant row with no text.
   // Emitting that as its own message would put `content: ''` into the resumed

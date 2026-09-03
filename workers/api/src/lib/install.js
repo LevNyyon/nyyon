@@ -212,40 +212,7 @@ export async function readInstallState(env) {
   };
 }
 
-// Mint the setup token if this install does not have one yet. Idempotent: the
-// same token comes back on every call, so the installer can print it, a health
-// check can read it, and neither invalidates the other.
-//
-// Returns null once an account exists — the token is burned when the operator
-// creates their credential, and there is nothing to hand out.
-export async function ensureSetupToken(env) {
-  const row = await readRow(env);
-  if (isComplete(row) || hasAdminRow(row)) return null;
-  if (row?.setup_token) return String(row.setup_token);
-  const token = b64url(crypto.getRandomValues(new Uint8Array(24)));
-  await writeRow(env, { setup_token: token });
-  // The activity bus records that a setup credential was minted, never its
-  // value — this is the first entry in an install's history, and the audit
-  // trail for "when did the setup window open".
-  await logEvent(env, { kind: 'install_setup_token_set', actor: 'system', payload: { source: 'generated' } });
-  return token;
-}
 
-// Used by an installer that wants to CHOOSE the token (so it can print it
-// before the worker has ever been hit) rather than read one back.
-export async function setSetupToken(env, token) {
-  const row = await readRow(env);
-  if (isComplete(row)) throw new Error('this install has already finished setup');
-  if (hasAdminRow(row)) throw new Error('this install already has an account. Sign in instead.');
-  const t = String(token || '').trim();
-  await writeRow(env, { setup_token: t || null });
-  await logEvent(env, {
-    kind: 'install_setup_token_set',
-    actor: 'system',
-    payload: { source: t ? 'installer' : 'cleared' },   // never the value
-  });
-  return { ok: true, setup_token_set: Boolean(t) };
-}
 
 // THE SECURITY BOUNDARY. Guards every setup handler.
 //

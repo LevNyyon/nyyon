@@ -85,7 +85,7 @@ Their quirks are intentional voice, not sloppiness. Posting a "cleaned up" versi
 // (warm-up, zero thinking), then the samples (which do the heavy lifting and
 // make the operator feel understood), then the positions (which need the trust
 // the first two steps built).
-export const PLAYBOOK_BODY = `# Onboarding — building the voice documents
+const PLAYBOOK_BODY = `# Onboarding — building the voice documents
 
 How the setup interview turns a new operator into the three documents every
 writing surface in this system reads: the company voice, their personal voice,

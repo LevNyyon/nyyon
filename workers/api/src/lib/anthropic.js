@@ -11,7 +11,7 @@ import { withResolvedCredentials } from './gateway-config.js';
 
 // Parse JSON that may arrive wrapped in ```json fences or with prose around it
 // (Anthropic has no response_format, so we tolerate both).
-export function parseJsonLoose(text) {
+function parseJsonLoose(text) {
   let t = String(text || '').trim();
   const fence = t.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fence) t = fence[1].trim();

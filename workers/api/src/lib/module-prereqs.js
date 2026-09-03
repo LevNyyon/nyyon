@@ -189,9 +189,6 @@ function gateway(slug, why, degraded) {
   return { kind: 'gateway', slug, why, degraded, fix: 'connect' };
 }
 
-export function listModuleSlugs() {
-  return Object.keys(MODULES);
-}
 
 // ── resolution ──────────────────────────────────────────────────────────────
 

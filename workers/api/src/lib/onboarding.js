@@ -182,7 +182,7 @@ export async function reopenSetup(env) {
 // page. It is also what makes "finish this later, from inside the app" work —
 // the thread an operator abandoned in week one is the thread they come back
 // to. `agent` scopes it so it never shows up in the Nyo history panel.
-export const ONBOARDING_CONVERSATION_ID = 'onboarding';
+const ONBOARDING_CONVERSATION_ID = 'onboarding';
 const AGENT = 'onboarding';
 
 const MAX_HOPS = 4;                 // model → tools → model, per turn

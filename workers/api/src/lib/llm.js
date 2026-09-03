@@ -95,7 +95,7 @@ export async function noteLlmOk(env) {
 // When the circuit is down and freshly probed, skip Anthropic entirely (don't
 // hammer a dead endpoint on every call) — but re-probe after PROBE_AFTER_MS so
 // recovery is automatic.
-export async function skipPrimary(env) {
+async function skipPrimary(env) {
   const h = await getLlmHealth(env);
   if (h.status !== 'down') return false;
   return (Date.now() - (h.last_check || 0)) < PROBE_AFTER_MS;

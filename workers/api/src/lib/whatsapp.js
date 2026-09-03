@@ -3,75 +3,10 @@
 
 import { uid, now, safeJSON } from './util.js';
 import { logEvent } from './db.js';
-import { identifyByPhone } from './web.js';
 import { beginSend, markSent, markFailed } from './outbox.js';
 import { withResolvedCredentials } from './gateway-config.js';
 
-// ─── normalize wa-gateway's loose payload shapes ────────────────
-// wa-gateway can wrap the message in {event, session, payload:{}} or send it flat.
-// We accept either + drill into _data for the friendly notify name.
-export function normalizePayload(raw) {
-  if (!raw || typeof raw !== 'object') return null;
-  const p = raw.payload && typeof raw.payload === 'object' ? raw.payload : raw;
 
-  const id = p.id || p.messageId || p.key?.id;
-  if (!id) return null;
-
-  const chat_id = p.chatId || p.from || p.to || p.key?.remoteJid;
-  if (!chat_id) return null;
-
-  const from_me = !!(p.fromMe ?? p.key?.fromMe);
-
-  // Sender of the message.
-  //   - In DMs, `p.from` IS the person, so it's a fine fallback.
-  //   - In groups, `p.from` is the group id, which is NOT a person — falling
-  //     back to it (or to chat_id) writes the group jid into sender_id and
-  //     downstream code can't recover the real person. When wa-gateway omits
-  //     author/participant on a group message (some relayed types do this),
-  //     it's better to leave sender_id null and let the digest layer recover
-  //     via metadata.full_name → contacts lookup than to pollute the DB.
-  const is_group_chat = String(chat_id).endsWith('@g.us');
-  const sender_id =
-    from_me
-      ? (p.author || p.participant || null)
-      : is_group_chat
-        ? (p.author || p.participant || null)
-        : (p.author || p.participant || p.from || chat_id);
-
-  const sender_name =
-    p.senderName || p.notifyName || p._data?.notifyName || p.pushName || null;
-
-  const body = typeof p.body === 'string' ? p.body : (p.text || p.caption || '');
-
-  // wa-gateway gives seconds; normalise to ms.
-  const tsRaw = p.timestamp ?? p.t ?? p.messageTimestamp;
-  const tsNum = typeof tsRaw === 'number' ? tsRaw : parseInt(tsRaw, 10) || Math.floor(Date.now() / 1000);
-  const timestamp = tsNum > 1e11 ? tsNum : tsNum * 1000;
-
-  const is_group = chat_id.endsWith('@g.us');
-
-  return { id, chat_id, from_me, sender_id, sender_name, body, timestamp, is_group, raw };
-}
-
-// ─── chat registry ──────────────────────────────────────────
-export async function getOrCreateChat(env, chat_id, name, is_group) {
-  const t = now();
-  const existing = await env.DB.prepare('SELECT * FROM wa_chats WHERE id = ?').bind(chat_id).first();
-  if (existing) {
-    if (name && name !== existing.name) {
-      await env.DB.prepare('UPDATE wa_chats SET name = ?, updated_at = ? WHERE id = ?').bind(name, t, chat_id).run();
-      return { ...existing, name, updated_at: t };
-    }
-    return existing;
-  }
-  // Default: auto_listen=0. Operator must opt in per chat from the ops Channels module.
-  await env.DB.prepare(
-    `INSERT INTO wa_chats (id, name, is_group, auto_listen, can_send, last_message_at, last_snippet, first_seen_at, updated_at)
-     VALUES (?, ?, ?, 0, 0, NULL, NULL, ?, ?)`,
-  ).bind(chat_id, name || null, is_group ? 1 : 0, t, t).run();
-  await logEvent(env, { kind: 'wa_chat_discovered', payload: { chat_id, name, is_group } });
-  return env.DB.prepare('SELECT * FROM wa_chats WHERE id = ?').bind(chat_id).first();
-}
 
 export async function listChats(env) {
   const r = await env.DB.prepare(`
@@ -317,17 +252,6 @@ export async function setChatListening(env, { chat_id, name_match, listening } =
   return { ok: true, mode: 'by_name', chat: await setChatPolicy(env, candidates[0].id, { auto_listen: want }) };
 }
 
-// Flip a chat into the listened set — called whenever we actively converse
-// with someone (send/schedule), so their replies flow into the store via the
-// hourly history refresh without a manual toggle.
-export async function ensureListening(env, chat_id) {
-  const t = now();
-  await env.DB.prepare(
-    `INSERT INTO wa_chats (id, name, is_group, auto_listen, can_send, first_seen_at, updated_at)
-     VALUES (?, NULL, ?, 1, 1, ?, ?)
-     ON CONFLICT(id) DO UPDATE SET auto_listen = 1, updated_at = excluded.updated_at`,
-  ).bind(chat_id, chat_id.endsWith('@g.us') ? 1 : 0, t, t).run();
-}
 
 // ─── inbound persistence ────────────────────────────────────
 export async function persistMessage(env, msg) {
@@ -410,59 +334,8 @@ export async function syncFromGateway(env, { limit = 1000 } = {}) {
   return { ok: true, scanned: msgs.length, synced, since };
 }
 
-// Extract a clean phone string from an wa-gateway sender id like '972500000000@c.us'.
-export function phoneFromSenderId(senderId) {
-  if (!senderId || typeof senderId !== 'string') return null;
-  const m = senderId.match(/^(\d{6,15})(?:@|\b)/);
-  return m ? '+' + m[1] : null;
-}
 
-// ─── identity stitching from a WhatsApp message ─────────────
-// Called only when chat.auto_listen=1 AND message is inbound (from_me=0).
-// Phone is the natural identifier on WhatsApp; the cookie_id is the chat id
-// so cross-channel events (web cookie + wa chat) can still merge if the same
-// human shows up identified by both email + phone separately.
-export async function identifyFromMessage(env, msg) {
-  if (msg.from_me) return null;
-  const phone = phoneFromSenderId(msg.sender_id);
-  if (!phone) return null;
 
-  const res = await identifyByPhone(env, {
-    phone,
-    cookie_id: msg.chat_id,            // WA chat id acts as the channel cookie
-    display_name: msg.sender_name || null,
-    method: 'wa_inbound',
-    source_event_id: msg.id,
-  });
-
-  // Tag the just-persisted message with the resolved person_id.
-  if (res?.person_id) {
-    await env.DB.prepare('UPDATE wa_messages SET person_id = ? WHERE id = ?').bind(res.person_id, msg.id).run();
-  }
-  return res;
-}
-
-// ─── inbound webhook handler ────────────────────────────────
-// wa-gateway POSTs every message here. We always upsert the chat (so operator can
-// see new chats appear and opt in), but only persist the message body when
-// auto_listen=1.
-export async function handleInbound(env, rawBody) {
-  const msg = normalizePayload(rawBody);
-  if (!msg) return { ok: false, reason: 'unparseable' };
-
-  const chat = await getOrCreateChat(env, msg.chat_id, msg.sender_name && !msg.is_group ? msg.sender_name : null, msg.is_group);
-
-  if (chat.auto_listen !== 1) {
-    return { ok: true, accepted: false, reason: 'chat not in auto_listen', chat_id: msg.chat_id };
-  }
-
-  const { inserted } = await persistMessage(env, msg);
-  let identity = null;
-  if (inserted && !msg.from_me) {
-    identity = await identifyFromMessage(env, msg);
-  }
-  return { ok: true, accepted: true, inserted, chat_id: msg.chat_id, person_id: identity?.person_id ?? null };
-}
 
 // ─── wa-gateway reachability + outbound ──────────────────────────
 // Built so the ops UI can show connection status + diagnose the most common
@@ -529,7 +402,7 @@ export function toChatId(input) {
 //   2. prime if status != ready: POST /sessions/<sid>/start
 //   3. poll status until "ready" — max 20s
 // Throws if we can't reach ready state.
-export async function ensureSessionReady(env, { maxWaitMs = 20_000, pollMs = 2_000 } = {}) {
+async function ensureSessionReady(env, { maxWaitMs = 20_000, pollMs = 2_000 } = {}) {
   const sid = waSession(env);
 
   const fetchStatus = async () => {
@@ -731,20 +604,6 @@ export async function probeWaGateway(env) {
   return out;
 }
 
-// One-click webhook registration from the ops UI Settings surface.
-// inbound_url is the URL wa-gateway should POST messages to — defaults to the
-// caller's origin + /api/wa/inbound.
-export async function registerWebhook(env, { inbound_url, events = ['message'] }) {
-  if (!inbound_url) throw new Error('inbound_url required');
-  env = await withResolvedCredentials(env); // the session id can come from D1
-  const session = env.WA_SESSION_ID || 'default';
-  const r = await waFetch(env, `/sessions/${session}/webhooks`, {
-    method: 'POST',
-    body: JSON.stringify({ url: inbound_url, events }),
-  });
-  const body = await r.text();
-  return { http: r.status, ok: r.ok, body: body.slice(0, 500), url: inbound_url };
-}
 
 // ─── outbound sends ──────────────────────────────────────────
 // Every send goes through ensureSessionReady() first so the puppet can't be
@@ -901,36 +760,7 @@ function outboxOpts({ source, source_ref, parent_id, attempt } = {}) {
   };
 }
 
-// Safe test-send: forces the destination to env.WA_TEST_CHAT_ID regardless
-// of what the caller asks. This exists so any verification path — Claude
-// debugging the pipeline, a healthcheck cron, an integration test — can
-// confirm "yes, wa-gateway → puppet → WA Web → my number" works WITHOUT ever
-// touching a real client / group chat. Throws if WA_TEST_CHAT_ID is unset.
-export async function sendTestText(env, { text } = {}) {
-  if (!env.WA_TEST_CHAT_ID) throw new Error('WA_TEST_CHAT_ID not set — refusing to test-send to avoid hitting a real chat');
-  const safeText = `[NYYON TEST · ${new Date().toISOString().slice(11, 19)}] ${text || 'ping'}`;
-  return sendText(env, { chatId: env.WA_TEST_CHAT_ID, text: safeText });
-}
 
-// Reply round-trip — sends an anchor message to WA_TEST_CHAT_ID, then replies
-// to it as a quoted reply. Returns both messageIds so the operator can
-// verify on phone that the second message renders as a proper reply bubble.
-export async function sendTestReply(env, { anchorText, replyText } = {}) {
-  if (!env.WA_TEST_CHAT_ID) throw new Error('WA_TEST_CHAT_ID not set — refusing to test-reply');
-  const ts = new Date().toISOString().slice(11, 19);
-  const anchor = await sendText(env, {
-    chatId: env.WA_TEST_CHAT_ID,
-    text:   `[NYYON TEST anchor · ${ts}] ${anchorText || 'this is the anchor message'}`,
-  });
-  // Tiny pause so WA Web registers the anchor before we quote it.
-  await new Promise((r) => setTimeout(r, 600));
-  const reply = await replyToWaMessage(env, {
-    chatId:          env.WA_TEST_CHAT_ID,
-    quotedMessageId: anchor.messageId,
-    text:            `[NYYON TEST reply · ${ts}] ${replyText || 'and this is the reply quoting the anchor'}`,
-  });
-  return { anchor, reply };
-}
 
 // Pull recent messages wa-gateway already has cached and persist them into our
 // own wa_messages table. Useful right after a fresh QR-link: the puppet only
@@ -1035,35 +865,4 @@ export async function reactToMessage(env, { messageId, reaction }, opts = {}) {
   }
 }
 
-// Operator-triggered synthetic inbound — proves the persistence + identify path
-// even if wa-gateway itself isn't reachable yet. Falls through the same handleInbound.
-export async function testInbound(env, { chat_id, body_text }) {
-  if (!chat_id) throw new Error('chat_id required');
-  const stamp = Date.now();
-  const synthetic = {
-    event: 'message',
-    session: env.WA_SESSION_ID || 'default',
-    payload: {
-      id: `test_${stamp}_${Math.random().toString(36).slice(2, 8)}`,
-      from: chat_id,
-      chatId: chat_id,
-      fromMe: false,
-      body: body_text || '[test] synthetic inbound from ops Settings',
-      timestamp: Math.floor(stamp / 1000),
-      _data: { notifyName: 'Synthetic Sender' },
-    },
-  };
-  const { handleInbound } = await import('./whatsapp.js');
-  const res = await handleInbound(env, synthetic);
-  return { synthetic_payload: synthetic, result: res };
-}
 
-// ─── operator reads ─────────────────────────────────────────
-export async function recentMessages(env, { chat_id = null, limit = 200 } = {}) {
-  const sql = chat_id
-    ? 'SELECT * FROM wa_messages WHERE chat_id = ? ORDER BY timestamp DESC LIMIT ?'
-    : 'SELECT * FROM wa_messages ORDER BY timestamp DESC LIMIT ?';
-  const stmt = chat_id ? env.DB.prepare(sql).bind(chat_id, limit) : env.DB.prepare(sql).bind(limit);
-  const r = await stmt.all();
-  return (r.results || []).map((m) => ({ ...m, raw_json: safeJSON(m.raw_json) }));
-}

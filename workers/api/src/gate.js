@@ -298,10 +298,6 @@ export async function issueGateSession(c, user) {
   return true;
 }
 
-export function handleGateLogout(c) {
-  c.header('Set-Cookie', `${COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`);
-  return c.json({ ok: true });
-}
 
 // Login page styled to match the command center (nyyon logo, faint grid,
 // Inter + JetBrains Mono, hairline card, auto light/dark). Self-contained;

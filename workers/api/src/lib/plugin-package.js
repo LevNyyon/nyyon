@@ -41,7 +41,7 @@ async function inflateRaw(bytes) {
 // Read a zip by walking its End Of Central Directory → central directory →
 // local headers. Reading the central directory (rather than scanning for local
 // headers) is what makes the entry list authoritative.
-export async function readZip(buf) {
+async function readZip(buf) {
   const b = new Uint8Array(buf);
   if (b.length < 22) throw new Error('not a zip file (too small)');
   // EOCD: scan back from the end for the signature (comment may follow it).
@@ -301,7 +301,7 @@ export function packageFiles(manifest) {
 const GH = /^https?:\/\/github\.com\/([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?(?:\/tree\/([^/?#]+))?\/?$/;
 
 // Where a source URL's bytes actually live, plus the identity to record.
-export function resolveSource(url, ref) {
+function resolveSource(url, ref) {
   const raw = String(url || '').trim();
   if (!/^https:\/\//i.test(raw)) throw new Error('a plugin source must be an https URL');
   const gh = raw.match(GH);

@@ -98,7 +98,7 @@ function normalizeTags(t) {
 }
 
 // Filters: status, source, owner (multi via comma), tag (single — matches JSON), search (name/email/phone/company), starred (1 only)
-export async function listContacts(env, { status = null, source = null, owner = null, tag = null, search = null, starred = false, client_id = null, unassigned = false, limit = 200 } = {}) {
+async function listContacts(env, { status = null, source = null, owner = null, tag = null, search = null, starred = false, client_id = null, unassigned = false, limit = 200 } = {}) {
   let sql = 'SELECT * FROM contacts';
   const where = []; const args = [];
   if (status) { where.push('status = ?'); args.push(status); }
@@ -131,7 +131,7 @@ export async function listContacts(env, { status = null, source = null, owner = 
   return (r.results || []).map((c) => ({ ...c, tags: safeJSON(c.tags) }));
 }
 
-export async function readContact(env, id) {
+async function readContact(env, id) {
   const c = await env.DB.prepare('SELECT * FROM contacts WHERE id = ?').bind(id).first();
   return c ? { ...c, tags: safeJSON(c.tags) } : null;
 }
@@ -197,30 +197,8 @@ export async function writeContact(env, body) {
   return readContact(env, id);
 }
 
-export async function deleteContact(env, id) {
-  await env.DB.prepare('DELETE FROM contacts WHERE id = ?').bind(id).run();
-  await logEvent(env, { kind: 'contact_deleted', payload: { id } });
-}
 
-// Returns the data the filter UI needs: enums + DISTINCT owners + DISTINCT tags
-// across all contacts so the operator can pick from a live set.
-export async function listContactTaxonomy(env) {
-  const ownersR = await env.DB.prepare('SELECT DISTINCT owner FROM contacts WHERE owner IS NOT NULL AND owner != "" ORDER BY owner').all();
-  const tagsR   = await env.DB.prepare('SELECT tags FROM contacts WHERE tags IS NOT NULL').all();
-  const tagSet = new Set();
-  for (const row of (tagsR.results || [])) {
-    const parsed = safeJSON(row.tags);
-    if (Array.isArray(parsed)) for (const t of parsed) if (typeof t === 'string') tagSet.add(t);
-  }
-  return {
-    statuses: CONTACT_STATUSES,
-    sources:  CONTACT_SOURCES,
-    owners:   (ownersR.results || []).map((r) => r.owner),
-    tags:     [...tagSet].sort(),
-  };
-}
 
-export const CONTACT_VOCAB = { CONTACT_STATUSES, CONTACT_SOURCES };
 
 // ─── clients (companies / accounts — the CRM layer above contacts) ──
 // A client is a company Nyyon does (or did) work for. Contacts link to it via
@@ -228,99 +206,16 @@ export const CONTACT_VOCAB = { CONTACT_STATUSES, CONTACT_SOURCES };
 // a contact's person-level status.
 const CLIENT_STATUSES = ['active', 'past', 'prospect', 'partner'];
 
-export async function listClients(env, { status = null, tag = null, search = null, starred = false, limit = 500 } = {}) {
-  // contact_count is computed per row so the list view can show "Acme Corp · 3 contacts".
-  let sql = 'SELECT c.*, (SELECT COUNT(*) FROM contacts ct WHERE ct.client_id = c.id) AS contact_count FROM clients c';
-  const where = []; const args = [];
-  if (status) { where.push('c.status = ?'); args.push(status); }
-  if (tag)    { where.push('c.tags LIKE ?'); args.push(`%"${tag}"%`); }
-  if (search) {
-    where.push('(LOWER(c.name) LIKE ? OR LOWER(c.industry) LIKE ? OR LOWER(c.engagement) LIKE ?)');
-    const s = `%${String(search).toLowerCase()}%`;
-    args.push(s, s, s);
-  }
-  if (starred) where.push('c.starred = 1');
-  if (where.length) sql += ' WHERE ' + where.join(' AND ');
-  sql += ' ORDER BY c.starred DESC, c.updated_at DESC LIMIT ?';
-  args.push(limit);
-  const r = await env.DB.prepare(sql).bind(...args).all();
-  return (r.results || []).map((c) => ({ ...c, tags: safeJSON(c.tags) }));
-}
 
-export async function readClient(env, id) {
+async function readClient(env, id) {
   const c = await env.DB.prepare('SELECT * FROM clients WHERE id = ?').bind(id).first();
   return c ? { ...c, tags: safeJSON(c.tags) } : null;
 }
 
-// Account detail: the client plus every contact linked to it.
-export async function readClientWithContacts(env, id) {
-  const client = await readClient(env, id);
-  if (!client) return null;
-  const contacts = await listContacts(env, { client_id: id, limit: 500 });
-  return { ...client, contacts };
-}
 
-export async function writeClient(env, body) {
-  const t = now();
-  const id = body.id || uid();
-  const status = body.status || 'active';
-  if (!CLIENT_STATUSES.includes(status)) throw new Error(`bad status ${status}. Allowed: ${CLIENT_STATUSES.join(', ')}`);
 
-  const existing = await env.DB.prepare('SELECT * FROM clients WHERE id = ?').bind(id).first();
-  const fields = {
-    name:       body.name ?? existing?.name ?? null,
-    status,
-    industry:   body.industry ?? existing?.industry ?? null,
-    website:    body.website ?? existing?.website ?? null,
-    engagement: body.engagement ?? existing?.engagement ?? null,
-    owner:      body.owner ?? existing?.owner ?? null,
-    tags:       normalizeTags(body.tags),
-    notes:      body.notes ?? existing?.notes ?? null,
-    starred:    body.starred !== undefined ? (body.starred ? 1 : 0) : (existing?.starred ?? 0),
-  };
-  if (!fields.name) throw new Error('client name required');
 
-  if (existing) {
-    await env.DB.prepare(
-      `UPDATE clients SET name=?, status=?, industry=?, website=?, engagement=?, owner=?, tags=?, notes=?, starred=?, updated_at=?, updated_by=? WHERE id=?`,
-    ).bind(
-      fields.name, fields.status, fields.industry, fields.website, fields.engagement, fields.owner, fields.tags, fields.notes, fields.starred,
-      t, body.updated_by || 'operator', id,
-    ).run();
-    await logEvent(env, { kind: 'client_updated', actor: body.updated_by || 'operator', payload: { id, name: fields.name, status: fields.status } });
-  } else {
-    await env.DB.prepare(
-      `INSERT INTO clients (id, name, status, industry, website, engagement, owner, tags, notes, starred,
-                            created_at, updated_at, created_by, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,  ?, ?, ?, ?)`,
-    ).bind(
-      id, fields.name, fields.status, fields.industry, fields.website, fields.engagement, fields.owner, fields.tags, fields.notes, fields.starred,
-      t, t, body.created_by || 'operator', body.updated_by || 'operator',
-    ).run();
-    await logEvent(env, { kind: 'client_added', actor: body.created_by || 'operator', payload: { id, name: fields.name, status: fields.status } });
-  }
-  return readClient(env, id);
-}
 
-export async function deleteClient(env, id) {
-  // Unlink contacts rather than delete them — a person outlives the account.
-  await env.DB.prepare('UPDATE contacts SET client_id = NULL WHERE client_id = ?').bind(id).run();
-  await env.DB.prepare('DELETE FROM clients WHERE id = ?').bind(id).run();
-  await logEvent(env, { kind: 'client_deleted', payload: { id } });
-}
-
-export async function listClientTaxonomy(env) {
-  const ownersR = await env.DB.prepare('SELECT DISTINCT owner FROM clients WHERE owner IS NOT NULL AND owner != "" ORDER BY owner').all();
-  const tagsR   = await env.DB.prepare('SELECT tags FROM clients WHERE tags IS NOT NULL').all();
-  const tagSet = new Set();
-  for (const row of (tagsR.results || [])) {
-    const parsed = safeJSON(row.tags);
-    if (Array.isArray(parsed)) for (const t of parsed) if (typeof t === 'string') tagSet.add(t);
-  }
-  return { statuses: CLIENT_STATUSES, owners: (ownersR.results || []).map((r) => r.owner), tags: [...tagSet].sort() };
-}
-
-export const CLIENT_VOCAB = { CLIENT_STATUSES };
 
 // ─── home_sections — per-section visibility + ordering ──────
 export async function listSections(env, page = 'home') {
@@ -373,64 +268,10 @@ export async function deleteSection(env, id) {
   return { ok: true, id };
 }
 
-// ─── content blocks (editable website copy) ──────────────────
-// full=true returns body too — used by the public site to hydrate in one call.
-export async function listContent(env, { page = null, section = null, full = false } = {}) {
-  const cols = full
-    ? 'slug, title, body, kind, page, section, updated_at, updated_by, published_at'
-    : 'slug, title, kind, page, section, updated_at, updated_by, published_at';
-  let sql = `SELECT ${cols} FROM content_blocks`;
-  const where = []; const args = [];
-  if (page)    { where.push('page = ?');    args.push(page); }
-  if (section) { where.push('section = ?'); args.push(section); }
-  if (where.length) sql += ' WHERE ' + where.join(' AND ');
-  sql += ' ORDER BY page, section, slug';
-  const r = await env.DB.prepare(sql).bind(...args).all();
-  return r.results || [];
-}
-export async function readContent(env, slug) {
+async function readContent(env, slug) {
   return env.DB.prepare('SELECT * FROM content_blocks WHERE slug = ?').bind(slug).first();
 }
-export async function writeContent(env, { slug, title, body, kind = 'text', page = null, section = null, updated_by = 'operator' }) {
-  const t = now();
-  const existing = await readContent(env, slug);
-  if (existing) {
-    await env.DB.prepare(
-      `UPDATE content_blocks SET title=?, body=?, kind=?, page=?, section=?, updated_at=?, updated_by=? WHERE slug=?`,
-    ).bind(title, body, kind, page, section, t, updated_by, slug).run();
-  } else {
-    await env.DB.prepare(
-      `INSERT INTO content_blocks (slug, title, body, kind, page, section, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).bind(slug, title, body, kind, page, section, t, updated_by).run();
-  }
-  await logEvent(env, { kind: 'content_updated', actor: updated_by, payload: { slug, title, page } });
-  return readContent(env, slug);
-}
-export async function deleteContent(env, slug) {
-  await env.DB.prepare('DELETE FROM content_blocks WHERE slug = ?').bind(slug).run();
-  await logEvent(env, { kind: 'content_deleted', payload: { slug } });
-}
 
-// ─── blog posts (plugin-owned table; host render impls read it) ──────────────
-// The Blog/AEO module ships as the editorial plugin, which owns
-// plugin_editorial_blog_posts. The host keeps ONE read helper because the
-// render gateway impls (lib/article-figures.js renderCover, and the
-// candidate-image renderer) fall back to the post row when a caller passes
-// only a slug. Host code may read/write plugin_editorial_* tables; all the
-// write helpers moved into the pack (plugins/editorial/lib/blog-db.mjs).
-export async function readBlogPost(env, slug) {
-  return env.DB.prepare('SELECT * FROM plugin_editorial_blog_posts WHERE slug = ?').bind(slug).first();
-}
-// Universal typography guard: the operator has a hard, standing rule of NO
-// en-dashes or em-dashes anywhere in any post. Strip them on EVERY write so it
-// cannot slip through regardless of which path (LLM draft, expand, cron, manual,
-// figure re-embed) produced the text. Plain hyphens are fine and left alone.
-export function stripDashes(s) {
-  if (s == null) return s;
-  return String(s)
-    .replace(/\s*—\s*/g, ', ')  // em-dash -> comma + space
-    .replace(/\s*–\s*/g, '-');  // en-dash -> hyphen
-}
 
 // ─── workflows (definition + run history) ───────────────────────────
 function decodeWorkflow(w) {
@@ -690,74 +531,10 @@ export async function setFlag(env, key, value) {
 // income rows add income_net, expense + draw rows subtract expense; the month's
 // final balance is "stays in account". income_net = income_pretax * 1.18 (Ma'am)
 // when a pre-VAT amount is entered; some incomes are entered net directly.
-export const MAAM_RATE = 0.18;
+const MAAM_RATE = 0.18;
 const round2 = (n) => (n == null ? null : Math.round(n * 100) / 100);
 
-export async function listFinanceEntries(env, { year = null } = {}) {
-  const r = year
-    ? await env.DB.prepare('SELECT * FROM finance_entries WHERE year=? ORDER BY month, position, id').bind(year).all()
-    : await env.DB.prepare('SELECT * FROM finance_entries ORDER BY year, month, position, id').all();
-  return r.results || [];
-}
 
-export async function createFinanceEntry(env, e = {}) {
-  const id = uid(); const t = now();
-  const year  = e.year  || new Date().getFullYear();
-  const month = e.month || (new Date().getMonth() + 1);
-  const kind  = e.kind || (e.income_net != null || e.income_pretax != null ? 'income' : 'expense');
-  const pos   = e.position ?? (((await env.DB.prepare(
-    'SELECT COALESCE(MAX(position),0)+1 AS n FROM finance_entries WHERE year=? AND month=?').bind(year, month).first())?.n) || 1);
-  // net: explicit wins; else derive from pre-VAT amount; only meaningful for income.
-  let income_net = null;
-  if (kind === 'income') income_net = e.income_net != null ? round2(e.income_net)
-    : (e.income_pretax != null ? round2(e.income_pretax * (1 + MAAM_RATE)) : null);
-  await env.DB.prepare(
-    `INSERT INTO finance_entries (id, year, month, position, kind, status, item, income_pretax, income_net, expense, note, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).bind(id, year, month, pos, kind, e.status || '', e.item || '', e.income_pretax ?? null, income_net, e.expense ?? null, e.note ?? null, t, t).run();
-  await logEvent(env, { kind: 'finance_entry_added', actor: e.actor || 'operator', payload: { id, year, month, item: e.item } });
-  return env.DB.prepare('SELECT * FROM finance_entries WHERE id=?').bind(id).first();
-}
 
-export async function updateFinanceEntry(env, id, patch = {}) {
-  const ex = await env.DB.prepare('SELECT * FROM finance_entries WHERE id=?').bind(id).first();
-  if (!ex) throw new Error(`finance entry not found: ${id}`);
-  const m = { ...ex, ...patch };
-  // Recompute net: explicit income_net patch wins; else derive from a patched
-  // pre-VAT amount; else keep existing. Non-income rows carry no net.
-  let income_net = ex.income_net;
-  if (m.kind !== 'income') income_net = null;
-  else if ('income_net' in patch) income_net = patch.income_net;
-  else if ('income_pretax' in patch) income_net = patch.income_pretax != null ? patch.income_pretax * (1 + MAAM_RATE) : null;
-  income_net = round2(income_net);
-  const t = now();
-  await env.DB.prepare(
-    `UPDATE finance_entries SET year=?, month=?, position=?, kind=?, status=?, item=?, income_pretax=?, income_net=?, expense=?, note=?, updated_at=? WHERE id=?`,
-  ).bind(m.year, m.month, m.position, m.kind, m.status ?? '', m.item ?? '', m.income_pretax ?? null, income_net, m.expense ?? null, m.note ?? null, t, id).run();
-  await logEvent(env, { kind: 'finance_entry_updated', actor: patch.actor || 'operator', payload: { id } });
-  return env.DB.prepare('SELECT * FROM finance_entries WHERE id=?').bind(id).first();
-}
 
-export async function deleteFinanceEntry(env, id) {
-  await env.DB.prepare('DELETE FROM finance_entries WHERE id=?').bind(id).run();
-  await logEvent(env, { kind: 'finance_entry_deleted', actor: 'operator', payload: { id } });
-}
 
-// READ-ONLY SQL surface for the query_crm tool. ponytail: substring guard,
-// not a real SQL parser. It's the operator's own agent on their own DB, so
-// the only thing worth hiding is the API key in `settings`. Swap in a parser
-// only if an untrusted caller ever hits this.
-export async function queryCrmReadOnly(env, rawSql) {
-  let sql = String(rawSql || '').trim().replace(/;+\s*$/, '');
-  if (!/^(select|with)\b/i.test(sql)) return { error: 'read-only: query must start with SELECT or WITH' };
-  if (/;/.test(sql)) return { error: 'one statement only' };
-  if (/\b(insert|update|delete|drop|alter|create|replace|attach|detach|pragma|vacuum|reindex)\b/i.test(sql)) return { error: 'read-only: write/DDL keywords not allowed' };
-  if (/\bsettings\b/i.test(sql)) return { error: 'settings table is off-limits' };
-  try {
-    const capped = /\blimit\b/i.test(sql) ? sql : sql + ' LIMIT 500';
-    const r = await env.DB.prepare(capped).all();
-    return { rows: r.results || [], count: (r.results || []).length };
-  } catch (e) {
-    return { error: String(e?.message || e) };
-  }
-}

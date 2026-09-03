@@ -35,20 +35,6 @@ export async function head(env, { url, timeout_ms = DEFAULT_TIMEOUT_MS } = {}) {
   return { ok: r.ok, status: r.status };
 }
 
-// Bounded JSON POST to a public endpoint (IndexNow-style pings). Returns
-// {ok, status, text} — never throws on HTTP error status, throws on bad
-// url / network / timeout, same contract as fetchText.
-export async function postJson(env, { url, body, headers, timeout_ms = DEFAULT_TIMEOUT_MS, method = 'POST' } = {}) {
-  if (!/^https?:\/\//i.test(String(url || ''))) throw new Error('web gateway: url must be http(s)');
-  const r = await fetch(url, {
-    method,
-    headers: { 'content-type': 'application/json', ...(headers || {}) },
-    body: typeof body === 'string' ? body : JSON.stringify(body ?? {}),
-    signal: AbortSignal.timeout(timeout_ms),
-  });
-  const text = await r.text().catch(() => '');
-  return { ok: r.ok, status: r.status, text: text.slice(0, 2000) };
-}
 
 export async function fetchBytes(env, { url, timeout_ms = 20_000 } = {}) {
   if (!/^https?:\/\//i.test(String(url || ''))) throw new Error('web gateway: url must be http(s)');

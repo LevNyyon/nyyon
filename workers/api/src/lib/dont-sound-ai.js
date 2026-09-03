@@ -13,7 +13,7 @@ import { UNIVERSAL_STYLE_RULES, UNIVERSAL_PERSONAL_RULES } from './onboarding-pl
 
 export const DOC_SLUG = 'dont-sound-ai';
 
-export const DONT_SOUND_AI_DEFAULT = `# Don't sound AI
+const DONT_SOUND_AI_DEFAULT = `# Don't sound AI
 
 Hard rules for EVERY composition this system produces — chat replies, plans,
 briefs, drafts, articles, outreach. Read by every composing surface; the setup

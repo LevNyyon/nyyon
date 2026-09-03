@@ -17,7 +17,7 @@ const POLICY_SLUG = 'meeting-reminders';
 
 // Everything the reminder pipeline used to hardcode. The knowledge doc
 // overrides these; nothing below is a literal at a call site any more.
-export const REMINDER_DEFAULTS = Object.freeze({
+const REMINDER_DEFAULTS = Object.freeze({
   lead_minutes: 10,
   kinds: ['meeting'],
   timezone: 'Asia/Jerusalem',
@@ -29,23 +29,11 @@ export const REMINDER_DEFAULTS = Object.freeze({
 const LEGACY_GRACE_MS = REMINDER_DEFAULTS.grace_minutes * 60_000;
 let lastCheckAt = 0;          // per-isolate throttle; the reminded_at claim is the real guard
 
-export async function getReminderSettings(env) {
+async function getReminderSettings(env) {
   const row = await env.DB.prepare('SELECT * FROM meeting_reminder_settings WHERE id = 1').first();
   return { ...row, chat_id_effective: row?.chat_id || env.WA_TEST_CHAT_ID || null };
 }
 
-export async function updateReminderSettings(env, patch = {}) {
-  const cur = await getReminderSettings(env);
-  const enabled = patch.enabled === undefined ? cur.enabled : (patch.enabled ? 1 : 0);
-  const lead = Math.max(1, Math.min(240, Number(patch.lead_minutes ?? cur.lead_minutes) || REMINDER_DEFAULTS.lead_minutes));
-  const chatId = patch.chat_id === undefined ? cur.chat_id : (String(patch.chat_id || '').trim() || null);
-  const kinds = patch.kinds === undefined ? cur.kinds : (String(patch.kinds || '').trim() || REMINDER_DEFAULTS.kinds.join(','));
-  await env.DB.prepare(
-    'UPDATE meeting_reminder_settings SET enabled = ?, lead_minutes = ?, chat_id = ?, kinds = ?, updated_at = ? WHERE id = 1',
-  ).bind(enabled, lead, chatId, kinds, Date.now()).run();
-  await logEvent(env, { kind: 'reminder_settings_updated', actor: 'operator', payload: { enabled: !!enabled, lead_minutes: lead, chat_id: chatId, kinds } });
-  return getReminderSettings(env);
-}
 
 // ── the editable policy ─────────────────────────────────────────────────────
 function coercePolicy(src) {
@@ -80,7 +68,7 @@ rest (timezone, grace, note cap, horizon) lives only here.`;
 // operator just clicked; the doc owns everything else and supplies the fallback.
 // A missing/corrupt doc degrades to defaults — a reminder must never fail to
 // fire because knowledge is unreadable.
-export async function readReminderPolicy(env) {
+async function readReminderPolicy(env) {
   let parsed = null;
   let source = 'defaults';
   try {
@@ -117,7 +105,7 @@ export async function readReminderPolicy(env) {
 const fmtTime = (ms, timezone = REMINDER_DEFAULTS.timezone) =>
   new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
 
-export function composeReminder(ev, now = Date.now(), policy = REMINDER_DEFAULTS) {
+function composeReminder(ev, now = Date.now(), policy = REMINDER_DEFAULTS) {
   const mins = Math.max(0, Math.round((ev.starts_at - now) / 60_000));
   const when = mins === 0 ? 'now' : `in ${mins} min`;
   const lines = [`⏰ ${ev.title} - ${when} (${fmtTime(ev.starts_at, policy.timezone)})`];
@@ -136,26 +124,6 @@ function safeArr(v) {
   try { const p = JSON.parse(v || '[]'); return Array.isArray(p) ? p : []; } catch { return []; }
 }
 
-// Next candidate meetings with the computed fire time, for the UI panel + Nyo.
-export async function upcomingReminders(env, { hours = null } = {}) {
-  const p = await readReminderPolicy(env);
-  const horizon = Number(hours) > 0 ? Number(hours) : p.horizon_hours;
-  const now = Date.now();
-  const r = await env.DB.prepare(
-    `SELECT id, kind, title, starts_at, status, all_day, location, reminded_at
-       FROM calendar_events
-      WHERE starts_at > ? AND starts_at <= ?
-        AND kind IN (${p.kinds.map(() => '?').join(',')})
-      ORDER BY starts_at ASC LIMIT 30`,
-  ).bind(now - p.grace_minutes * 60_000, now + horizon * 3_600_000, ...p.kinds).all();
-  const events = (r.results || []).map((ev) => ({
-    ...ev,
-    will_remind: p.enabled && !ev.all_day && !ev.reminded_at && ['pending', 'confirmed'].includes(ev.status),
-    remind_at: ev.starts_at - p.lead_minutes * 60_000,
-  }));
-  // The panel still renders the raw settings row, so hand it back unchanged.
-  return { settings: await getReminderSettings(env), events };
-}
 
 // ── the three granular steps the meeting-reminders workflow runs ────────────
 
@@ -220,47 +188,3 @@ export async function composeReminderDigest(env, { claimed_meetings = [], chatId
   return { chatId: to, text: rows.map((ev) => composeReminder(ev, now, p)).join('\n\n'), count: rows.length };
 }
 
-// ── legacy fat path ─────────────────────────────────────────────────────────
-// Superseded by the meeting-reminders workflow (list → claim → compose → send).
-// Still exported because index.js's poll and cron call it; retire both together.
-// Note this version RELEASES the claim on a failed send (auto-retry), which the
-// workflow deliberately does not.
-export async function checkMeetingReminders(env, { force = false } = {}) {
-  const now = Date.now();
-  if (!force && now - lastCheckAt < 60_000) return { skipped: 'throttled' };
-  lastCheckAt = now;
-
-  const s = await getReminderSettings(env);
-  if (!s.enabled) return { skipped: 'disabled' };
-  if (!s.chat_id_effective) return { skipped: 'no chat_id configured (set one or define WA_TEST_CHAT_ID)' };
-
-  const kinds = s.kinds.split(',').map((k) => k.trim()).filter(Boolean);
-  const r = await env.DB.prepare(
-    `SELECT * FROM calendar_events
-      WHERE reminded_at IS NULL AND all_day = 0
-        AND status IN ('pending', 'confirmed')
-        AND kind IN (${kinds.map(() => '?').join(',')})
-        AND starts_at > ? AND starts_at <= ?`,
-  ).bind(...kinds, now - LEGACY_GRACE_MS, now + s.lead_minutes * 60_000).all();
-
-  const sent = [], failed = [];
-  for (const ev of r.results || []) {
-    // Claim before sending so a concurrent check can't double-send.
-    const claim = await env.DB.prepare(
-      'UPDATE calendar_events SET reminded_at = ? WHERE id = ? AND reminded_at IS NULL',
-    ).bind(now, ev.id).run();
-    if (!claim.meta?.changes) continue;
-    const text = composeReminder(ev, now);
-    try {
-      await sendText(env, { chatId: s.chat_id_effective, text }, { source: 'meeting-reminder' });
-      sent.push({ id: ev.id, title: ev.title });
-      await logEvent(env, { kind: 'meeting_reminder_sent', actor: 'system', payload: { event_id: ev.id, title: ev.title, starts_at: ev.starts_at, chat_id: s.chat_id_effective } });
-    } catch (e) {
-      // Release the claim so the next poll retries; log so it shows in Activity.
-      await env.DB.prepare('UPDATE calendar_events SET reminded_at = NULL WHERE id = ?').bind(ev.id).run();
-      failed.push({ id: ev.id, title: ev.title, error: String(e?.message || e) });
-      await logEvent(env, { kind: 'meeting_reminder_failed', actor: 'system', payload: { event_id: ev.id, title: ev.title, error: String(e?.message || e) } });
-    }
-  }
-  return { checked: (r.results || []).length, sent, failed };
-}

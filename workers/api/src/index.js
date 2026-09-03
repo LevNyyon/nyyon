@@ -16,13 +16,9 @@ import {
 import { runWakeUp } from './lib/wake-up.js';
 import { ttsConfigured, synthesize } from './lib/tts-gateway.js';
 import {
-  // Everything the WhatsApp family covers now goes through the pool; what is
-  // left here has no tool: the legacy inbound webhook, the chat-policy patch
-  // (set_chat_listening only covers the digest listener flag), the message
-  // reader, the gateway probes/test-sends and the pull-sync.
-  handleInbound, setChatPolicy, recentMessages,
-  probeWaGateway, registerWebhook, testInbound, checkWaHealth,
-  sendTestText, sendTestReply,
+  setChatPolicy,
+  probeWaGateway,
+  checkWaHealth,
   syncFromGateway,
 } from './lib/whatsapp.js';
 import { handleChat } from './chat/index.js';
@@ -925,16 +921,6 @@ app.get('/api/modules/:slug/status', async (c) => {
 // Pull-sync from the gateway (the WhatsApp source of truth) into the D1 cache.
 // This replaces the old webhook-into-this-API path: nothing pushes to us — we
 // call the gateway. Triggered by the wake-up, digest generation, and on demand.
-app.post('/api/wa/sync', async (c) => c.json(await syncFromGateway(c.env)));
-// Legacy inbound webhook — kept for compatibility but no longer the primary
-// path (the gateway persists + we pull). Left gated; no webhook is registered to it.
-app.post('/api/wa/inbound', async (c) => {
-  const body = await c.req.json().catch(() => null);
-  if (!body) return c.json({ error: 'bad json' }, 400);
-  return c.json(await handleInbound(c.env, body));
-});
-// limit:500 because the tool caps at 50 by default and the Channels page
-// renders the FULL chat list (the lib call it replaces had no cap).
 app.get('/api/wa/chats', async (c) => c.json(await runTool(c.env, 'list_wa_chats', { limit: 500 })));
 // Fuzzy find a WhatsApp chat/person by partial name or phone (chat names +
 // sender pushnames + CRM names-by-phone). Powers the ops search + Nyo's find_wa_chat.
@@ -952,12 +938,6 @@ app.put('/api/wa/chats/:id', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   return c.json({ chat: await setChatPolicy(c.env, id, body) });
 });
-app.get('/api/wa/messages', async (c) => {
-  const chat_id = c.req.query('chat_id') || null;
-  const limit   = parseInt(c.req.query('limit') || '200', 10);
-  return c.json({ messages: await recentMessages(c.env, { chat_id, limit }) });
-});
-
 // ─── wa-gateway outbound (prime → poll → send sequence baked in) ─
 app.post('/api/wa/send', async (c) => {
   const body = await c.req.json().catch(() => ({}));
@@ -985,16 +965,6 @@ app.get('/api/wa/probe', async (c) => c.json(await probeWaGateway(c.env)));
 app.get('/api/wa/groups', async (c) => c.json(await runTool(c.env, 'list_wa_groups', {})));
 // Safe test-send — always routes to env.WA_TEST_CHAT_ID. Use this for any
 // pipeline verification instead of poking /api/wa/send directly.
-app.post('/api/wa/test-send', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try { return c.json(await sendTestText(c.env, body || {})); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.post('/api/wa/test-reply', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try { return c.json(await sendTestReply(c.env, body || {})); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
 app.post('/api/wa/restart-session', async (c) => {
   try { return c.json(await runTool(c.env, 'restart_wa_session', {})); }
   catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
@@ -1004,23 +974,6 @@ app.post('/api/wa/backfill', async (c) => {
   try { return c.json(await runTool(c.env, 'backfill_wa_messages', { limit: body?.limit, chatId: body?.chatId })); }
   catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
 });
-app.post('/api/wa/register-webhook', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try {
-    return c.json(await registerWebhook(c.env, body));
-  } catch (e) {
-    return c.json({ error: String(e?.message || e) }, 400);
-  }
-});
-app.post('/api/wa/test-inbound', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try {
-    return c.json(await testInbound(c.env, body));
-  } catch (e) {
-    return c.json({ error: String(e?.message || e) }, 400);
-  }
-});
-
 // ─── Dev-invoke API — authenticated curl access to every component ────────
 // Auth: DEV_API_KEY bearer token, checked in gate.js, scoped to /api/dev/*.
 // The operator's test bench: list the registries, invoke any tool/gateway/

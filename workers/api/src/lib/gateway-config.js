@@ -135,7 +135,7 @@ const isSet = (v) => v !== undefined && v !== null && String(v).trim() !== '';
 const CACHE_TTL_MS = 10_000;
 let CACHE = null; // { at, bySlug: {slug: {KEY: value}}, byKey: {KEY: value} }
 
-export function invalidateGatewayConfigCache() { CACHE = null; }
+function invalidateGatewayConfigCache() { CACHE = null; }
 
 async function loadAll(env) {
   if (CACHE && (now() - CACHE.at) < CACHE_TTL_MS) return CACHE;
@@ -176,7 +176,7 @@ async function loadAll(env) {
 // Returns REAL values — it is the read-modify-write path for an edit form.
 // Anything rendering to a browser must use listGatewayStatus instead, which
 // never emits a secret value.
-export async function readGatewayConfig(env, slug) {
+async function readGatewayConfig(env, slug) {
   const { bySlug } = await loadAll(env);
   const cfg = bySlug[slug];
   return cfg ? { ...cfg } : null;
