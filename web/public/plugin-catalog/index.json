@@ -21,6 +21,15 @@
       "file": "/plugin-catalog/editorial.json"
     },
     {
+      "name": "gtm",
+      "title": "GTM",
+      "version": "2.0.0",
+      "description": "Prospecting and Outreach: find and enrich companies and people, score fit, and run a paced outreach sequence with reply handling. Search, person enrichment and phone validation connect with your own keys; LinkedIn and org charts are reported as unavailable on this install.",
+      "capabilities": [],
+      "needs_key": true,
+      "file": "/plugin-catalog/gtm.json"
+    },
+    {
       "name": "news-search",
       "title": "News Search",
       "version": "1.0.0",
