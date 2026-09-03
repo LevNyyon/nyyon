@@ -12,6 +12,15 @@
       "file": "/plugin-catalog/brave-search.json"
     },
     {
+      "name": "editorial",
+      "title": "Editorial",
+      "version": "2.0.0",
+      "description": "Editorial: the Blog with its AEO writer, Hot Takes, and Social drafting and posting. Text works fully on a lean install; image rendering, calendar scheduling and vision are reported as unavailable rather than failing quietly.",
+      "capabilities": [],
+      "needs_key": true,
+      "file": "/plugin-catalog/editorial.json"
+    },
+    {
       "name": "news-search",
       "title": "News Search",
       "version": "1.0.0",

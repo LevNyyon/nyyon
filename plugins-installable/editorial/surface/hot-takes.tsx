@@ -1875,7 +1875,7 @@ function SourcesTab({ bump, refresh, setup, onRerun }: {
                 className="flex-1 h-9 px-3 rounded-sm bg-paper border border-line text-sm text-ink focus:outline-none focus:border-ink/40" />
               <select value={theme} onChange={(e) => setTheme(e.target.value)}
                 className="h-9 px-2 rounded-sm bg-paper border border-line text-sm text-ink focus:outline-none">
-                {['general', 'models', 'ai-marketing', 'aeo', 'competitor', 'brand'].map((t) => <option key={t} value={t}>{t}</option>)}
+                {['general', 'models', 'ai-marketing', 'aeo', 'competitor', 'plugin-editorial-brand'].map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
               <Btn onClick={add} disabled={busy || !name.trim() || !urlOrQuery.trim()}>{busy ? 'Adding…' : 'Add'}</Btn>
             </div>

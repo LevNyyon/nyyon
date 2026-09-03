@@ -139,7 +139,7 @@ export function HotTakesFirstRun({ state, onClose }: {
   );
   const pickedSources = allProposals.filter((p) => chosen[keyOf(p)]);
   const pickedWatchers = useMemo(() => {
-    const brands = (scout?.brands || []).map((n) => ({ name: n, kind: 'brand' as const }));
+    const brands = (scout?.brands || []).map((n) => ({ name: n, kind: 'plugin-editorial-brand' as const }));
     const comps = (scout?.competitors || []).map((n) => ({ name: n, kind: 'competitor' as const }));
     return [...brands, ...comps].filter((w) => watchers[w.name]);
   }, [scout, watchers]);
@@ -433,7 +433,7 @@ export function HotTakesFirstRun({ state, onClose }: {
                   <span className="text-[11px] text-mute">Mentions of these feed the same topic queue.</span>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {[...(scout.brands || []).map((n) => ({ n, kind: 'brand' })), ...(scout.competitors || []).map((n) => ({ n, kind: 'competitor' }))].map(({ n, kind }) => (
+                  {[...(scout.brands || []).map((n) => ({ n, kind: 'plugin-editorial-brand' })), ...(scout.competitors || []).map((n) => ({ n, kind: 'competitor' }))].map(({ n, kind }) => (
                     <button key={kind + n} type="button"
                       onClick={() => setWatchers((m) => ({ ...m, [n]: !m[n] }))}
                       className={'inline-flex items-center gap-1.5 h-7 px-2.5 rounded-sm text-[12px] transition ' +

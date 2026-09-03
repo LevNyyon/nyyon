@@ -320,7 +320,7 @@ export const api = {
     invoke<FeedCheck>('validate_feed_url', { url }),
   hotTakeApplySetup: (body: {
     sources?: Partial<SourceProposal>[];
-    targets?: { name: string; domain?: string | null; kind?: 'brand' | 'competitor' }[];
+    targets?: { name: string; domain?: string | null; kind?: 'plugin-editorial-brand' | 'competitor' }[];
     watch?: { topics?: string[]; keywords?: string[]; ignore?: string[]; note?: string } | null;
     ran_ingest?: boolean;
   }) => invoke<{ ok: boolean; status: string; summary: HotTakeSetupState['summary']; failed: { name: string; error: string }[] }>(

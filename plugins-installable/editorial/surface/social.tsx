@@ -136,7 +136,7 @@ export default function Social() {
   // Nyo folds what it learned back into the voice/taste knowledge docs.
   const shapeWithNyo = (p: SocialPost) => {
     const kind = p.channel === 'linkedin-personal' ? 'personal LinkedIn' : p.channel.startsWith('facebook') ? 'company Facebook' : 'company LinkedIn';
-    const voiceDoc = p.channel === 'linkedin-personal' ? 'personal-voice' : 'brand-voice';
+    const voiceDoc = p.channel === 'linkedin-personal' ? 'plugin-editorial-personal-voice' : 'brand-voice';
     setPendingSend(
       `Let's improve, adjust, and shape a social post together. It's the ${CHANNEL_LABELS[p.channel]} post for the blog article "${p.blog_title || humanize(p.blog_slug)}". Its social post id is ${p.id}.\n\nCurrent draft:\n"""\n${p.content}\n"""\n\nAs I ask for changes, call edit_social_post with that id and the FULL new text so it updates live in the Social module. This is shaping, not publishing, I approve it myself.\n\nWhen we're done, capture what you learned about how I want ${kind} posts written (tone, length, what to cut, what to lead with) and save it with write_knowledge into the ${voiceDoc} doc (or plugin-editorial-editorial-taste for cross-cutting taste). Read the doc first and append, do not overwrite what's already good.\n\nStart with a quick read and ask what I'd like to change.`,
     );
