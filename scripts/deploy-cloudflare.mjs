@@ -35,19 +35,31 @@ function sh(cmd, { cwd = ROOT, input, ok = false } = {}) {
 const wr = (args, opts = {}) => sh(['npx', 'wrangler', ...args], { cwd: API, ...opts });
 
 // ── 0. signed in? ──
+// Two ways in, and an AGENT can only use the second: an interactive
+// `wrangler login` needs a human at a browser, while CLOUDFLARE_API_TOKEN is
+// pasted once and works headless. The README's front door hands the operator
+// a pre-filled token link for exactly this reason.
 say('checking Cloudflare access');
+const hasToken = !!(process.env.CLOUDFLARE_API_TOKEN || '').trim();
 const who = wr(['whoami'], { ok: true });
-if (who.code !== 0 || /not authenticated|please run.*login/i.test(who.out)) {
+if (!hasToken && (who.code !== 0 || /not authenticated|please run.*login/i.test(who.out))) {
   console.error(`
-Not signed in to Cloudflare yet. Run:
+No Cloudflare access yet. Two ways to give it:
 
-    npx wrangler login
+  1. A token (works for an AI agent, no browser needed). Create one here, with
+     Workers, D1 and R2 permissions already ticked:
 
-A browser opens — sign in (or create the free account there: email + password,
-no card) and click Allow. Then run \`npm run deploy\` again.
+     https://dash.cloudflare.com/profile/api-tokens/create
+
+     Then run:  CLOUDFLARE_API_TOKEN=<your token> npm run deploy
+
+  2. Or sign in yourself:  npx wrangler login
+     A browser opens; sign in (the free account is email and password, no card)
+     and click Allow. Then run \`npm run deploy\` again.
 `);
   process.exit(1);
 }
+if (hasToken) say('using CLOUDFLARE_API_TOKEN');
 
 // ── 1. dependencies + build ──
 say('installing dependencies (first run only)');

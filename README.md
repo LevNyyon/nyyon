@@ -1,13 +1,31 @@
 # nyyon
 
-**Your own AI command center. One click. Free. Nothing shared with anyone.**
+**Your own AI command center. Two clicks and a paste. Free. Nothing shared with anyone.**
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LevNyyon/nyyon)
+## Install
 
-A free Cloudflare account is all it takes: no card, no server to rent. The button
-forks this repo to your GitHub, creates your own database and storage bucket,
-deploys, and hands you an https address. Open it, create your account on the
-first screen, and you are in, from any device, forever.
+**1. Get your Cloudflare token** (free account, no card):
+
+[**Create the token**](https://dash.cloudflare.com/profile/api-tokens/create?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_routes%22%2C%22type%22%3A%22edit%22%7D%5D&name=nyyon-deploy&accountId=%2A&zoneId=all)
+
+That link opens Cloudflare with the right permissions already ticked (Workers,
+D1, R2). Sign in or make the free account, scroll down, press **Continue to
+summary**, then **Create Token**, and copy it. Cloudflare shows it once.
+
+**2. Paste this to Claude**, with your token in place of the placeholder:
+
+```
+Install nyyon for me. Clone https://github.com/LevNyyon/nyyon, cd into it,
+then deploy it to my Cloudflare account using this token:
+
+CLOUDFLARE_API_TOKEN=<paste your token here>
+
+Run `npm install`, then `CLOUDFLARE_API_TOKEN=<token> npm run deploy`.
+When it finishes, give me the URL and the setup link it prints.
+```
+
+**3. Open the link Claude gives you**, create your account, and you are in, from
+any device, forever.
 
 Four modules arrive installed and active: **Daily Planner, Digest, Editorial
 (Blog, Hot Takes, Social), GTM (Prospecting, Outreach)**. Nothing is pre-loaded:
@@ -15,29 +33,18 @@ no sample data, no keys, no other person's history. Add an Anthropic key when
 setup asks and the assistant starts answering.
 
 <details>
-<summary><b>Prefer to have an agent do it?</b></summary>
+<summary><b>Rather click a button than talk to an agent?</b></summary>
 
-1. **Log in to Cloudflare, or create the free account**: [dash.cloudflare.com/sign-up](https://dash.cloudflare.com/sign-up). Email and password, no card.
-2. **Verify your email** by clicking the link Cloudflare sends.
-3. **Paste this to your AI agent** (Claude Code, Cursor, any agent that runs commands):
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/LevNyyon/nyyon)
 
-```
-Install nyyon for me: clone https://github.com/LevNyyon/nyyon, cd into it, run
-`npx wrangler login` and wait while I approve it, then run `npm run deploy`
-and give me the setup link it prints.
-```
-
-4. Your browser opens once. Click **Allow**: that connects the deploy to your account.
-5. Your agent hands you a setup link. Open it, set your password, you are in.
-
-Re-running the install updates the app and keeps your data.
+Cloudflare forks this repo to your GitHub, creates the database and bucket in
+your account, and deploys. You never touch a terminal. It asks for a few more
+permissions than the token above, since it is doing the fork for you.
 
 </details>
 
 <details>
-<summary><b>No agent? Install by hand</b></summary>
-
-The same three commands, run yourself:
+<summary><b>No agent, no button: do it yourself</b></summary>
 
 ```
 git clone https://github.com/LevNyyon/nyyon && cd nyyon

@@ -13,6 +13,16 @@ import { Sun, Moon, Monitor, Check } from '../components/Icons';
 // bucket in THEIR OWN account. No credential of theirs passes through here.
 const REPO_URL = 'https://github.com/LevNyyon/nyyon';
 const DEPLOY_URL = `https://deploy.workers.cloudflare.com/?url=${encodeURIComponent(REPO_URL)}`;
+// The token path is the one an AI agent can actually use: the operator creates
+// a scoped token on a pre-filled Cloudflare page and pastes it to the agent,
+// which deploys headless. `wrangler login` needs a human at a browser.
+const TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens/create?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_routes%22%2C%22type%22%3A%22edit%22%7D%5D&name=nyyon-deploy&accountId=%2A&zoneId=all';
+const AGENT_PROMPT = `Install nyyon for me. Clone ${REPO_URL}, cd into it, then deploy it to my Cloudflare account using this token:
+
+CLOUDFLARE_API_TOKEN=<paste your token here>
+
+Run \`npm install\`, then \`CLOUDFLARE_API_TOKEN=<token> npm run deploy\`.
+When it finishes, give me the URL and the setup link it prints.`;
 
 function DeployCard() {
   return (
@@ -23,10 +33,23 @@ function DeployCard() {
         your data. The free tier is enough and no card is asked for. Cloudflare handles the
         sign-in, so nothing about your account passes through here.
       </p>
-      <div className="flex items-center gap-3">
-        <a href={DEPLOY_URL} target="_blank" rel="noreferrer noopener"
+      <ol className="text-[12px] text-mute leading-relaxed pl-4 list-decimal space-y-1">
+        <li>Create a Cloudflare token. The link opens the page with the right permissions already ticked.</li>
+        <li>Paste the prompt below to Claude, with your token in it. It deploys and gives you the address.</li>
+      </ol>
+      <div className="flex items-center gap-3 flex-wrap">
+        <a href={TOKEN_URL} target="_blank" rel="noreferrer noopener"
            className="text-[12px] px-3 h-8 inline-flex items-center rounded-sm bg-ink text-paper">
-          Deploy to Cloudflare
+          Create the token
+        </a>
+        <button
+          onClick={() => { navigator.clipboard.writeText(AGENT_PROMPT).catch(() => {}); }}
+          className="text-[12px] px-3 h-8 inline-flex items-center rounded-sm hairline bg-paper hover:bg-card">
+          copy the prompt
+        </button>
+        <a href={DEPLOY_URL} target="_blank" rel="noreferrer noopener"
+           className="text-[12px] text-mute hover:text-ink underline underline-offset-2">
+          or use the one-click button
         </a>
         <a href={REPO_URL} target="_blank" rel="noreferrer noopener"
            className="text-[12px] text-mute hover:text-ink underline underline-offset-2">see the code</a>
