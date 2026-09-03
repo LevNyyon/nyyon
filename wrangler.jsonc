@@ -33,21 +33,13 @@
     { "binding": "DB", "database_name": "nyyon" }
   ],
 
-  "r2_buckets": [
-    { "binding": "ASSETS", "bucket_name": "nyyon-assets" }
-  ],
 
-  "vars": {
-    "LLM_PROVIDER": "anthropic",
-    "ANTHROPIC_MODEL": "claude-opus-4-8",
-    "NYO_MODEL_LOW": "claude-haiku-4-5",
-    "NYO_MODEL_MID": "claude-sonnet-5",
-    "NYO_MODEL_HIGH": "claude-opus-4-8",
-    "WA_BASE_URL": "",
-    "WA_SESSION_ID": "default",
-    "WEBSITE_BASE_URL": "",
-    "ASSETS_BASE_URL": ""
-  },
+  // Only what a fresh install cannot derive. The model tiers live in the
+  // llm-models knowledge doc and have code defaults; the API key is set in
+  // Settings after the first sign-in; the gate secret is minted per install.
+  // Empty placeholders for services this build does not ship (WhatsApp,
+  // website, assets) are worse than absent: they read as configuration.
+  "vars": {},
 
   "triggers": { "crons": ["0 * * * *", "45 * * * *", "0 6 * * *"] },
 

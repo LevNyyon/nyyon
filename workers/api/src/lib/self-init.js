@@ -48,6 +48,27 @@ export async function needsInit(env) {
 // Build it. Called in the BACKGROUND (ctx.waitUntil): 251KB of schema takes
 // longer than a request may last, so making the first visitor wait for it is
 // how the first visitor gets a timeout instead of a product.
+// A one-click deploy sets no secrets: it runs no script, so there is no
+// GATE_SECRET, and without one the gate refuses every sign-in with a 500 and
+// the install can never be claimed. An install that can build its own schema
+// can mint its own signing secret too. Stored in the database, per install,
+// never in the repo.
+export async function ensureGateSecret(env) {
+  if (env.GATE_SECRET) return env.GATE_SECRET;
+  try {
+    await env.DB.exec("CREATE TABLE IF NOT EXISTS install_secrets (name TEXT PRIMARY KEY, value TEXT NOT NULL, created_at INTEGER NOT NULL)");
+    const row = await env.DB.prepare("SELECT value FROM install_secrets WHERE name = 'gate_secret'").first().catch(() => null);
+    if (row?.value) return row.value;
+    const bytes = new Uint8Array(32);
+    crypto.getRandomValues(bytes);
+    const secret = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+    await env.DB.prepare('INSERT OR IGNORE INTO install_secrets (name, value, created_at) VALUES (?, ?, ?)')
+      .bind('gate_secret', secret, Date.now()).run();
+    const back = await env.DB.prepare("SELECT value FROM install_secrets WHERE name = 'gate_secret'").first().catch(() => null);
+    return back?.value || secret;
+  } catch { return null; }
+}
+
 export async function selfInit(env) {
   if (done || running) return { skipped: 'already building or built' };
   running = true;

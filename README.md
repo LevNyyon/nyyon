@@ -20,7 +20,7 @@ Anthropic key when setup asks and the assistant starts answering.
 
 An agent cannot click through a browser sign-in, so give it a token.
 
-1. [**Create the token**](https://dash.cloudflare.com/profile/api-tokens/create?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_routes%22%2C%22type%22%3A%22edit%22%7D%5D&name=nyyon-deploy&accountId=%2A&zoneId=all) — the link opens Cloudflare with the right
+1. [**Create the token**](https://dash.cloudflare.com/profile/api-tokens/create?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%5D&name=nyyon-deploy&accountId=%2A&zoneId=all) — the link opens Cloudflare with the right
    permissions already ticked. Press Continue to summary, then Create Token,
    and copy it. Cloudflare shows it once.
 2. Paste this to Claude, with your token in place of the placeholder:

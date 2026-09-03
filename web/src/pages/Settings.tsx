@@ -16,7 +16,7 @@ const DEPLOY_URL = `https://deploy.workers.cloudflare.com/?url=${encodeURICompon
 // The token path is the one an AI agent can actually use: the operator creates
 // a scoped token on a pre-filled Cloudflare page and pastes it to the agent,
 // which deploys headless. `wrangler login` needs a human at a browser.
-const TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens/create?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_r2%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_kv_storage%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22workers_routes%22%2C%22type%22%3A%22edit%22%7D%5D&name=nyyon-deploy&accountId=%2A&zoneId=all';
+const TOKEN_URL = 'https://dash.cloudflare.com/profile/api-tokens/create?permissionGroupKeys=%5B%7B%22key%22%3A%22workers_scripts%22%2C%22type%22%3A%22edit%22%7D%2C%7B%22key%22%3A%22d1%22%2C%22type%22%3A%22edit%22%7D%5D&name=nyyon-deploy&accountId=%2A&zoneId=all';
 const AGENT_PROMPT = `Install nyyon for me. Clone ${REPO_URL}, cd into it, then deploy it to my Cloudflare account using this token:
 
 CLOUDFLARE_API_TOKEN=<paste your token here>

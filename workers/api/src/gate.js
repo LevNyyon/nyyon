@@ -33,6 +33,14 @@
 
 import { readInstallState, verifyAdmin } from './lib/install.js';
 
+// The signing secret: the environment when a deploy set one, otherwise the
+// per-install secret the app mints for itself (one-click deploys set none).
+async function secretFor(env) {
+  if (env.GATE_SECRET) return env.GATE_SECRET;
+  try { const { ensureGateSecret } = await import('./lib/self-init.js'); return await ensureGateSecret(env); }
+  catch { return null; }
+}
+
 const COOKIE          = 'nyyon_gate';
 const SESSION_TTL_MS  = 30 * 24 * 60 * 60 * 1000; // 30 days
 const RL_WINDOW_MS    = 60 * 60 * 1000;           // 1 hour
@@ -102,7 +110,7 @@ async function verifyToken(secret, token) {
 // above has usually already enforced this; asking again in the handler is
 // deliberate belt-and-braces on the product's most dangerous surface.
 export async function hasGateSession(c) {
-  return verifyToken(c.env.GATE_SECRET, readCookie(c, COOKIE)).catch(() => false);
+  return secretFor(c.env).then((s) => verifyToken(s, readCookie(c, COOKIE))).catch(() => false);
 }
 
 function readCookie(c, name) {
@@ -208,7 +216,7 @@ export function gate() {
       }
     }
 
-    const ok = await verifyToken(c.env.GATE_SECRET, readCookie(c, COOKIE)).catch(() => false);
+    const ok = await secretFor(c.env).then((s) => verifyToken(s, readCookie(c, COOKIE))).catch(() => false);
     if (ok) return next();
 
     if (path.startsWith('/api')) {
