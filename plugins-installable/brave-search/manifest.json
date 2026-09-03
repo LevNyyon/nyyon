@@ -1,0 +1,142 @@
+{
+  "nyyon_plugin": 2,
+  "name": "brave-search",
+  "title": "Brave Search",
+  "version": "1.0.0",
+  "description": "Web search via the Brave Search API (free key). Gives Nyo a search_web tool and advertises the search capability, which the Digest discovers for its search source.",
+  "icon": "MagnifyingGlass",
+  "origin": {
+    "system": "nyyon-app"
+  },
+  "requires": {
+    "gateways": [
+      {
+        "slug": "brave",
+        "modes": [
+          "search",
+          "status",
+          "probe",
+          "verify"
+        ],
+        "purpose": "Brave Search API"
+      }
+    ],
+    "tables": [
+      {
+        "name": "plugin_brave_search_config",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_brave_search_config (id INTEGER PRIMARY KEY, api_key TEXT NOT NULL, updated_at INTEGER NOT NULL)"
+      }
+    ]
+  },
+  "provides": {
+    "gateways": [
+      {
+        "slug": "brave",
+        "modes": [
+          "search",
+          "status",
+          "probe",
+          "verify"
+        ],
+        "capability": "search",
+        "code_file": "gateway-brave.mjs"
+      }
+    ],
+    "tools": [
+      {
+        "name": "brave_search_status",
+        "code_file": "tools/brave_search_status.mjs",
+        "def": {
+          "name": "brave_search_status",
+          "description": "Is Brave Search connected? Pass check:true to confirm it answers with a real query.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "check": {
+                "type": "boolean"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "connect_brave_search",
+        "code_file": "tools/connect_brave_search.mjs",
+        "def": {
+          "name": "connect_brave_search",
+          "description": "Connect Brave Search as a web search provider (key from api.search.brave.com, free tier). The key is verified with a real query before it is stored.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "api_key": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "api_key"
+            ]
+          }
+        }
+      },
+      {
+        "name": "disconnect_brave_search",
+        "code_file": "tools/disconnect_brave_search.mjs",
+        "def": {
+          "name": "disconnect_brave_search",
+          "description": "Forget the Brave Search key.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "search_web",
+        "code_file": "tools/search_web.mjs",
+        "def": {
+          "name": "search_web",
+          "description": "Search the web (Brave). Returns titles, links, and one-line summaries. Use when the operator asks to look something up, find a page, or check what exists on a topic beyond the news.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "limit": {
+                "type": "number",
+                "description": "default 5, cap 20"
+              }
+            },
+            "required": [
+              "query"
+            ]
+          }
+        }
+      }
+    ],
+    "workflows": [],
+    "knowledge": [
+      {
+        "slug": "plugin-brave-search-usage",
+        "title": "Web search (Brave)",
+        "body_file": "knowledge/plugin-brave-search-usage.md"
+      }
+    ],
+    "surfaces": [
+      {
+        "slug": "brave-search",
+        "title": "Brave Search",
+        "icon": "MagnifyingGlass",
+        "page_file": "surface/brave-search.tsx",
+        "files": [
+          {
+            "path": "data.ts",
+            "code_file": "surface/data.ts"
+          }
+        ]
+      }
+    ]
+  }
+}
