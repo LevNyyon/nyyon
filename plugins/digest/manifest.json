@@ -2,7 +2,7 @@
   "nyyon_plugin": 2,
   "name": "digest",
   "title": "Digest",
-  "version": "3.0.2",
+  "version": "3.1.0",
   "description": "The morning brief: two sources, search and calendar. Search files fresh headlines for the operator's topics through any installed search provider; calendar mirrors the coming week's events. Everything lands in one urgency-sorted feed of cards the operator opens, stars, snoozes, marks read or keeps a draft note on. It learns continuously: dismissals tune the interest filter, and score feedback grows taste rules the prioritizer reads.",
   "origin": {
     "system": "cmd.nyyon.com",
@@ -38,6 +38,13 @@
           "read"
         ],
         "purpose": "first-run receipt: a fresh un-onboarded install gets the Nyo onboarding pointer instead of day-zero noise"
+      },
+      {
+        "slug": "web",
+        "modes": [
+          "text"
+        ],
+        "purpose": "read the operator website during digest setup"
       }
     ],
     "host_reads": [
@@ -107,7 +114,7 @@
               },
               "urgency": {
                 "type": "number",
-                "description": "1 high \u00b7 2 medium \u00b7 3 low"
+                "description": "1 high · 2 medium · 3 low"
               },
               "actionable": {
                 "type": "boolean"
@@ -266,7 +273,7 @@
         "code_file": "tools/learn_dismissals.mjs",
         "def": {
           "name": "learn_dismissals",
-          "description": "Learn from what the operator dismissed in the digest and tune the interest filter: reads the recent dismissed-not-starred items, asks the model what to avoid, and appends the learned avoid-list to the plugin-digest-interests note. No-op unless enough new dismissals accumulated since the last pass \u2014 pass force:true to learn now regardless. Use when the operator says \"stop showing me this stuff\" or \"the digest is noisy\".",
+          "description": "Learn from what the operator dismissed in the digest and tune the interest filter: reads the recent dismissed-not-starred items, asks the model what to avoid, and appends the learned avoid-list to the plugin-digest-interests note. No-op unless enough new dismissals accumulated since the last pass — pass force:true to learn now regardless. Use when the operator says \"stop showing me this stuff\" or \"the digest is noisy\".",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -358,6 +365,26 @@
             "type": "object",
             "properties": {},
             "required": []
+          }
+        }
+      },
+      {
+        "name": "read_website",
+        "code_file": "tools/read_website.mjs",
+        "def": {
+          "name": "read_website",
+          "description": "Read a website and return its readable text (title, description, main content, capped). Use during digest setup to learn what the operator does from their own site instead of asking them.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "the site, with or without https://"
+              }
+            },
+            "required": [
+              "url"
+            ]
           }
         }
       },
@@ -532,7 +559,7 @@
     "workflows": [
       {
         "slug": "digest-generate",
-        "name": "Digest \u00b7 generate + prioritize",
+        "name": "Digest · generate + prioritize",
         "goal": "The digest tick as one named chain: prune stale items, pull the two sources this install has (search headlines for the operator's topics, the calendar look-ahead), then score the fresh cards so the brief reads most-relevant first. Same pass the :30 cron runs; also runnable manually or by Nyo via run_workflow.",
         "steps": [
           {
@@ -546,7 +573,7 @@
       },
       {
         "slug": "prioritize-signals",
-        "name": "Digest \u00b7 prioritize signals",
+        "name": "Digest · prioritize signals",
         "goal": "Score every unread, unscored digest card of a scored kind (0-100 + reason, plugin-digest-signal-priority rubric): cards worth acting on rise to high urgency, background noise sinks. Fires after digest generation; also runnable manually or by Nyo via run_workflow.",
         "steps": [
           {
@@ -556,7 +583,7 @@
       },
       {
         "slug": "digest-learn",
-        "name": "Digest \u00b7 learn from dismissals",
+        "name": "Digest · learn from dismissals",
         "goal": "The consideration layer's learn pass: harvest recently dismissed-not-starred items, distill avoid-patterns through the llm gateway, and append them to the plugin-digest-interests note the scorer reads. No-op below the new-dismissals threshold, so it is safe on every cron tick.",
         "steps": [
           {
