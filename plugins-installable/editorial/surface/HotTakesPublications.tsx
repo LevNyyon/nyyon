@@ -11,20 +11,20 @@
 // "Approve → schedule" — the operator picks a future date/time instead of
 // publishing on the spot (Publish now lives in the editor popup's schedule
 // strip). There is NO row dropdown: clicking a publication opens the
-// full-screen editor popup, which carries the whole release — article, cover,
+// full-screen editor popup, which carries the whole release — article,
 // schedule, social legs, stats + live preview once published.
 // Scheduling a plain blog draft adopts it into the release pipeline server-side
-// (a lightweight package), so social legs, the calendar mirror and the due-scan
-// all run through the one package machinery.
+// (a lightweight package), so social legs and the due-scan all run through the
+// one package machinery.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   api,
   type BlogPostWithTags, type HotTakePackage, type HotTakePost, type HotTakePipeline, type SocialIdentity,
 } from './hot-takes-data';
-import { devUrl, fmtDate, timeAgo, fmtNum, Thumb, TagList, KV, ColHeader, InlineBodyEditor } from './ArticleBits';
+import { fmtDate, timeAgo, fmtNum, TagList, KV, ColHeader, InlineBodyEditor } from './ArticleBits';
 import { SitePreview } from './SitePreview';
-import { LinkedIn, Trash, Pencil, X, Calendar as CalendarIcon, BarChart, Check, Image as ImageIcon, Refresh } from '../../components/Icons';
+import { LinkedIn, Trash, Pencil, X, Calendar as CalendarIcon, Check, Refresh } from '../../components/Icons';
 import { PUBLIC_SITE_URL, PUBLIC_SITE_HOST } from './hot-takes-data';
 
 type PipePkg = HotTakePackage & { posts: HotTakePost[]; next_action: string };
@@ -692,7 +692,6 @@ function PublicationRow({ row, kind, onChanged, onEdit, mobile, selected, onSele
       {kind === 'published' ? (
         <div onClick={rowClick} title="Open this publication" className={'px-4 py-4 sm:py-3 grid grid-cols-12 gap-3 items-baseline text-[13px] hover:bg-card transition cursor-pointer ' + (mobile && selected ? 'bg-card ring-1 ring-ink/30' : '')}>
           <div className="col-span-4 min-w-0 flex items-center gap-3">
-            {post && <Thumb post={post} />}
             {meta}
           </div>
           <span className="col-span-1 mono text-[10px] text-mute">{fmtDate(post?.published_at)}</span>
@@ -709,7 +708,6 @@ function PublicationRow({ row, kind, onChanged, onEdit, mobile, selected, onSele
         </div>
       ) : (
         <div onClick={rowClick} title={mobile ? 'Select this publication' : 'Open this publication'} className={'px-4 py-4 sm:py-3 flex items-center gap-3 text-[13px] hover:bg-card transition cursor-pointer flex-wrap ' + (mobile && selected ? 'bg-card ring-1 ring-ink/30' : '')}>
-          {post && <Thumb post={post} />}
           <div className="flex-1 min-w-0">{meta}</div>
           {pkg && <LegChips posts={pkg.posts} className="shrink-0" />}
           {kind === 'scheduled' && pkg?.scheduled_at && (
@@ -778,17 +776,16 @@ function PublicationRow({ row, kind, onChanged, onEdit, mobile, selected, onSele
 }
 
 // ─── the full-screen editor popup ────────────────────────────────────────────
-// The whole release in one popup, scrolling as ONE column: the article (with
-// per-chart change/delete controls), the publication schedule (embedded
-// calendar picker), and the social legs (offset-after-publication + inline
-// text). The sticky header carries the attention strip — blue: done, gray:
+// The whole release in one popup, scrolling as ONE column: the article, the
+// publication schedule (embedded date picker), and the social legs
+// (offset-after-publication + inline text). The sticky header carries the attention strip — blue: done, gray:
 // still needs the operator — each icon jumping to its section.
 // The take → brief → article stages the in-popup drafter narrates. Copy
 // matters: it's what makes the wait acceptable.
 const CHAIN_STAGES: { key: 'take' | 'brief' | 'article'; title: string; sub: string }[] = [
   { key: 'take', title: 'Drafting the take', sub: 'The argument this article will make — specific and opinionated.' },
   { key: 'brief', title: 'Building the brief', sub: 'Structure, audience, evidence, and the objections to answer.' },
-  { key: 'article', title: 'Writing the article', sub: 'The full draft, its charts and the cover image. This is the long step — usually about a minute.' },
+  { key: 'article', title: 'Writing the article', sub: 'The full draft in your voice. This is the long step — usually about a minute.' },
 ];
 
 function EditorModal({ row, autoDraft = false, onClose, onScheduled, onOpenReview }: {
@@ -804,11 +801,6 @@ function EditorModal({ row, autoDraft = false, onClose, onScheduled, onOpenRevie
   const [post, setPost] = useState<BlogPostWithTags | null>(row.post);
   const [slug, setSlug] = useState(row.slug);
   const [pkg, setPkg] = useState<PipePkg | null>(initialPkg);
-  // The cover lives in modal state so a regenerate shows up immediately (and
-  // feeds the LinkedIn link-preview + the cover attention icon) without a
-  // reload — the row prop underneath is stale by design.
-  const [coverUrl, setCoverUrl] = useState<string | null>(row.post?.featured_image_url || null);
-  const [coverTick, setCoverTick] = useState<number>(row.post?.featured_image_generated_at ?? 0);
   const [step, setStep] = useState<'article' | 'social'>('article');
   const [schedOpen, setSchedOpen] = useState(false);
   const [drafting, setDrafting] = useState(false); // the "Drafting social posts…" interstitial after a reroute
@@ -877,8 +869,6 @@ function EditorModal({ row, autoDraft = false, onClose, onScheduled, onOpenRevie
       const fetched = await api.getBlogPost(newSlug);
       setPost(fetched);
       setSlug(newSlug);
-      setCoverUrl(fetched.featured_image_url || null);
-      setCoverTick(fetched.featured_image_generated_at ?? 0);
       await reloadPkg(p.id);
       setChainStage(null);
       onScheduled(); // refresh the lists behind the popup
@@ -1015,19 +1005,6 @@ function EditorModal({ row, autoDraft = false, onClose, onScheduled, onOpenRevie
     setPkg((prev) => (prev ? { ...prev, posts: (prev.posts || []).map((p) => (p.id === updated.id ? updated : p)) } : prev));
   }
 
-  async function regenCover() {
-    if (!post) return;
-    setBusy('cover'); setErr(null);
-    try {
-      const img = await api.generateBlogImage(slug);
-      setCoverUrl(img.url); setCoverTick(img.generated_at);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : 'cover generation failed');
-    } finally {
-      setBusy(null);
-    }
-  }
-
   // Publish immediately, skipping the schedule. MUST close the modal on
   // success: the article editor saves `published` from its (now stale) prop, so
   // a later autosave from this open editor would write published:0 and silently
@@ -1060,8 +1037,6 @@ function EditorModal({ row, autoDraft = false, onClose, onScheduled, onOpenRevie
     go: () => void; tag?: string;
   }[] = [
     { key: 'article', label: 'Article body', done: !!(post?.body || '').trim(), icon: Pencil, go: () => setStep('article') },
-    { key: 'cover', label: 'Cover image', done: !!coverUrl, icon: ImageIcon, go: () => setStep('article') },
-    { key: 'charts', label: 'Charts', done: (post?.body || '').includes('blog-figures/'), icon: BarChart, go: () => setStep('article') },
     { key: 'schedule', label: 'Publication date', done: !!post?.published || isScheduled, icon: CalendarIcon, go: () => { if (!post?.published) setSchedOpen(true); } },
     { key: 'leg-c', label: 'Company LinkedIn post', done: legDone('linkedin-company'), icon: LinkedIn, go: () => setStep('social'), tag: 'C' },
     { key: 'leg-p', label: 'Personal LinkedIn post', done: legDone('linkedin-personal'), icon: LinkedIn, go: () => setStep('social'), tag: 'P' },
@@ -1176,7 +1151,7 @@ function EditorModal({ row, autoDraft = false, onClose, onScheduled, onOpenRevie
               )}
             </div>
           ) : isDraftEditable ? (
-            <InlineBodyEditor post={post!} flow figureControls />
+            <InlineBodyEditor post={post!} flow />
           ) : post?.published ? (
             // Published: the full-screen view is the numbers + the live page.
             <div className="px-4 sm:px-2 pt-4 space-y-4">
@@ -1204,29 +1179,6 @@ function EditorModal({ row, autoDraft = false, onClose, onScheduled, onOpenRevie
             </div>
           ) : (
             <div className="p-6 text-sm text-mute">Nothing to edit — the article body is missing.</div>
-          )}
-
-          {/* cover — preview + regenerate, relocated from the old dropdown.
-              Available for published posts too: the server writes only the
-              featured-image fields, never the published flag. */}
-          {post && (
-            <div className="mx-4 sm:mx-2 mt-4 hairline rounded-sm bg-card/60 p-3 flex items-center gap-3 flex-wrap">
-              {coverUrl ? (
-                <img src={`${devUrl(coverUrl)}?t=${coverTick}`} alt="" loading="lazy" className="h-14 w-[84px] object-cover rounded-sm hairline bg-paper shrink-0" />
-              ) : (
-                <div className="h-14 w-[84px] rounded-sm hairline bg-paper grid place-items-center mono text-[8px] uppercase tracking-[0.14em] text-mute shrink-0">no img</div>
-              )}
-              <div className="flex-1 min-w-0 text-[11px] text-mute leading-relaxed">
-                {coverUrl ? 'The featured image — shown on the article and attached to the social posts.' : 'No cover yet — generate one; it also attaches to the social posts.'}
-              </div>
-              <button
-                onClick={regenCover}
-                disabled={busy === 'cover'}
-                className="h-8 px-3 rounded-sm mono text-[10px] uppercase tracking-[0.16em] border border-line text-mute hover:text-ink transition disabled:opacity-50 shrink-0"
-              >
-                {busy === 'cover' ? 'generating…' : coverUrl ? 'regenerate' : 'generate'}
-              </button>
-            </div>
           )}
 
           {/* slim schedule summary — the popup does the picking. Hidden while
@@ -1306,7 +1258,6 @@ function EditorModal({ row, autoDraft = false, onClose, onScheduled, onOpenRevie
                     leg={leg} base={base}
                     identity={identities?.[leg.channel] || null}
                     articleTitle={row.title}
-                    coverUrl={coverUrl}
                     onPatched={onLegPatched}
                     onRedrafted={async () => { if (pkg) await reloadPkg(pkg.id); setRedraftTick((t) => t + 1); }}
                   />
@@ -1372,12 +1323,11 @@ const OFFSET_PRESETS: { label: string; min: number }[] = [
 // APPROVED (status 'scheduled' — the one state the due-scan sends).
 // Top-level ON PURPOSE: holds textareas — defined inside EditorModal it would
 // remount on every parent render and drop focus after one keystroke.
-function LegCard({ leg, base, identity, articleTitle, coverUrl, onPatched, onRedrafted }: {
+function LegCard({ leg, base, identity, articleTitle, onPatched, onRedrafted }: {
   leg: HotTakePost;
   base: number | null;
   identity: SocialIdentity | null;
   articleTitle: string;
-  coverUrl: string | null;
   onPatched: (p: HotTakePost) => void;
   onRedrafted: () => void;
 }) {
@@ -1402,7 +1352,6 @@ function LegCard({ leg, base, identity, articleTitle, coverUrl, onPatched, onRed
   const isCompany = leg.channel === 'linkedin-company';
   const posterName = identity?.name || (isCompany ? 'Company page' : 'Personal profile');
   const initials = posterName.split(/\s+/).map((w) => w[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
-  const mediaUrl = leg.image_url || coverUrl;
 
   // The whole post, no scrolling: the textarea grows to fit its content.
   function autoGrow() {
@@ -1577,15 +1526,13 @@ function LegCard({ leg, base, identity, articleTitle, coverUrl, onPatched, onRed
           rows={3}
           className="w-full bg-transparent border-0 px-3.5 py-2.5 text-[13px] text-ink leading-relaxed placeholder:text-mute/50 focus:outline-none resize-none overflow-hidden disabled:opacity-60"
         />
-        {mediaUrl && (
-          <div className="border-t border-line">
-            <img src={devUrl(mediaUrl)} alt="" loading="lazy" className="w-full aspect-[1.91/1] object-cover" />
-            <div className="px-3.5 py-2 bg-card/60">
-              <div className="text-[12px] font-medium text-ink truncate">{articleTitle}</div>
-              <div className="text-[10px] text-mute">{PUBLIC_SITE_HOST || 'your public site'}</div>
-            </div>
+        {/* the link card the post carries. Text only: this build ships no images. */}
+        <div className="border-t border-line">
+          <div className="px-3.5 py-2 bg-card/60">
+            <div className="text-[12px] font-medium text-ink truncate">{articleTitle}</div>
+            <div className="text-[10px] text-mute">{PUBLIC_SITE_HOST || 'your public site'}</div>
           </div>
-        )}
+        </div>
       </div>
 
       <input

@@ -23,7 +23,7 @@
 //            plugin-editorial-editorial-taste + plugin-editorial-industry-pulse;
 //            writes own plugin-editorial-brain-archive + plugin-editorial-brain-<date>
 //            (re-slugged from the host's brain-archive / brain-<date>).
-// Gateways:  llm(text, json), calendar(upsert).
+// Gateways:  llm(text, json).
 
 const now = () => Date.now();
 const uid = () => crypto.randomUUID();
@@ -239,8 +239,8 @@ export async function deriveArticles(api, sessionId) {
   // interview (the brain WAS the interview).
   // Schedule the slate across the coming week — one post per day, LIVE/timely
   // pieces first. Each gets a scheduled_for (the writer's queue only picks a
-  // question once scheduled_for has passed) AND a calendar event, so the
-  // operator sees the week's plan. Nyo can still post one early via aeo_write_now.
+  // question once scheduled_for has passed), so the operator sees the week's
+  // plan. Nyo can still post one early via aeo_write_now.
   const DAY = 86400000;
   const order = { LIVE: 0, OPINION: 1, BUILT: 2, CLIENT: 3, FORWARD: 4 };
   const ordered = [...ideas].sort((a, b) => (order[a.category] ?? 9) - (order[b.category] ?? 9));
@@ -273,25 +273,10 @@ export async function deriveArticles(api, sessionId) {
     // BUILT / LIVE / CLIENT stay house voice (brand, not person).
     const voice = (idea.category === 'OPINION' || idea.category === 'FORWARD') ? 'personal' : 'house';
     // attach interview context, mark ready (the brain WAS the interview), and
-    // set the scheduled publish date.
+    // set the scheduled publish date the writer picks the question up on.
     await api.db.prepare(
       `UPDATE plugin_editorial_aeo_questions SET expert_context_json = ?, interview_status = 'ready', voice = ?, scheduled_for = ?, updated_at = ? WHERE slug = ?`,
     ).bind(JSON.stringify(expertContext), voice, scheduledFor, now(), slug).run();
-    // Put it on the calendar so the operator sees the week's slate (best-effort).
-    try {
-      await api.gateway('calendar', 'upsert', {
-        kind:        'blog_publish',
-        title:       idea.title,
-        description: idea.angle || null,
-        starts_at:   scheduledFor,
-        all_day:     true,
-        status:      'confirmed',
-        source:      'aeo',
-        source_ref:  slug,
-        link_url:    `/blog/${slug}`,
-        created_by:  'nyo',
-      });
-    } catch { /* calendar event is best-effort — derivation already succeeded */ }
     created.push({ slug, voice, scheduled_for: scheduledFor, ...idea });
   }
 

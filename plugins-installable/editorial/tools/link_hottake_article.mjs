@@ -8,7 +8,7 @@ import { linkArticle, articleView, blogUrl } from './hot-takes.mjs';
 
 export const def = {
   name: 'link_hottake_article',
-  description: 'Link a written blog draft to its Hot Takes package by slug — stores the slug, headline and intro and moves the package to review. Also emits the article\'s title, url, excerpt, tags, body and cover so the distribution drafters can use them.',
+  description: 'Link a written blog draft to its Hot Takes package by slug — stores the slug, headline and intro and moves the package to review. Also emits the article\'s title, url, excerpt, tags and body so the distribution drafters can use them.',
   input_schema: {
     type: 'object',
     properties: {
@@ -37,6 +37,5 @@ export async function run(api, input) {
     excerpt: a.excerpt || pkg.intro || null,
     tags: a.tags || [],
     body_html: a.body || '',
-    image_url: a.featured_image_url || null,
   };
 }

@@ -20,19 +20,18 @@
 //
 // Port notes (behavioral deltas from the host original):
 // - Host tables wa_messages / wa_chats / wa_lid_map are SELECT-only here
-//   (requires.host_reads). The original's best-effort `syncFromGateway` call in
-//   conversationStatesFor wrote host tables and had no gateway mode, so it is
-//   DROPPED: freshness now relies on the host's own webhook/cron sync.
+//   (requires.host_reads), so nothing here writes the WhatsApp store:
+//   freshness relies on the host's own webhook/cron sync.
 // - loadModelConfig is replaced by a read of the host `llm-models` doc (declare
 //   in requires.knowledge); env-var fallbacks are unreachable from a plugin, so
 //   a missing/unparseable doc falls back to the coded writer default.
-// - Helpers from whatsapp.js / gtm.js / gtm-outreach.js / outreach-threads.js /
-//   outreach-cadence.js are DUPLICATED here (lib files import nothing).
+// - Helpers from whatsapp.js / gtm.js / gtm-outreach.js / outreach-threads.js
+//   are DUPLICATED here (lib files import nothing).
 
 const DRAFT_SLUG = 'plugin-gtm-outreach-reply-drafting';
 
 // Bound every fan-out: D1 chokes on an IN() list that grows with the data, so
-// every lookup below chunks at this width (the getThreadStats precedent).
+// every lookup below chunks at this width.
 const CHUNK = 80;
 
 // WhatsApp timestamps arrive as seconds from some gateway builds and ms from
@@ -68,22 +67,6 @@ async function recentMessages(api, { chat_id = null, limit = 200 } = {}) {
   const stmt = chat_id ? api.db.prepare(sql).bind(chat_id, limit) : api.db.prepare(sql).bind(limit);
   const r = await stmt.all();
   return (r.results || []).map((m) => ({ ...m, raw_json: safeJSON(m.raw_json) }));
-}
-
-// Duplicated from host lib/outreach-threads.js getThreadStats — the thread KPI
-// cache, renamed to the plugin namespace.
-async function getThreadStats(api, keys = []) {
-  const out = new Map();
-  const uniq = [...new Set(keys.filter(Boolean))];
-  for (let i = 0; i < uniq.length; i += 90) {
-    const c = uniq.slice(i, i + 90);
-    const r = (await api.db.prepare(
-      `SELECT key, channel, replied, uncaught, msgs_in, msgs_out, sentiment, sentiment_reason, last_inbound_text, last_inbound_at
-       FROM plugin_gtm_outreach_threads WHERE key IN (${c.map(() => '?').join(',')})`,
-    ).bind(...c).all().catch(() => ({ results: [] }))).results || [];
-    for (const row of r) out.set(row.key, row);
-  }
-  return out;
 }
 
 // Duplicated from host lib/gtm-outreach.js readAngles.
@@ -122,62 +105,18 @@ function leadState(lead) {
   return n === signals.length ? 'green' : n === 0 ? 'red' : 'yellow';
 }
 
-// ── cadence (duplicated from host lib/outreach-cadence.js, read-only) ───────
-// Only dead_after_days is used here, but the whole shape is kept so the numbers
-// cannot drift from the queue engine's copy of the same doc.
-const CADENCE_DEFAULTS = {
-  step_delays_hours: [72, 96, 168],
-  max_sends_per_day: 20,
-  min_gap_minutes: 8,
-  quiet_start_hour: 9,
-  quiet_end_hour: 19,
-  weekdays_only: true,
-  timezone: 'Asia/Jerusalem',
-  dead_after_days: 21,
-  require_approval: true,
-  max_message_chars: 4000,
-};
-
-const CADENCE_NUMERIC = ['max_sends_per_day', 'min_gap_minutes', 'quiet_start_hour', 'quiet_end_hour', 'dead_after_days', 'max_message_chars'];
-
-function coerceCadence(src) {
-  const out = { ...CADENCE_DEFAULTS };
-  if (!src || typeof src !== 'object') return out;
-  for (const k of CADENCE_NUMERIC) {
-    const v = Number(src[k]);
-    if (Number.isFinite(v) && v >= 0) out[k] = Math.floor(v);
-  }
-  if (Array.isArray(src.step_delays_hours)) {
-    const arr = src.step_delays_hours.map(Number).filter((n) => Number.isFinite(n) && n >= 0);
-    if (arr.length) out.step_delays_hours = arr;
-  }
-  if (typeof src.weekdays_only === 'boolean') out.weekdays_only = src.weekdays_only;
-  if (typeof src.require_approval === 'boolean') out.require_approval = src.require_approval;
-  if (typeof src.timezone === 'string' && src.timezone.trim()) out.timezone = src.timezone.trim();
-  if (out.quiet_end_hour <= out.quiet_start_hour) {
-    out.quiet_start_hour = CADENCE_DEFAULTS.quiet_start_hour;
-    out.quiet_end_hour = CADENCE_DEFAULTS.quiet_end_hour;
-  }
-  return out;
-}
-
-async function loadCohortCadence(api) {
+// ── when an unanswered conversation goes cold ───────────────────────────────
+// One number, read live off the outreach control doc's json fence: how many
+// silent days retire a thread to DEAD. Editing the doc changes it; a malformed
+// edit falls back to the default rather than breaking the list.
+const DEAD_AFTER_DAYS = 21;
+async function deadAfterDays(api) {
   try {
-    const doc = await api.knowledge('plugin-gtm-outreach-cohort-cadence');
-    if (!doc) return { cadence: { ...CADENCE_DEFAULTS }, source: 'defaults', notes: '' };
-    const body = String(doc.body || '');
-    const m = body.match(/```json\s*([\s\S]*?)```/);
-    let parsed = null;
-    if (m) { try { parsed = JSON.parse(m[1]); } catch { parsed = null; } }
-    const idx = body.indexOf('\n---\n');
-    return {
-      cadence: coerceCadence(parsed),
-      source: parsed ? 'doc' : 'defaults',
-      notes: (idx >= 0 ? body.slice(idx + 5) : '').trim(),
-    };
-  } catch {
-    return { cadence: { ...CADENCE_DEFAULTS }, source: 'defaults', notes: '' };
-  }
+    const doc = await api.knowledge('plugin-gtm-outreach');
+    const m = String(doc?.body || '').match(/```json\s*([\s\S]*?)```/);
+    const n = Number(m ? JSON.parse(m[1])?.dead_after_days : NaN);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEAD_AFTER_DAYS;
+  } catch { return DEAD_AFTER_DAYS; }
 }
 
 // ── the writer model (replaces host loadModelConfig().writer) ───────────────
@@ -350,8 +289,9 @@ function prospectCard(lead) {
   try { socials = lead.socials ? JSON.parse(lead.socials) : []; } catch { socials = []; }
   let icp = null;
   try { icp = lead.icp_reasons ? JSON.parse(lead.icp_reasons) : null; } catch { icp = null; }
-  let positions = [];
-  try { positions = lead.open_positions ? JSON.parse(lead.open_positions) : []; } catch { positions = []; }
+  let ctx = null;
+  try { ctx = lead.company_context ? JSON.parse(lead.company_context) : null; } catch { ctx = null; }
+  if (ctx?.error) ctx = null;
   return {
     lead_id: lead.id,
     name: lead.name || null,
@@ -370,9 +310,11 @@ function prospectCard(lead) {
     icp_fit: lead.icp_fit || null,
     icp_reasons: Array.isArray(icp?.reasons) ? icp.reasons : [],
     icp_gaps: Array.isArray(icp?.gaps) ? icp.gaps : [],
-    org_status: lead.org_status || null,
-    org_note: lead.org_note || null,
-    open_positions: Array.isArray(positions) ? positions.slice(0, 8) : [],
+    // The company fact sheet company_context wrote, if it has ever run.
+    company_summary: ctx?.summary || null,
+    company_industry: ctx?.industry || null,
+    company_hq: ctx?.hq || null,
+    company_site: ctx?.website || null,
     socials: Array.isArray(socials) ? socials.map((s) => ({ type: s?.type || null, url: s?.url || null })).filter((s) => s.url) : [],
     status: lead.status || null,
   };
@@ -488,116 +430,6 @@ async function deadMarks(api, leadIds = []) {
   return out;
 }
 
-// ── where each prospect's conversation stands, in bulk ──────────────────────
-// The Cohorts sheet needs the same four states the Conversations tab shows, for
-// every member at once. Doing it per row would be one query per person; this
-// resolves every chat id (including the `@lid` privacy twins) and reads the
-// messages in chunked passes instead.
-//
-// The vocabulary is deliberately IDENTICAL to listProspectThreads' buckets, and
-// derived from the same messages, so a prospect cannot read "active" on one tab
-// and "untouched" on the other. The only addition is splitting that tab's
-// `unanswered` into UNTOUCHED (we have never said anything) and TOUCHED (we
-// have, they have not) — a distinction the cohort sheet needs and the inbox
-// does not, because in a cohort those two demand opposite actions.
-//
-//   untouched — nothing has ever been sent to them
-//   touched   — we have sent, they have not replied
-//   active    — they have replied; the automation is off them permanently
-//   dead      — marked dead by hand, or nothing has happened for dead_after_days
-//
-// Dead wins over active, exactly as it does in the inbox.
-//
-// PORT NOTE: the host original ran a best-effort incremental syncFromGateway
-// here before reading, so a reply that arrived since the last cron flipped a
-// person to `active` before the approve button could offer to message them.
-// That sync WRITES the host wa_messages/wa_chats tables and has no gateway
-// mode, so a plugin cannot run it: this read now answers from the host tables
-// as the webhook/cron sync last left them.
-export async function conversationStatesFor(api, leads = []) {
-  const out = new Map();
-  if (!leads.length) return out;
-  const deadAfterDays = (await loadCohortCadence(api)).cadence.dead_after_days;
-
-  // Every id a person might hold: the phone-derived `@c.us`, whatever id we
-  // stored at enrol time, and any `@lid` twin WhatsApp has mapped to either.
-  const idsOf = new Map();
-  const allPn = new Set();
-  for (const lead of leads) {
-    const ids = new Set();
-    const phoneChat = chatIdForPhone(lead.normalized_phone || lead.phone);
-    if (phoneChat) ids.add(phoneChat);
-    if (lead.chat_id) ids.add(lead.chat_id);
-    idsOf.set(lead.id, ids);
-    for (const i of ids) if (String(i).endsWith('@c.us')) allPn.add(i);
-  }
-
-  // One pass over the lid map for every phone id, rather than one per person.
-  const lidByPn = new Map();
-  const pnList = [...allPn];
-  for (let i = 0; i < pnList.length; i += CHUNK) {
-    const c = pnList.slice(i, i + CHUNK);
-    const r = (await api.db.prepare(
-      `SELECT pn, lid FROM wa_lid_map WHERE pn IN (${c.map(() => '?').join(',')})`,
-    ).bind(...c).all().catch(() => ({ results: [] }))).results || [];
-    for (const row of r) {
-      if (!row.lid) continue;
-      if (!lidByPn.has(row.pn)) lidByPn.set(row.pn, []);
-      lidByPn.get(row.pn).push(row.lid);
-    }
-  }
-  for (const ids of idsOf.values()) {
-    for (const pn of [...ids].filter((i) => String(i).endsWith('@c.us'))) {
-      for (const lid of lidByPn.get(pn) || []) ids.add(lid);
-    }
-  }
-
-  const everyId = [...new Set([...idsOf.values()].flatMap((s) => [...s]))];
-  const [lasts, marks] = await Promise.all([
-    lastMessages(api, everyId).catch(() => new Map()),
-    deadMarks(api, leads.map((l) => l.id)).catch(() => new Map()),
-  ]);
-
-  const deadBefore = Date.now() - deadAfterDays * 86400000;
-  for (const lead of leads) {
-    const ids = [...(idsOf.get(lead.id) || [])];
-    // Merge every id the person holds. A reply that landed on the privacy twin
-    // still means answered even when the newest message sits on the other id —
-    // the same merge the inbox does, for the same reason.
-    let msgsIn = 0, msgsOut = 0, lastAt = null, lastText = null, lastFromMe = null;
-    for (const id of ids) {
-      const m = lasts.get(id);
-      if (!m) continue;
-      msgsIn += m.in_n || 0;
-      msgsOut += m.out_n || 0;
-      const at = waMs(m.timestamp);
-      if (at && (!lastAt || at > lastAt)) { lastAt = at; lastText = m.body || null; lastFromMe = Number(m.from_me) === 1; }
-    }
-    const answered = msgsIn > 0;
-    const neverMessaged = msgsIn === 0 && msgsOut === 0;
-    const deadMarked = marks.has(lead.id);
-    const status = (deadMarked || (lastAt && lastAt < deadBefore)) ? 'dead'
-      : answered ? 'active'
-      : neverMessaged ? 'untouched'
-      : 'touched';
-    out.set(lead.id, {
-      chat_ids: ids,
-      status,
-      answered,
-      never_messaged: neverMessaged,
-      last_at: lastAt,
-      last_text: lastText,
-      last_from_me: lastFromMe,
-      msgs_in: msgsIn,
-      msgs_out: msgsOut,
-      dead_marked: deadMarked,
-      dead_reason: marks.get(lead.id)?.dead_reason || null,
-      dead_by: deadMarked ? 'marked' : (status === 'dead' ? 'stale' : null),
-    });
-  }
-  return out;
-}
-
 // Mark a conversation dead (or bring it back). Manual only — time-based death
 // is derived at read time, so un-marking always restores the real state.
 export async function setConversationDead(api, { lead_id, dead = true, reason = null } = {}) {
@@ -624,7 +456,7 @@ export async function listProspectThreads(api, { q = '', limit = null, status = 
   // paint.
   const { limits } = await loadDraftingRules(api);
   const cap = Math.min(200, limit || limits.thread_limit);
-  const deadAfterDays = (await loadCohortCadence(api)).cadence.dead_after_days;
+  const deadDays = await deadAfterDays(api);
 
   // The conversation set comes from wa_messages, NOT wa_chats. A chat row is
   // only written by the gateway pull-sync; an outbound send pre-inserts the
@@ -666,9 +498,8 @@ export async function listProspectThreads(api, { q = '', limit = null, status = 
   if (!matched.length) return { threads: [], total: 0 };
 
   const matchedIds = matched.map((c) => c.id);
-  const [lasts, stats, marks] = await Promise.all([
+  const [lasts, marks] = await Promise.all([
     lastMessages(api, matchedIds),
-    getThreadStats(api, matchedIds).catch(() => new Map()),
     deadMarks(api, [...new Set(matched.map((c) => leads.get(c.id).id))]),
   ]);
 
@@ -676,7 +507,6 @@ export async function listProspectThreads(api, { q = '', limit = null, status = 
   let threads = matched.map((chat) => {
     const lead = leads.get(chat.id);
     const last = lasts.get(chat.id) || null;
-    const st = stats.get(chat.id) || null;
     const lastAt = last ? waMs(last.timestamp) : waMs(chat.last_message_at);
     return {
       chat_id: chat.id,
@@ -689,16 +519,14 @@ export async function listProspectThreads(api, { q = '', limit = null, status = 
       last_text: last?.body || chat.last_snippet || null,
       last_from_me: last ? Number(last.from_me) === 1 : null,
       last_at: lastAt || null,
-      // They spoke last => the ball is in our court. Derived from the messages
-      // themselves so a badge never depends on the KPI cache having run.
+      // They spoke last => the ball is in our court.
       uncaught: last ? Number(last.from_me) === 0 : false,
       never_messaged: !last,
       // ANSWERED = they have said something back at any point. This is what
       // separates a real conversation from a monologue.
       answered: (last?.in_n ?? 0) > 0,
-      sentiment: st?.sentiment || null,
-      msgs_in: last?.in_n ?? st?.msgs_in ?? null,
-      msgs_out: last?.out_n ?? st?.msgs_out ?? null,
+      msgs_in: last?.in_n ?? null,
+      msgs_out: last?.out_n ?? null,
       dead_marked: marks.has(lead.id),
       dead_reason: marks.get(lead.id)?.dead_reason || null,
     };
@@ -749,7 +577,7 @@ export async function listProspectThreads(api, { q = '', limit = null, status = 
         icp_fit: lead.icp_fit || null,
         last_text: null, last_from_me: null, last_at: null,
         uncaught: false, never_messaged: true, answered: false,
-        sentiment: null, msgs_in: null, msgs_out: null,
+        msgs_in: null, msgs_out: null,
         dead_marked: false, dead_reason: null,
         fresh: true,
       });
@@ -762,7 +590,7 @@ export async function listProspectThreads(api, { q = '', limit = null, status = 
   //   unanswered — we have spoken, they have not (yet)
   // Dead wins: a conversation that was answered but went cold weeks ago is not
   // something to show at the top of a working queue.
-  const deadBefore = Date.now() - deadAfterDays * 86400000;
+  const deadBefore = Date.now() - deadDays * 86400000;
   for (const t of threads) {
     t.status = t.fresh ? 'fresh'
       : (t.dead_marked || (t.last_at && t.last_at < deadBefore)) ? 'dead'
@@ -951,9 +779,6 @@ export async function readProspectThread(api, { chat_id, lead_id = null, limit =
     status: m.from_me ? (preinsert ? 'sent' : 'confirmed') : 'received',
   }));
 
-  const stats = await getThreadStats(api, chatIds).catch(() => new Map());
-  const st = chatIds.map((c) => stats.get(c)).find(Boolean) || null;
-
   return {
     chat_id: chatId,
     chat_ids: chatIds,
@@ -966,12 +791,14 @@ export async function readProspectThread(api, { chat_id, lead_id = null, limit =
     prospect: prospectCard(lead),
     messages,
     count: messages.length,
-    stats: st ? {
-      replied: Number(st.replied) === 1,
-      uncaught: Number(st.uncaught) === 1,
-      msgs_in: st.msgs_in, msgs_out: st.msgs_out,
-      sentiment: st.sentiment || null, sentiment_reason: st.sentiment_reason || null,
-    } : null,
+    // Counted off the messages this read actually loaded, so the header never
+    // disagrees with the bubbles under it.
+    stats: {
+      replied: answered,
+      uncaught: messages.length ? !messages[messages.length - 1].from_me : false,
+      msgs_in: messages.filter((m) => !m.from_me).length,
+      msgs_out: messages.filter((m) => m.from_me).length,
+    },
   };
 }
 
@@ -1044,7 +871,7 @@ export async function draftReply(api, { chat_id, lead_id = null, force_llm = fal
     if (!next) {
       return {
         draft: null, source: 'none', lead_id: lead.id,
-        reason: `The approved sequence is finished — all ${bubbles.length} messages have been sent and they have not answered.`,
+        reason: `The approved angle is used up — all ${bubbles.length} of its bubbles have been sent and they have not answered.`,
       };
     }
     await api.log('outreach_draft_suggested', { lead_id: lead.id, chat_id: chatId, source: 'angle', step: sentCount });
@@ -1052,7 +879,7 @@ export async function draftReply(api, { chat_id, lead_id = null, force_llm = fal
       draft: next, source: 'angle', lead_id: lead.id, step: sentCount,
       first_touch: sentCount === 0,
       angle: angle ? { rank: angle.rank ?? null, type: angle.type || null, rationale: angle.rationale || null } : null,
-      // The rest of the approved sequence, so the operator can send it as-is.
+      // The rest of the approved angle's bubbles, to send as they are.
       alternatives: bubbles.slice(sentCount + 1),
     };
   }
@@ -1111,129 +938,6 @@ ${rules}`;
     draft, source: 'llm', lead_id: lead.id,
     angle: angle ? { rank: angle.rank ?? null, type: angle.type || null, rationale: angle.rationale || null } : null,
     based_on_messages: real.length,
-    at: Date.now(),
-  };
-}
-
-// ── draftReply's two halves, as separate decisions ──────────────────────────
-// draftReply above does the whole thing in one call for the composer route.
-// The `draft-prospect-reply` workflow needs the same outcome as steps that can
-// be read and re-run, and the split is exactly where the behaviour changes: one
-// half hands back words a human already approved, the other spends a model
-// call. Both read the conversation from the shared context rather than the DB,
-// so what they judge is what the thread step actually loaded.
-
-// The deterministic half: the next UNSENT approved bubble, or the default first
-// touch. Fires only while the prospect has NOT spoken — with nothing to reply
-// to, a model handed a one-sided transcript writes "thanks for getting back to
-// me" to someone who never did. `needs_compose` hands the turn to composeReply.
-export async function pickNextBubble(api, {
-  lead_id = null, prospect = null, messages = [], answered = null, angles = [], force_llm = false,
-} = {}) {
-  const list = Array.isArray(angles) ? angles : [];
-  const history = Array.isArray(messages) ? messages : [];
-  const theySpoke = answered === null || answered === undefined
-    ? history.some((m) => !m.from_me)
-    : !!answered;
-  const leadId = lead_id || prospect?.lead_id || null;
-
-  if (theySpoke || force_llm) return { needs_compose: true, draft: null, source: null, lead_id: leadId };
-
-  const bubbles = angleBubbles(topAngle({ angles: list }));
-  const sentCount = history.filter((m) => m.from_me).length;
-
-  if (!bubbles.length) {
-    const template = await loadFirstTouchTemplate(api);
-    return {
-      needs_compose: false, lead_id: leadId,
-      draft: renderFirstTouch(template, prospect || {}), source: 'template',
-      first_touch: true, step: 0,
-      reason: 'No saved angle — this is the default first touch (outreach-first-touch doc).',
-    };
-  }
-  const next = bubbles[sentCount];
-  if (!next) {
-    return {
-      needs_compose: false, lead_id: leadId, draft: null, source: 'none',
-      reason: `The approved sequence is finished — all ${bubbles.length} messages have been sent and they have not answered.`,
-    };
-  }
-  await api.log('outreach_draft_suggested', { lead_id: leadId, source: 'angle', step: sentCount });
-  return {
-    needs_compose: false, lead_id: leadId, draft: next, source: 'angle',
-    step: sentCount, first_touch: sentCount === 0,
-    // The rest of the approved sequence, so the operator can send it as-is.
-    alternatives: bubbles.slice(sentCount + 1),
-  };
-}
-
-// The reasoning half: ONE model call grounded in the angle and the thread.
-// A no-op passthrough when the previous step already produced a draft — the
-// workflow stays a straight line and the approved words are never overwritten.
-export async function composeReply(api, {
-  prospect = null, messages = [], angles = [], rules = null, limits = null,
-  answered = null, draft = null, source = null, needs_compose = false, force_llm = false,
-} = {}) {
-  if (!needs_compose && !force_llm) return { draft, source: source || (draft ? 'angle' : 'none'), composed: false };
-
-  const cfg = {
-    rules: typeof rules === 'string' && rules.trim() ? rules : (await loadDraftingRules(api)).rules,
-    limits: limits && typeof limits === 'object' ? { ...DRAFT_LIMITS, ...limits } : (await loadDraftingRules(api)).limits,
-  };
-  const card = prospect || {};
-  const history = Array.isArray(messages) ? messages : [];
-  const theySpoke = answered === null || answered === undefined
-    ? history.some((m) => !m.from_me)
-    : !!answered;
-  const angle = topAngle({ angles: Array.isArray(angles) ? angles : [] });
-  const bubbles = angleBubbles(angle);
-  const model = await writerModel(api);
-
-  // The history is oldest-first, so the most recent context is the TAIL. Taking
-  // the head would hide the very message this is supposed to answer.
-  const transcript = history
-    .slice(-cfg.limits.draft_context_messages)
-    .map((m) => `${m.from_me ? 'US' : 'THEM'}: ${String(m.body || '').replace(/\s+/g, ' ').slice(0, cfg.limits.draft_context_chars)}`)
-    .join('\n');
-
-  const context = [
-    `PROSPECT: ${card.name || 'unknown'}${card.position ? `, ${card.position}` : ''}${card.company ? ` at ${card.company}` : ''}.`,
-    card.icp_fit ? `ICP fit: ${card.icp_fit}.` : '',
-    (card.icp_reasons || []).length ? `Why they fit: ${(card.icp_reasons || []).slice(0, 4).join('; ')}.` : '',
-    angle ? `OUR ANGLE (from GTM → Outreach, rank ${angle.rank ?? 1}${angle.type ? `, ${angle.type}` : ''}): ${angle.rationale || ''}` : '',
-    bubbles.length ? `The approved opener we based this on: ${bubbles[0]}` : '',
-  ].filter(Boolean).join('\n');
-
-  const system = `You write the next WhatsApp message to a sales prospect, on behalf of the operator. You are given the conversation so far and what we believe about this person. Return ONLY the message text — no greeting label, no quotes, no commentary, no alternatives.
-
-${cfg.rules}`;
-  // Spelling out the one-sided case matters: given a transcript of our own
-  // messages a model will cheerfully thank them for a reply that never came.
-  const situation = theySpoke
-    ? 'They have replied. Answer what they actually said.'
-    : 'They have NOT replied to anything yet. This is a follow-up into silence — do not thank them for a reply, do not reference a response, and do not imply any contact back from them.';
-  const prompt = `${context}\n\nCONVERSATION SO FAR (oldest first):\n${transcript || '(nothing sent yet)'}\n\n${situation}\n\nWrite the next message from US.`;
-
-  let text;
-  try {
-    text = await api.gateway('llm', 'text', { system, prompt, model, max_tokens: 400, heavy: false });
-  } catch (e) {
-    // Never leave the composer empty-handed: fall back to the approved bubble.
-    return {
-      draft: bubbles[0] || null, source: bubbles.length ? 'angle' : 'none', composed: false,
-      reason: `Could not compose a reply (${String(e?.message || e)}).`,
-    };
-  }
-  const composed = String(text || '').trim().replace(/^["']|["']$/g, '').trim();
-  if (!composed) {
-    return { draft: bubbles[0] || null, source: bubbles.length ? 'angle' : 'none', composed: false, reason: 'The model returned nothing.' };
-  }
-
-  await api.log('outreach_draft_suggested', { lead_id: card.lead_id || null, source: 'llm', chars: composed.length });
-  return {
-    draft: composed, source: 'llm', composed: true, lead_id: card.lead_id || null,
-    angle: angle ? { rank: angle.rank ?? null, type: angle.type || null, rationale: angle.rationale || null } : null,
-    based_on_messages: history.length,
     at: Date.now(),
   };
 }

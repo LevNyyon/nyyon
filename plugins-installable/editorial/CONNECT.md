@@ -9,7 +9,7 @@ Editorial is the writing side of your command center. It adds three pages to the
 ## Install it
 
 1. Open **Plugins** in the sidebar.
-2. Upload `editorial-2.0.0.zip`.
+2. Upload `editorial-3.0.0.zip`.
 3. Wait about a minute. The page shows it move from accepted to active, then Blog, Hot Takes and Social appear in the sidebar.
 
 Nothing else is required to start writing. The rest below is optional and only needed for publishing outward.
@@ -35,16 +35,9 @@ Repeat for Facebook with the network name `facebook`. To check what is connected
 
 The same works with any endpoint that accepts JSON, not just Make. Zapier, n8n, or your own worker are all fine.
 
-## What is off on this install, and why
+## What this build does, and what it does not
 
-Editorial was built for a host with more machinery. On this install it works fully as a writer and reports the rest honestly instead of failing quietly.
-
-- **Images.** Covers, article figures and social cards need an image renderer this install does not carry. Anything that would produce an image says so in one sentence. Text articles and posts are unaffected.
-- **Vision.** Judging candidate images needs a vision model; the model connection here is text and JSON. Image judging is skipped and says so.
-- **Calendar scheduling.** Scheduling a release into a calendar needs a calendar connection this install does not have. Publish now instead, or track the date in your plan.
-- **WhatsApp delivery.** Works only if you have connected WhatsApp; otherwise it reports that it is not connected.
-
-None of these block writing, editing, or publishing text.
+This build writes and publishes text. It drafts, edits, schedules and publishes articles and social posts, and it does not produce images: there is no cover, no article figure and no social card anywhere in it, so nothing here asks you for one or waits on one.
 
 ## Where things go
 

@@ -12,7 +12,7 @@
 // and it applies to DELETES as much as writes — a plugin name is attacker-
 // influenced text that becomes a directory path.
 
-import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
+import { statSync, readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execSync } from 'node:child_process';
@@ -258,7 +258,16 @@ for (;;) {
         }
       }
     }
+    // The index may only name plugins whose files are ON DISK. Publishing it
+    // for a plugin still waiting to be written left the worker importing
+    // modules that did not exist: it could not boot, so the applier could not
+    // reach the API to write them, and the whole app stayed down. Pending
+    // plugins get their index entry below, after their files land.
+    const onDisk = (name) => { try { return statSync(resolve(REPO, 'workers/api/src/plugins', name)).isDirectory(); } catch { return false; } };
+    const pendingNames = new Set(pending.map((p) => p.name));
+    const indexIsSafe = (content) => [...pendingNames].every((n) => !content.includes(`./${n}/`) || onDisk(n));
     for (const idx of [work.index_file, work.web_index_file].filter(Boolean)) {
+      if (!indexIsSafe(idx.content)) continue;
       const abs = resolve(REPO, idx.path);
       let current = null;
       try { current = readFileSync(abs, 'utf8'); } catch { /* missing */ }

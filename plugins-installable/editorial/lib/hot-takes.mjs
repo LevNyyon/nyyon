@@ -8,7 +8,7 @@
 // exception is the heavy article write, which REUSES the composeAndSavePost
 // pipeline (lib/aeo-writer.mjs) — the article body lands in
 // plugin_editorial_blog_posts and is linked back here by blog_slug, inheriting
-// figures, cover, publish + edge-render for free.
+// publish + edge-render for free.
 //
 // Distribution safety: LinkedIn legs (postLeg, and the hourly due-scan firing
 // them) are gated on the `hottakes.live` feature flag (a host feature_flags
@@ -49,8 +49,8 @@ function likeTerm(q) {
   return '%' + String(q).trim().replace(/[@%_]/g, (c) => LIKE_ESC + c) + '%';
 }
 
-// One definition of the public article URL — used by scheduling, publishing,
-// the calendar mirror, and the social-draft prompt (no scattered copies).
+// One definition of the public article URL — used by scheduling, publishing
+// and the social-draft prompt (no scattered copies).
 // The plugin runtime exposes no env, so the origin is a plain string the
 // caller may supply when it knows one; with none the URL stays site-relative
 // until the operator connects a public site (same documented fallback as the
@@ -69,11 +69,7 @@ async function readBlogPostRow(api, slug) {
 }
 
 // Safe partial edit of an article: changes ONLY the fields passed, strips
-// dashes, refreshes updated_at/updated_by, and (for an already-published post)
-// re-mirrors the calendar row. The host writeBlogPost also logged a
-// workflow_runs row for the blog-to-calendar-mirror hop — that table is
-// host-only, so the mirror here goes through the calendar gateway without the
-// workflow ledger entry.
+// dashes, and refreshes updated_at/updated_by.
 async function patchBlogPostRow(api, slug, patch = {}) {
   const existing = await readBlogPostRow(api, slug);
   if (!existing) throw new Error(`blog post not found: ${slug}`);
@@ -86,23 +82,6 @@ async function patchBlogPostRow(api, slug, patch = {}) {
     'UPDATE plugin_editorial_blog_posts SET title=?, excerpt=?, body=?, updated_at=?, updated_by=? WHERE slug=?',
   ).bind(title, excerpt, body, t, updatedBy, slug).run();
   await api.log('blog_post_updated', { slug, title, actor: updatedBy });
-  if (existing.published && existing.published_at) {
-    try {
-      await api.gateway('calendar', 'upsert', {
-        kind: 'blog_publish',
-        title,
-        description: excerpt,
-        starts_at: existing.published_at,
-        all_day: true,
-        status: existing.published_at <= t ? 'done' : 'confirmed',
-        source: 'blog',
-        source_ref: slug,
-        link_url: `/blog/${slug}`,
-        created_by: updatedBy,
-        updated_by: updatedBy,
-      });
-    } catch { /* best-effort — the article edit itself must not be lost */ }
-  }
   return readBlogPostRow(api, slug);
 }
 
@@ -130,13 +109,15 @@ export async function hotTakesLive(api) {
 // The release channels a Hot Take is distributed on. DERIVED from the social
 // gateway's connection registry (the single source of truth), narrowed to the
 // LinkedIn networks — no separate copy of the channel list lives here. The
-// literal below is only the fallback used when the gateway can't be read.
-// (async in the plugin port: the registry sits behind api.gateway.)
+// literal below is only the fallback used when the registry has no LinkedIn
+// row yet. (async in the plugin port: the registry sits behind api.gateway.)
 const RELEASE_CHANNELS_FALLBACK = ['linkedin-company', 'linkedin-personal'];
 export async function releaseChannels(api) {
   try {
-    const conns = await api.gateway('social', 'connections', {});
-    const li = (conns || []).filter((c) => c.network === 'linkedin').map((c) => c.connection);
+    const r = await api.gateway('social', 'connections', {});
+    const li = (r?.connections || [])
+      .filter((c) => c.connected && String(c.network || '').startsWith('linkedin'))
+      .map((c) => c.network);
     return li.length ? li : RELEASE_CHANNELS_FALLBACK;
   } catch {
     return RELEASE_CHANNELS_FALLBACK;
@@ -303,9 +284,9 @@ export async function dismissTopicCard(api, card = {}, actor = 'operator') {
 // scheduling or social drafting needs one, so this finds the package already
 // linked to the slug or creates a lightweight one (origin 'blog', status
 // 'ready' — the editorial spine is already done, the article exists).
-// Everything downstream (scheduleRelease, the hourly due-scan, social legs,
-// the calendar mirror) then runs through the ONE package machinery — no second
-// scheduler for plain blog drafts.
+// Everything downstream (scheduleRelease, the hourly due-scan, social legs)
+// then runs through the ONE package machinery — no second scheduler for plain
+// blog drafts.
 export async function findPackageBySlug(api, slug) {
   if (!slug) return null;
   const row = await api.db.prepare(
@@ -358,7 +339,7 @@ export async function readPost(api, id) {
 }
 
 // One row per (package, channel) — create or update in place.
-export async function upsertPost(api, { package_id, channel, body, notes, image_url, status, scheduled_at, actor = 'hot-takes' } = {}) {
+export async function upsertPost(api, { package_id, channel, body, notes, status, scheduled_at, actor = 'hot-takes' } = {}) {
   if (!package_id || !channel) throw new Error('upsertPost: package_id + channel required');
   const t = now();
   const existing = await api.db.prepare(
@@ -367,10 +348,10 @@ export async function upsertPost(api, { package_id, channel, body, notes, image_
   if (existing) {
     await api.db.prepare(
       `UPDATE plugin_editorial_social_posts SET
-         content = COALESCE(?, content), notes = COALESCE(?, notes), image_url = COALESCE(?, image_url),
+         content = COALESCE(?, content), notes = COALESCE(?, notes),
          status = COALESCE(?, status), scheduled_at = COALESCE(?, scheduled_at), actor = ?, updated_at = ?
        WHERE id = ?`,
-    ).bind(body ?? null, notes ?? null, image_url ?? null, status ?? null, scheduled_at ?? null, actor, t, existing.id).run();
+    ).bind(body ?? null, notes ?? null, status ?? null, scheduled_at ?? null, actor, t, existing.id).run();
     await api.log('hottake_post_updated', { id: existing.id, package_id, channel, actor });
     return readPost(api, existing.id);
   }
@@ -379,15 +360,15 @@ export async function upsertPost(api, { package_id, channel, body, notes, image_
   const pkg = await api.db.prepare('SELECT blog_slug FROM plugin_editorial_hot_take_packages WHERE id = ?').bind(package_id).first();
   const id = genId('htp');
   await api.db.prepare(
-    `INSERT INTO plugin_editorial_social_posts (id, blog_slug, package_id, channel, content, notes, image_url, status, scheduled_at, actor, created_at, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-  ).bind(id, pkg?.blog_slug ?? null, package_id, channel, body ?? '', notes ?? null, image_url ?? null, status || 'draft', scheduled_at ?? null, actor, t, t).run();
+    `INSERT INTO plugin_editorial_social_posts (id, blog_slug, package_id, channel, content, notes, status, scheduled_at, actor, created_at, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+  ).bind(id, pkg?.blog_slug ?? null, package_id, channel, body ?? '', notes ?? null, status || 'draft', scheduled_at ?? null, actor, t, t).run();
   await api.log('hottake_post_updated', { id, package_id, channel, created: true, actor });
   return readPost(api, id);
 }
 
 // Patch keys stay the Hot Takes vocabulary; `body` writes the `content` column.
-const POST_PATCHABLE = { body: 'content', notes: 'notes', image_url: 'image_url', status: 'status', scheduled_at: 'scheduled_at' };
+const POST_PATCHABLE = { body: 'content', notes: 'notes', status: 'status', scheduled_at: 'scheduled_at' };
 export async function patchPost(api, id, patch = {}, actor = 'operator') {
   const existing = await readPost(api, id);
   if (!existing) throw new Error(`hot take post ${id} not found`);
@@ -760,7 +741,7 @@ export async function writeArticleFromBrief(api, id, { voice = 'house', actor = 
 
   await linkArticle(api, id, { slug: res.slug, title: res.title || seed.title, excerpt: res.post?.excerpt || null }, actor);
   await api.log('hottake_article_written', { id, slug: res.slug, voice, actor });
-  return { ok: true, id, slug: res.slug, title: res.title, featured_image: res.featured_image || null };
+  return { ok: true, id, slug: res.slug, title: res.title };
 }
 
 export async function articleView(api, id) {
@@ -773,7 +754,7 @@ export async function articleView(api, id) {
     if (row) {
       article = {
         slug: row.slug, title: row.title, excerpt: row.excerpt, body: row.body,
-        tags: safeJSON(row.tags) || [], featured_image_url: row.featured_image_url || null,
+        tags: safeJSON(row.tags) || [],
         published: !!row.published, published_at: row.published_at || null,
       };
     }
@@ -849,28 +830,13 @@ export async function scheduleRelease(api, id, { website_at, company_at, persona
     });
   }
 
-  // Calendar mirror for the website leg (idempotent on source+source_ref).
-  try {
-    await api.gateway('calendar', 'upsert', {
-      kind: 'blog_publish',
-      title: pkg.headline || pkg.title || pkg.blog_slug || id,
-      starts_at: base,
-      all_day: false,
-      status: 'confirmed',
-      source: 'hottake',
-      source_ref: id,
-      link_url: pkg.blog_slug ? blogUrl(pkg.blog_slug) : null,
-      created_by: 'system',
-    });
-  } catch { /* best-effort */ }
-
   await api.log('hottake_scheduled', { id, website_at: base, legs: legTimes, actor });
   return articleView(api, id);
 }
 
 // Undo a schedule. The package returns to 'ready' (unscheduled), the website
 // leg to not_planned, and any leg the scheduler queued goes back to
-// ready (has text) / draft (empty). The calendar mirror flips to cancelled.
+// ready (has text) / draft (empty).
 export async function cancelSchedule(api, id, actor = 'operator') {
   const pkg = await readPackage(api, id);
   if (!pkg) throw new Error(`hot take ${id} not found`);
@@ -886,19 +852,6 @@ export async function cancelSchedule(api, id, actor = 'operator') {
       scheduled_at: null,
     }, actor);
   }
-  try {
-    await api.gateway('calendar', 'upsert', {
-      kind: 'blog_publish',
-      title: pkg.headline || pkg.title || pkg.blog_slug || id,
-      starts_at: pkg.scheduled_at || now(),
-      all_day: false,
-      status: 'cancelled',
-      source: 'hottake',
-      source_ref: id,
-      link_url: pkg.blog_slug ? blogUrl(pkg.blog_slug) : null,
-      created_by: 'system',
-    });
-  } catch { /* best-effort */ }
   await api.log('hottake_schedule_cancelled', { id, actor });
   return articleView(api, id);
 }
@@ -923,13 +876,6 @@ export async function publishWebsite(api, id, { actor = 'operator', ctx = null, 
   const r = await publish(api, pkg.blog_slug, { source: 'hottake', ctx, social: false });
   if (r?.ok) {
     await patchPackage(api, id, { website_status: 'published', website_url: r.url, status: 'published' }, actor);
-    try {
-      await api.gateway('calendar', 'upsert', {
-        kind: 'blog_publish', title: pkg.headline || pkg.title || pkg.blog_slug,
-        starts_at: now(), all_day: false, status: 'done',
-        source: 'hottake', source_ref: id, link_url: r.url, created_by: 'system',
-      });
-    } catch { /* best-effort */ }
     await api.log('hottake_website_published', { id, slug: pkg.blog_slug, url: r.url, actor });
     await maybeComplete(api, id, actor);
   }
@@ -945,44 +891,32 @@ export async function postLeg(api, postId, { actor = 'operator' } = {}) {
   if (!(post.body || '').trim()) throw new Error('post has no text yet');
   const pkg = await readPackage(api, post.package_id);
 
-  // Prefer the article's CURRENT cover (it may have been generated after the
-  // draft) — the gateway hard-requires an image.
-  const blog = pkg?.blog_slug ? await readBlogPostRow(api, pkg.blog_slug).catch(() => null) : null;
-  const imageUrl = blog?.featured_image_url || post.image_url || '';
-  const imageTitle = blog?.title || pkg?.headline || pkg?.title || '';
+  const articleUrl = pkg?.website_url || (pkg?.blog_slug ? blogUrl(pkg.blog_slug) : null);
 
   const live = await hotTakesLive(api);
   if (!live) {
-    await api.log('hottake_dryrun', { action: 'post_leg', id: postId, channel: post.channel, chars: (post.body || '').length, has_image: !!imageUrl, actor });
-    return { ok: true, dry_run: true, would: { action: 'post', channel: post.channel, chars: (post.body || '').length, image_url: imageUrl || null } };
+    await api.log('hottake_dryrun', { action: 'post_leg', id: postId, channel: post.channel, chars: (post.body || '').length, actor });
+    return { ok: true, dry_run: true, would: { action: 'post', channel: post.channel, chars: (post.body || '').length } };
   }
 
   const log = await api.gateway('outbox', 'begin', {
     channel: 'social', kind: post.channel, to_id: post.channel,
     body: post.body,
-    payload: { package_id: post.package_id, blog_slug: pkg?.blog_slug || null, image_url: imageUrl || null },
+    payload: { package_id: post.package_id, blog_slug: pkg?.blog_slug || null },
     source: 'hottake', source_ref: post.id,
   });
   try {
     const res = await api.gateway('social', 'post', {
-      connection: post.channel,
-      content: post.body, imageUrl, imageTitle, altText: imageTitle, imageCaption: imageTitle,
+      network: post.channel,
+      text: post.body,
+      url: articleUrl,
     });
-    await api.gateway('outbox', 'sent', { id: log.id, message_id: res?.http ? String(res.http) : null });
+    if (!res?.ok) throw new Error(res?.error || `${post.channel} webhook did not accept the post`);
+    await api.gateway('outbox', 'sent', { id: log.id, result: { network: res.network || post.channel, response: res.response || null } });
     const t = now();
     await api.db.prepare(`UPDATE plugin_editorial_social_posts SET status='posted', posted_at=?, outbox_id=?, error=NULL, updated_at=? WHERE id=?`)
       .bind(t, log.id, t, postId).run();
     await api.log('hottake_post_published', { id: postId, channel: post.channel, package_id: post.package_id, actor });
-    try {
-      await api.gateway('calendar', 'upsert', {
-        kind: 'social_post',
-        title: `${post.channel}: ${imageTitle || post.package_id}`,
-        starts_at: t, all_day: false, status: 'done',
-        source: 'hottake', source_ref: postId,
-        link_url: pkg?.website_url || (pkg?.blog_slug ? blogUrl(pkg.blog_slug) : null),
-        platform: 'linkedin', body: post.body, created_by: 'system',
-      });
-    } catch { /* best-effort */ }
     await maybeComplete(api, post.package_id, actor);
     return { ok: true, id: postId, channel: post.channel, outbox_id: log.id };
   } catch (e) {

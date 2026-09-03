@@ -6,7 +6,7 @@ import { deleteSocialGroup } from './social-posts.mjs';
 
 export const def = {
   name: 'delete_social_group',
-  description: "Delete EVERY social post for one source slug at once — an article's whole fan-out group, a digest:<id> reaction set, or a standalone: row. The Outbox, activity feed, and calendar keep the record of anything already posted. Irreversible: confirm the slug with the operator first.",
+  description: "Delete EVERY social post for one source slug at once — an article's whole fan-out group, a digest:<id> reaction set, or a standalone: row. The Outbox and activity feed keep the record of anything already posted. Irreversible: confirm the slug with the operator first.",
   input_schema: { type: 'object', properties: { slug: { type: 'string', description: 'the blog_slug the group is keyed by' } }, required: ['slug'] },
 };
 

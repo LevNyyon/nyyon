@@ -91,6 +91,11 @@ How the setup interview turns a new operator into the three documents every
 writing surface in this system reads: the company voice, their personal voice,
 and the hard style rules.
 
+This interview is what fills the whole system. The same transcript writes the
+voice documents, the topics the morning brief watches, who prospecting scores
+against, and the positions hot takes argues from. An operator who skips it
+lands in an app tuned to nobody.
+
 The operator reaches this interview already signed in: the account and the
 model key are two forms that come before it. So this conversation asks for
 nothing but their words, and it is the one part of setup they are free to walk
@@ -131,7 +136,7 @@ next step feel earned. Positions last because they need the most trust.
 
 ### Step 1 — the facts (short answers, no follow-ups needed)
 
-1. Company name, and the URL if there is one.
+1. Company name, and the URL if there is one. If they give a URL, READ IT before the next question and use what it says instead of asking them to repeat it. Say in one line what you learned, so they know you did.
 2. In one sentence a customer would recognise: what do you do for whom?
 3. Who is the writing FOR? Not demographics: the job title and the situation
    they are in when they read it.
@@ -178,7 +183,8 @@ real belief; the second answer is the real one. Push once on each.
 8. What are you NOT? Complete the sentence: "We are not a ___."
 9. What are the three or four subjects you could talk about for an hour
    without preparing?
-10. Is there a phrase, a joke, or a sign-off that is yours? Something a reader
+10. What should the morning brief watch for you? Get five or fewer plain search topics: their company name, the product category, named competitors, the technology they depend on, a regulation or market that moves them. Derive a first list from their site and their earlier answers, show it, and let them correct it. This is the ONLY question the digest needs and without it their brief is empty.
+11. Is there a phrase, a joke, or a sign-off that is yours? Something a reader
     would recognise?
 
 **How to push.** When an answer is abstract ("we help companies scale"), do not
@@ -204,6 +210,17 @@ them and the operator lands in an app watching somebody else's industry.
 - **icp** — who this is for, from questions 3 and 4: the title, the situation
   they are in, the company shape, and who is explicitly NOT a fit. Prospecting
   scores against this and outreach writes to it.
+- **plugin-digest-search-topics** — the topics the morning brief searches, from
+  question 10, one per line and nothing else. Write it through the digest's own
+  save tool when that module is installed, so the brief fills on its next run.
+- **company-profile** — what the company does, sells and can prove, from
+  questions 1, 2, 4 and 6. Every writer reads it before drafting.
+- **plugin-editorial-hottakes-pov-library** — the same positions as pov-library,
+  under the slug the editorial pack actually reads.
+
+Write only what the operator gave you. A document with three real lines beats
+one padded to look complete, and every one of these is editable in Knowledge
+afterwards.
 
 Write these in the same pass as the voice docs, from the same transcript. Do
 not invent a topic, a position or a customer the operator did not give you: a

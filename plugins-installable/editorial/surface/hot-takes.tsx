@@ -1450,7 +1450,6 @@ function HotTakeDraftRow({ post, onChanged }: { post: HotTakePost; onChanged: ()
           </span>
         )}
         {post.status === 'failed' && <span className="mono text-[9px] uppercase text-rose-600 shrink-0">failed</span>}
-        {post.image_url && <span className="mono text-[9px] uppercase tracking-[0.18em] text-mute opacity-60 shrink-0" title="cover image attached">img</span>}
         <span className="mono text-[10px] text-mute shrink-0">{(post.body || '').length}</span>
         <span className={'text-mute text-sm leading-none transition-transform shrink-0 ' + (open ? 'rotate-90' : '')}>›</span>
       </button>

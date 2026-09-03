@@ -1,9 +1,8 @@
 // Editorial plugin — the Blog surface's data layer.
 //
 // The host REST routes this page used to call (/api/blog/analytics,
-// /api/blog/:slug + /publish + /live-status + /generate-image +
-// /regenerate-figure, /api/social/generate/:slug) are gone with the module: a
-// plugin surface drives its OWN plugin's tools through the scoped invoke
+// /api/blog/:slug + /publish + /live-status, /api/social/generate/:slug) are
+// gone with the module: a plugin surface drives its OWN plugin's tools through the scoped invoke
 // route, so the page, the crons and Nyo all write through the exact same
 // verbs and can never diverge. The types travel with the module too — they
 // used to live in web/src/lib/api.ts, which the conversion strips of its blog
@@ -29,24 +28,6 @@ export type BlogPost = {
   last_view: number | null;
   avg_scroll: number;           // 0-100
   cta_clicks: number;
-  // Featured image (populated by the pack's cards-figures lib via the host
-  // render gateway → R2). URL is same-origin (/assets/blog/<slug>.png).
-  featured_image_url: string | null;
-  featured_image_prompt: string | null;
-  featured_image_model: string | null;
-  featured_image_generated_at: number | null;
-};
-
-export type BlogImageResult = {
-  url: string;
-  key: string;
-  model: string;
-  prompt: string;
-  generated_at: number;
-  size_bytes: number;
-  width: number;
-  height: number;
-  slug: string;
 };
 
 export type BlogPostWithTags = Omit<BlogPost, 'tags'> & { tags: string[] };
@@ -88,18 +69,6 @@ export const api = {
     const r = await invoke<{ posts: BlogPost[] }>('list_blog_analytics', { published_only: publishedOnly });
     return r.posts.map(withTags);
   },
-
-  generateBlogImage: (slug: string, opts: { prompt_override?: string; model?: string } = {}) =>
-    invoke<{ image: BlogImageResult }>('generate_blog_image', { slug, ...opts }).then((r) => r.image),
-
-  // Redesign ONE in-article chart (the editor's per-chart Change button). The
-  // src can be the dev-rewritten URL — the server matches by its blog-figures/
-  // path segment. Instructions, when given, lead the drafter's prompt.
-  regenerateBlogFigure: (slug: string, body: { src: string; instructions?: string | null }) =>
-    invoke<{ ok: boolean; url: string; alt: string; template: string; figure_html: string; error?: string }>(
-      'regenerate_blog_figure',
-      { slug, src: body.src, instructions: body.instructions || null },
-    ),
 
   // Live-edit a post's body/title/excerpt. edit_blog_post patches: only the
   // fields passed change, so published_at is preserved without sending it

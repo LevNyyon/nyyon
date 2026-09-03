@@ -53,7 +53,7 @@ export async function run(api, input) {
     if (!content) continue;
     const saved = await upsertSocialPost(api, {
       blog_slug: pkg.blog_slug, blog_title: article.title, package_id: pkg.id,
-      channel, content, image_url: article.image_url, actor,
+      channel, content, actor,
     });
     // Readers of these rows speak `body` (the Hot Takes vocabulary); the
     // unified store's column is `content` — alias it on the way out.

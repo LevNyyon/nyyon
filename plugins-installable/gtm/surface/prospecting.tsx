@@ -13,9 +13,9 @@
 //     for a manual identity check.
 //   • Verified Contacts — a card for every contact that reads green in the list.
 //   • Qualification — the SAME table, but consolidating the verified (green)
-//     contacts from ALL lists, with multiselect + a manually-triggered "ICP
-//     match" step (the shared scoreIcpFit ability GTM's Enrich tab uses) and a
-//     strong/medium/weak qualification column.
+//     contacts from ALL lists, with multiselect, a manually-triggered company
+//     lookup and "ICP match" step, and a strong/medium/weak qualification
+//     column.
 //
 // state (completeness) + confidence (identity) + truecaller_url all come back
 // on every lead from api.gtmLeads / api.gtmGreen — this page derives nothing the
@@ -25,11 +25,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { createPortal } from 'react-dom';
 import {
   api, type GtmLead, type GtmBatch, type GtmGreenLead, type GtmConfidence,
-  type OutreachCohort, type OutreachAddResult,
 } from './prospecting-data';
 import {
-  Target, Sparkle, Refresh, Truecaller, X, Send,
-  WhatsApp, LinkedIn, User, Users, Twilio, Octopus, CheckSquare,
+  Target, Sparkle, Refresh, Truecaller, X,
+  LinkedIn, User, Users, Twilio, Octopus, CheckSquare,
 } from '../../components/Icons';
 import { useModulePrereqs } from '../../lib/module-status';
 import { ModuleSetupGate } from '../../components/ModuleSetupGate';
@@ -85,22 +84,20 @@ function rowTone(l: GtmLead): Tone {
 }
 
 // ── enrichment steps ─────────────────────────────────────────────────────────
-// Which stages of the chain (locate → WhatsApp → LinkedIn → PDL → Twilio →
-// Google) actually ran, read off the per-field provenance the backend records
+// Which stages of the chain (locate → LinkedIn → PDL → Twilio → Google)
+// actually ran, read off the per-field provenance the backend records
 // in leads.sources ({field:{tool,at}}). Locate leaves no provenance row, so it
 // is inferred from the phone metadata it writes (region/country/carrier/line).
 // The chain as enrichFullOne actually runs it (gtm.js), in order. Locate is NOT
 // here: it runs once at import off the phone prefix, not per enrichment.
 const STEP_DEFS: { key: string; label: string; hint: string; Icon: (p: { size?: number; className?: string }) => ReactNode }[] = [
-  { key: 'wa',      label: 'WhatsApp', Icon: WhatsApp,    hint: 'Pushname, profile photo and any socials in the "about" text, via the WhatsApp gateway.' },
-  { key: 'li',      label: 'LinkedIn', Icon: LinkedIn,    hint: 'Company + title read off the verified LinkedIn profile. Runs BEFORE PDL because it is cheap and authoritative. Skipped when there is no linkedin on file, or the company is already known.' },
+  { key: 'li',      label: 'LinkedIn', Icon: LinkedIn,    hint: 'Company + title read off the verified LinkedIn search result. Runs BEFORE PDL because it is cheap and authoritative. Skipped when there is no linkedin on file, or the company is already known. Needs SerpApi.' },
   { key: 'pdl',     label: 'PDL',      Icon: User,        hint: 'People Data Labs — phone-anchored identity (name, company, title, email, location). PAID, so it is hard-skipped whenever name AND company are already present.' },
   { key: 'twilio',  label: 'Twilio',   Icon: Twilio,      hint: 'Line type + carrier, always. Caller-ID name only if the lead is still nameless.' },
   { key: 'serp',    label: 'SerpApi',  Icon: Octopus,     hint: 'Google search for socials. Hard-gated on already having a sourced name — it will never search an invented name into a false identity. LinkedIn hits must pass identity verification to attach.' },
   { key: 'confirm', label: 'Confirm',  Icon: CheckSquare, hint: 'Final LinkedIn reconciliation: with a linkedin on file, the company read off it is authoritative. Only applies when a linkedin exists.' },
 ];
 const STEP_TOOLS: Record<string, string[]> = {
-  wa:     ['wa_fetch_name', 'wa_fetch_photo', 'extract_socials'],
   li:     ['company_from_linkedin'],
   pdl:    ['pdl_enrich'],
   twilio: ['twilio_lookup'],
@@ -111,36 +108,35 @@ const STEP_TOOLS: Record<string, string[]> = {
 // that have nothing to do with the lead. Saying which ones are dark is the
 // difference between "this list is thin" and "we never asked".
 const STEP_GATEWAYS: Record<string, string[]> = {
-  wa:      ['whatsapp'],
-  li:      ['linkedin'],
+  li:      ['serp'],
   pdl:     ['pdl'],
   twilio:  ['twilio'],
   serp:    ['serp'],
-  confirm: ['linkedin'],
-  company: ['theorg', 'linkedin'],
+  confirm: ['serp'],
+  company: ['serp'],
 };
 // The steps the automatic chain runs. If all of these are dark there is nothing
 // left for "enrich" to do.
-const CHAIN_STEPS = ['wa', 'li', 'pdl', 'twilio', 'serp'];
+const CHAIN_STEPS = ['li', 'pdl', 'twilio', 'serp'];
 // Three states per step, because "no data" and "never ran" are different facts:
 //   done  — the step ran and wrote something
 //   empty — the step ran and came back with nothing (or its provider has no key)
 //   idle  — the chain has not reached this lead yet
 // There is no per-step attempt log, but `status` flips to 'enriched' only after
-// the WHOLE chain has run (gtm.js enrichFullOne), so on an enriched lead a step
-// with no trace is one that genuinely found nothing.
+// the WHOLE chain has run (enrichFullOne), so on an enriched lead a step with no
+// trace is one that genuinely found nothing.
 type StepState = 'done' | 'empty' | 'skipped' | 'idle';
-// Per-step verdict + the reason behind it. The API now records this at enrich
-// time (lead.steps); everything below the first branch is the legacy fallback
-// for leads enriched before migration 0056, which can only infer from
-// provenance and therefore cannot see a skip.
+// Per-step verdict + the reason behind it. Recorded at enrich time
+// (lead.steps); everything below the first branch is the fallback for leads
+// enriched before step verdicts existed, which can only infer from provenance
+// and therefore cannot see a skip.
 type StepRead = { state: StepState; reason: string | null; recorded: boolean };
 
 // Merged PER KEY, not all-or-nothing: a "resume" writes verdicts for only the
-// steps it re-ran, so a lead enriched before 0056 ends up with a partial record.
-// Each step therefore prefers its own recorded verdict and falls back to the
-// provenance inference individually — otherwise resuming a legacy lead would
-// claim its four untouched steps had never run.
+// steps it re-ran, so an older lead ends up with a partial record. Each step
+// therefore prefers its own recorded verdict and falls back to the provenance
+// inference individually — otherwise resuming an older lead would claim its
+// untouched steps had never run.
 function readSteps(l: GtmLead): Record<string, StepRead> {
   const recorded = new Map((l.steps || []).map((s) => [s.key, s]));
   const legacy = stepStates(l);
@@ -208,7 +204,7 @@ const STEP_WORD: Record<StepState, string> = {
 // facts, then judge against them.
 const COMPANY_STEP: (typeof STEP_DEFS)[number] = {
   key: 'company', label: 'Company', Icon: Users,
-  hint: 'The company behind the lead, in one pass: theorg org chart + LinkedIn headcount + LinkedIn open roles. Manual — select rows and run it. The ICP is mostly a statement about COMPANIES (size band, geography), so this is what turns a fit verdict from a guess about the brand name into a judgement on real data.',
+  hint: 'The company behind the lead: search for it, read its own site, and store what it does, its industry, HQ and headcount when a page states one. Manual — select rows and run it. Needs SerpApi. The ICP is mostly a statement about COMPANIES, so this is what turns a fit verdict from a guess about the brand name into a judgement on real data.',
 };
 const ICP_STEP: (typeof STEP_DEFS)[number] = {
   key: 'icp', label: 'ICP match', Icon: Target,
@@ -262,18 +258,17 @@ function companyLinkedin(l: GtmLead): string | null {
 // "never looked it up", NEVER zero — the same distinction the scorer is told to
 // make, so an unchecked row reads as a dash rather than a very small company.
 function sizeTitle(l: GtmLead): string {
-  const ctx = parseJson<{ name?: string; url?: string }>(l.company_context, {});
-  const roles = parseJson<{ title?: string }[]>(l.open_positions, []);
+  const ctx = parseJson<{ summary?: string; industry?: string }>(l.company_context, {});
   // Provenance, not a guess: manualEditLead stamps 'manual' on a typed-in
-  // figure, so a corrected headcount must not claim to come from LinkedIn.
+  // figure, so a corrected headcount must not claim to come from the web.
   const srcs = parseJson<Record<string, { tool?: string }>>(l.sources, {});
-  const from = srcs.company_staff_count?.tool === 'manual' ? 'entered by hand' : 'LinkedIn';
+  const from = srcs.company_staff_count?.tool === 'manual' ? 'entered by hand' : 'found on the web';
   return [
     l.company_staff_count !== null && l.company_staff_count !== undefined
       ? `${l.company_staff_count} employees (${from})`
       : 'headcount not checked yet — run Company context',
-    ctx.name ? `matched: ${ctx.name}` : null,
-    roles.length ? `${roles.length} open roles` : (l.positions_checked_at ? 'no open roles' : null),
+    ctx.summary || null,
+    ctx.industry || null,
     l.company_checked_at ? `checked ${timeAgo(l.company_checked_at)}` : null,
   ].filter(Boolean).join('\n');
 }
@@ -349,10 +344,10 @@ export default function Prospecting() {
   useEffect(() => { localStorage.setItem(TAB_KEY, tab); }, [tab]);
   const engine = useEnrichEngine();
 
-  // The enrichment sources, asked for on first use. Taking a list, reading it,
-  // editing it and shipping people to a cohort never needed a key — so the gate
-  // is skippable and the module still does all of that, saying which sources
-  // are dark instead of running a chain that quietly finds nothing.
+  // The enrichment sources, asked for on first use. Taking a list, reading it
+  // and editing it never needed a key — so the gate is skippable and the module
+  // still does all of that, saying which sources are dark instead of running a
+  // chain that quietly finds nothing.
   const prereqs = useModulePrereqs('prospecting');
   const gated = prereqs.phase === 'gate' && !!prereqs.status;
   const unmet = prereqs.unmet;
@@ -428,7 +423,7 @@ export default function Prospecting() {
           <DegradedNotice
             className="mb-3"
             note={allChainDark
-              ? <>Uploading a list, reading it, editing rows by hand and adding people to a cohort all work. <strong className="font-semibold">Every enrichment source is dark</strong>, so there is nothing for the chain to run.</>
+              ? <>Uploading a list, reading it and editing rows by hand all work. <strong className="font-semibold">Every enrichment source is dark</strong>, so there is nothing for the chain to run.</>
               : darkGateways.length > 0
                 ? <>Uploading, reading, editing and qualifying all work. These enrichment sources are <strong className="font-semibold">dark</strong> — their steps come back empty on every lead, whoever the lead is.</>
                 : <>Enrichment works. The ICP match is scoring against the <strong className="font-semibold">shipped ICP</strong>, so every lead comes back at the same fit until you write your own.</>}
@@ -1303,7 +1298,7 @@ function VerifiedContacts() {
       )}
       {verified.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-          {verified.map((l) => <ContactCard key={l.id} lead={l} onChanged={refresh} />)}
+          {verified.map((l) => <ContactCard key={l.id} lead={l} />)}
         </div>
       )}
       {leads && verified.length === 0 && !error && (
@@ -1320,17 +1315,11 @@ function VerifiedContacts() {
   );
 }
 
-function ContactCard({ lead, onChanged }: { lead: GtmGreenLead; onChanged: () => void }) {
-  const [busy, setBusy] = useState(false);
+function ContactCard({ lead }: { lead: GtmGreenLead }) {
   const li = linkedinOf(lead);
   const phone = lead.normalized_phone || lead.phone;
   const fitTone = lead.icp_fit ? FIT_TONE[lead.icp_fit] : '';
-
-  async function toPipeline() {
-    setBusy(true);
-    try { await api.gtmToPipeline(lead.id); onChanged(); }
-    finally { setBusy(false); }
-  }
+  const contact = lead.contact_status || 'not_contacted';
 
   return (
     <div className="hairline rounded-sm bg-card/80 p-3.5 flex flex-col gap-2.5">
@@ -1348,8 +1337,8 @@ function ContactCard({ lead, onChanged }: { lead: GtmGreenLead; onChanged: () =>
 
       <div className="flex flex-wrap gap-1.5">
         {lead.icp_fit && <span className={'mono text-[9px] uppercase px-1.5 py-0.5 rounded-sm ' + fitTone}>{lead.icp_fit} fit</span>}
-        {lead.has_contact && <span className="mono text-[9px] uppercase px-1.5 py-0.5 rounded-sm bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300" title={lead.contacts.map((c) => `${c.name} — ${c.role}`).join('\n')}>warm path</span>}
-        {lead.client_id && <span className="mono text-[9px] uppercase px-1.5 py-0.5 rounded-sm bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">in pipeline</span>}
+        {contact === 'replied' && <span className="mono text-[9px] uppercase px-1.5 py-0.5 rounded-sm bg-emerald-50 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300">replied</span>}
+        {contact === 'contacted' && <span className="mono text-[9px] uppercase px-1.5 py-0.5 rounded-sm bg-sky-50 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300">contacted</span>}
       </div>
 
       <div className="mono text-[11px] text-mute space-y-1 border-t border-line/70 pt-2">
@@ -1364,195 +1353,8 @@ function ContactCard({ lead, onChanged }: { lead: GtmGreenLead; onChanged: () =>
             <Truecaller size={12} /> truecaller
           </a>
         )}
-        <button onClick={toPipeline} disabled={busy || !!lead.client_id} className={btn + ' h-7'}>
-          {lead.client_id ? 'in pipeline ✓' : busy ? '…' : '→ pipeline'}
-        </button>
       </div>
     </div>
-  );
-}
-
-// ─── Add to Cohort ───────────────────────────────────────────────────
-// Pick a cohort (or make one) for the selected prospects.
-//
-// Nobody may sit in two cohorts — that is the whole anti-spam guarantee, and it
-// is enforced by the schema, not by this dialog. So the add comes back in three
-// parts: added, skipped (no approved angle, no phone, already here), and
-// CONFLICTS — people already being worked in another campaign. Conflicts are
-// never resolved silently: they are listed by name with the cohort they are
-// already in, and moving them takes a second, explicit press.
-function AddToCohortModal({ leadIds, onClose, onDone }: {
-  leadIds: string[];
-  onClose: () => void;
-  onDone: (r: OutreachAddResult) => void;
-}) {
-  const [cohorts, setCohorts] = useState<OutreachCohort[] | null>(null);
-  const [cohortId, setCohortId] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [result, setResult] = useState<OutreachAddResult | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.outreachCohorts()
-      .then((qs) => { setCohorts(qs); setCohortId(qs[0]?.id || ''); if (!qs.length) setCreating(true); })
-      .catch((e) => setErr(e instanceof Error ? e.message : String(e)));
-  }, []);
-
-  async function add(override: boolean, ids: string[]) {
-    setBusy(true); setErr(null);
-    try {
-      let target = cohortId;
-      if (creating) {
-        const c = await api.outreachCohortCreate(newName.trim());
-        if (c.error || !c.cohort) { setErr(c.error || 'could not create the cohort'); return; }
-        target = c.cohort.id;
-        setCohortId(target); setCreating(false);
-        setCohorts(await api.outreachCohorts().catch(() => cohorts || []));
-      }
-      if (!target) { setErr('pick a cohort first'); return; }
-      const r = await api.outreachCohortAddMany(ids, target, override);
-      if (r.error) { setErr(r.error); return; }
-      // Merge, so an override pass does not erase what the first pass added.
-      setResult((prev) => (prev && override
-        ? { ...r, added: [...prev.added, ...r.added], skipped: [...prev.skipped, ...r.skipped] }
-        : r));
-      onDone(r);
-    } catch (e) {
-      setErr(e instanceof Error ? e.message : String(e));
-    } finally { setBusy(false); }
-  }
-
-  const canSubmit = !busy && (creating ? newName.trim().length > 0 : !!cohortId);
-
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <button type="button" className="absolute inset-0 bg-black/50" onClick={onClose} aria-label="Close" />
-      <div className="relative w-full max-w-lg hairline rounded-sm bg-card shadow-xl max-h-[85vh] flex flex-col">
-        <div className="px-4 py-3 border-b border-[var(--color-line)] flex items-center gap-2">
-          <Send size={12} />
-          <span className="mono text-[10px] uppercase tracking-[0.2em]">Add to cohort</span>
-          <span className="mono text-[10px] text-mute ml-auto">{leadIds.length} selected</span>
-          <button type="button" onClick={onClose} className="text-mute hover:text-ink" aria-label="Close"><X size={13} /></button>
-        </div>
-
-        <div className="p-4 overflow-y-auto min-h-0">
-          {err && <div className="mb-3 px-3 py-2 rounded-sm border border-rose-500/30 bg-rose-500/10 text-[12px] text-rose-600">{err}</div>}
-
-          {!result && (
-            <>
-              {cohorts === null && <div className="text-[12px] text-mute">Loading cohorts…</div>}
-              {cohorts !== null && !creating && (
-                <label className="block">
-                  <span className="mono text-[9px] uppercase tracking-[0.2em] text-mute">cohort</span>
-                  <select
-                    value={cohortId}
-                    onChange={(e) => setCohortId(e.target.value)}
-                    className="mt-1.5 w-full h-9 hairline rounded-sm bg-paper px-2 text-[13px] focus:outline-none"
-                  >
-                    {cohorts.map((qq) => (
-                      <option key={qq.id} value={qq.id}>{qq.name} ({qq.total})</option>
-                    ))}
-                  </select>
-                </label>
-              )}
-              {cohorts !== null && creating && (
-                <label className="block">
-                  <span className="mono text-[9px] uppercase tracking-[0.2em] text-mute">new cohort name</span>
-                  <input
-                    autoFocus
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    placeholder="e.g. Fintech CTOs · August"
-                    className="mt-1.5 w-full h-9 hairline rounded-sm bg-paper px-2 text-[13px] focus:outline-none"
-                  />
-                </label>
-              )}
-              {cohorts !== null && (
-                <button
-                  type="button"
-                  onClick={() => { setCreating((v) => !v); setErr(null); }}
-                  className="mt-2 mono text-[9px] uppercase tracking-[0.16em] text-mute hover:text-ink"
-                >
-                  {creating ? (cohorts.length ? '← pick an existing cohort' : '') : '+ new cohort'}
-                </button>
-              )}
-              <p className="mt-4 text-[11px] text-mute leading-relaxed">
-                A prospect can only be in one cohort — anyone already being worked elsewhere is held back
-                for your approval rather than added twice.
-              </p>
-            </>
-          )}
-
-          {result && (
-            <div className="space-y-4">
-              <div className="text-[13px]">
-                Added <span className="font-semibold">{result.added.length}</span> to{' '}
-                <span className="font-semibold">{result.cohort_name}</span>.
-              </div>
-
-              {result.conflicts.length > 0 && (
-                <div className="rounded-sm border border-amber-500/40 bg-amber-500/10 p-3">
-                  <div className="mono text-[9px] uppercase tracking-[0.16em] text-amber-700">
-                    needs your approval · {result.conflicts.length}
-                  </div>
-                  <p className="text-[12px] mt-1.5 leading-relaxed">
-                    {result.conflicts.length === 1 ? 'This prospect is' : 'These prospects are'} already in
-                    another cohort. Overriding <span className="font-semibold">moves</span> them — they will
-                    not be messaged by two campaigns.
-                  </p>
-                  <ul className="mt-2 space-y-1">
-                    {result.conflicts.map((c) => (
-                      <li key={c.lead_id} className="text-[12px]">
-                        <span className="font-semibold">{c.name || c.lead_id}</span>
-                        <span className="text-mute"> — in “{c.current_cohort.name || c.current_cohort.id}”</span>
-                      </li>
-                    ))}
-                  </ul>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => add(true, result.conflicts.map((c) => c.lead_id))}
-                    className="mt-3 h-8 px-3 rounded-sm mono text-[10px] uppercase tracking-[0.15em] bg-amber-600 text-white hover:opacity-90 disabled:opacity-40"
-                  >
-                    {busy ? 'moving…' : `override restriction · move ${result.conflicts.length}`}
-                  </button>
-                </div>
-              )}
-
-              {result.skipped.length > 0 && (
-                <div>
-                  <div className="mono text-[9px] uppercase tracking-[0.16em] text-mute">
-                    not added · {result.skipped.length}
-                  </div>
-                  <ul className="mt-1.5 space-y-1">
-                    {result.skipped.slice(0, 12).map((s) => (
-                      <li key={s.lead_id} className="text-[11px] text-mute">{s.reason}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        <div className="px-4 py-3 border-t border-[var(--color-line)] flex items-center gap-2">
-          <button type="button" onClick={onClose} className={btn}>{result ? 'done' : 'cancel'}</button>
-          {!result && (
-            <button
-              type="button"
-              disabled={!canSubmit}
-              onClick={() => add(false, leadIds)}
-              className={btnPrimary + ' ml-auto'}
-            >
-              {busy ? 'adding…' : `add ${leadIds.length}`}
-            </button>
-          )}
-        </div>
-      </div>
-    </div>,
-    document.body,
   );
 }
 
@@ -1577,8 +1379,6 @@ function Qualification({ dark }: { dark: Set<string> }) {
   const [running, setRunning] = useState<{ kind: BulkKind; done: number; total: number } | null>(null);
   const [busyIds, setBusyIds] = useState<Map<string, BulkKind>>(new Map());
   const [runIssues, setRunIssues] = useState<string[]>([]);
-  const [addingToCohort, setAddingToCohort] = useState(false);
-  const [cohortNote, setCohortNote] = useState<string | null>(null);
   const runningRef = useRef(false);
 
   const refresh = useCallback(async () => {
@@ -1664,8 +1464,8 @@ function Qualification({ dark }: { dark: Set<string> }) {
             if (r.error) {
               issues.push(`${who}: ${r.error}`);
             } else {
-              // Partial by design: a failed leg (theorg namesake, LinkedIn
-              // session) is reported while whatever landed is still kept.
+              // Partial by design: a leg that failed (a site that would not
+              // load) is reported while whatever landed is still kept.
               if (r.errors?.length) issues.push(`${who}: ${r.errors.join(' · ')}`);
               const staff = r.staff_count ?? null;
               setLeads((prev) => prev ? prev.map((l) => (
@@ -1734,8 +1534,8 @@ function Qualification({ dark }: { dark: Set<string> }) {
                 disabled={dark.has('company')}
                 className={btn + ' inline-flex items-center gap-1'}
                 title={dark.has('company')
-                  ? 'Neither company source is connected, so this would come back empty on every row. The ICP match still runs on what is already on file.'
-                  : 'theorg org chart + LinkedIn headcount + open roles for each selected row. Cached per the gtm-policy knowledge note — a row checked recently is skipped, and a row whose last check FAILED is retried on a much shorter clock. Feeds the ICP match.'}
+                  ? 'SerpApi is not connected, so this would come back empty on every row. The ICP match still runs on what is already on file.'
+                  : 'Search for each selected company and read its own site: what it does, industry, HQ and headcount when a page states one. Cached for 30 days, so a row checked recently is skipped. Feeds the ICP match.'}
               >
                 <Users size={11} /> {dark.has('company') ? 'company sources dark' : `fetch company context (${runnable.length})`}
               </button>
@@ -1745,47 +1545,16 @@ function Qualification({ dark }: { dark: Set<string> }) {
             </>
           ) : null
         ) : null}
-        {/* Approach them. Unlike the ICP actions this needs no eligibility beyond
-            being selected — the cohort itself decides who it can take (a usable
-            angle, a usable phone, not already in another campaign). */}
-        {sel.size > 0 && !running && (
-          <button
-            onClick={() => setAddingToCohort(true)}
-            className={btn + ' inline-flex items-center gap-1'}
-            title="Put the selected prospects on an outreach queue. Nobody can be in two cohorts — anyone already in one is held back for your approval."
-          >
-            <Send size={11} /> add to cohort ({sel.size})
-          </button>
-        )}
-        {/* Only about the ICP actions — the cohort button above takes any
-            selection, so this must not read as "nothing can be done". */}
         {!running && sel.size > 0 && runnable.length === 0 && (
-          <span className="mono text-[10px] uppercase tracking-[0.12em] text-mute" title="Selected rows are hidden by the filters or missing name / company / title — the ICP actions need those; adding to a cohort still works">
-            not ICP-runnable
+          <span className="mono text-[10px] uppercase tracking-[0.12em] text-mute" title="Selected rows are hidden by the filters, or missing name / company / title — both actions need those">
+            nothing runnable in this selection
           </span>
         )}
       </div>
 
-      {cohortNote && (
-        <div className="mt-2 px-3 py-2 rounded-sm hairline bg-card text-[12px]">{cohortNote}</div>
-      )}
-
-      {addingToCohort && (
-        <AddToCohortModal
-          leadIds={visible.filter((l) => sel.has(l.id)).map((l) => l.id)}
-          onClose={() => setAddingToCohort(false)}
-          onDone={(r) => {
-            const bits = [`${r.added.length} added to ${r.cohort_name}`];
-            if (r.conflicts.length) bits.push(`${r.conflicts.length} already in another cohort`);
-            if (r.skipped.length) bits.push(`${r.skipped.length} not eligible`);
-            setCohortNote(bits.join(' · '));
-          }}
-        />
-      )}
-
       {/* "Issues", not "failures": a company-context run reports a leg that
-          failed (theorg namesake, LinkedIn session) while the rest still landed,
-          so the row is not necessarily worse off. */}
+          failed (a site that would not load, a search that found nothing) while
+          the rest still landed, so the row is not necessarily worse off. */}
       {runIssues.length > 0 && (
         <div className="mx-4 sm:mx-5 mt-2 hairline rounded-sm bg-amber-500/5 border-amber-400/60 p-2.5 shrink-0">
           <div className="flex items-start justify-between gap-2">

@@ -1,5 +1,5 @@
 // Editorial plugin — read_hottake_schedule. Surface entry point for the old
-// GET /api/hot-takes/schedule route: the release calendar — every publication
+// GET /api/hot-takes/schedule route: the release timeline — every publication
 // with its website + per-leg markers, an overall state, and the attention
 // strip of things that need the operator.
 

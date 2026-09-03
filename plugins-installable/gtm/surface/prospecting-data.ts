@@ -1,11 +1,8 @@
 // GTM plugin — the Prospecting surface's data layer.
 //
-// The host REST routes this page used to call are gone: a plugin surface
-// drives its OWN plugin's tools through the scoped invoke route, so the page,
-// the crons and the chat personas write through the exact same verbs and can
-// never diverge. The add-to-cohort helpers live here too — Outreach is the
-// same pack now, so the dialog talks to the same invoke route.
-// The types travel with the module.
+// A plugin surface drives its OWN plugin's tools through the scoped invoke
+// route, so the page, the cron and the chat personas write through the exact
+// same verbs and can never diverge. The types travel with the module.
 
 // ── types (moved from web/src/lib/api.ts — the GTM slice the page reads) ─────
 
@@ -42,21 +39,14 @@ export type GtmLead = {
   conflicts: string;          // JSON [{field,value,tool,at}]
   dismissed: string;          // JSON [url]
   active_tool: string | null;
-  org_status: 'saved' | 'warn' | 'none' | null;
-  org_note: string | null;
-  theorg_slug: string | null;
   icp_fit: 'strong' | 'medium' | 'weak' | null;
   icp_reasons: string | null; // JSON {reasons:[],gaps:[]}
-  company_li_id: string | null;
-  open_positions: string | null; // JSON [{title,location,url,posted_at}]
-  positions_checked_at: number | null;
   // Company facts from the company-context pass. null = never checked, NOT
   // zero — the ICP scorer is told to read it that way too.
   company_staff_count: number | null;
-  company_context: string | null;    // JSON {name,universal_name,url,staff_count,at}
+  company_context: string | null;    // JSON {summary,industry,hq,website,staff_count,at}
   company_checked_at: number | null;
   outreach_lang: string | null;
-  client_id: string | null;
   created_at: number;
   updated_at: number;
   state?: GtmLeadStage;
@@ -75,42 +65,12 @@ export type GtmAngle = { rank: number; target: string; type: string; rationale: 
 export type GtmAngles = { playbook_fit: { language?: string; channel?: string; why?: string } | null; connection_points: { type: string; detail: string; strength: string }[]; angles: GtmAngle[]; blocked?: string; angles_at?: number };
 export type GtmContactStatus = 'not_contacted' | 'contacted' | 'replied';
 export type GtmGreenLead = GtmLead & {
-  has_contact: boolean; contacts: { name: string; role: string }[]; angles: GtmAngles | null;
+  angles: GtmAngles | null;
   contact_status?: GtmContactStatus;
   first_contacted_at?: number | null;
   last_contacted_at?: number | null;
   sends?: number;
   replied_at?: number | null;
-};
-
-export type CohortStatus = 'active' | 'paused' | 'finished' | 'canceled';
-export type OutreachCohort = {
-  id: string; name: string; note: string | null; created_at: number;
-  status: CohortStatus;
-  // The cohort's own sending window. null = inherit the account default.
-  timezone: string | null;
-  start_hour: number | null;
-  end_hour: number | null;
-  send_days: number[] | null;   // 0=Sunday … 6=Saturday
-  send_windows: Record<string, { start: string; end: string }> | null;
-  languages: string[] | null;
-  has_sequence: boolean;
-  total: number; active: number; answered: number;
-};
-// Somebody already being worked in ANOTHER cohort. Nobody may be in two, so
-// adding them needs explicit operator approval, which MOVES them.
-export type OutreachConflict = {
-  conflict: true; lead_id: string; name: string | null;
-  current_cohort: { id: string; name: string | null };
-  requested_cohort: { id: string; name: string | null };
-  message: string;
-};
-export type OutreachAddResult = {
-  cohort_id: string; cohort_name: string | null; requested: number;
-  added: { lead_id: string; moved?: boolean }[];
-  conflicts: OutreachConflict[];
-  skipped: { lead_id: string; reason: string }[];
-  error?: string;
 };
 
 // ── the invoke route ─────────────────────────────────────────────────────────
@@ -147,36 +107,18 @@ export const api = {
     }),
   // 'resume' re-runs only the steps a manual edit can unblock (SerpApi + the
   // finalize LinkedIn pass), leaving the paid per-lookup legs alone.
-  gtmEnrichLead: (id: string, kind?: 'wa' | 'full' | 'resume') =>
+  gtmEnrichLead: (id: string, kind?: 'full' | 'resume') =>
     invoke<Record<string, unknown>>('enrich_lead', { id, kind: kind || 'full' }),
   gtmScoreIcp: (id: string) =>
     invoke<{ fit?: string; reasons?: string[]; gaps?: string[]; error?: string }>('qualify_lead', { id }),
-  // Org chart + LinkedIn headcount + open roles in one pass. Partial by design:
-  // `errors` lists the legs that failed while the rest still landed.
+  // Search the company and read its own site, in one pass. Partial by design:
+  // `errors` lists what failed while whatever was found is still kept.
   gtmCompanyContext: (id: string, opts: { refresh?: boolean } = {}) =>
     invoke<{
-      company?: string; org_people?: number; org_status?: string | null; org_note?: string | null;
-      staff_count?: number | null; open_roles?: number; errors?: string[]; error?: string;
+      company?: string; staff_count?: number | null; summary?: string | null;
+      industry?: string | null; hq?: string | null; website?: string | null;
+      errors?: string[]; error?: string;
     }>('company_context', { id, refresh: !!opts.refresh }),
   gtmGreen: () =>
     invoke<{ leads: GtmGreenLead[] }>('list_green_leads', {}).then((r) => r.leads),
-  // The crm gateway's promote answers {ok,...}; the old route turned !ok into an
-  // HTTP error, so the throw is reproduced here rather than every caller
-  // learning a second failure shape.
-  gtmToPipeline: (id: string) =>
-    invoke<{ ok?: boolean; client_id?: string; error?: string }>('promote_lead', { id }).then((r) => {
-      if (!r?.ok) throw new Error(r?.error || 'could not promote to pipeline');
-      return r;
-    }),
-
-  // ── Add to Cohort (the Outreach half of the same pack) ─────────────────────
-  outreachCohorts: () =>
-    invoke<{ cohorts: OutreachCohort[] }>('list_cohorts', {}).then((r) => r.cohorts),
-  outreachCohortCreate: (name: string, note?: string) =>
-    invoke<{ cohort?: { id: string; name: string }; created?: boolean; error?: string }>(
-      'create_cohort', { name, note: note || null }),
-  // A resolved promise does NOT mean everyone was added — read `conflicts`
-  // (already in another cohort) and `skipped`.
-  outreachCohortAddMany: (lead_ids: string[], cohort_id: string, override = false) =>
-    invoke<OutreachAddResult>('enroll_members', { lead_ids, cohort_id, override }),
 };

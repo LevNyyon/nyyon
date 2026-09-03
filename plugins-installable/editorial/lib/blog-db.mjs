@@ -2,13 +2,12 @@
 // Ported from workers/api/src/lib/db.js (blog posts family ~417-534, AEO
 // question helpers ~792-900 + setAeoVoice ~1005, aeo_feedback ~902-915) under
 // the plugin capability contract: every function takes `api` first, tables are
-// renamed into the plugin namespace, calendar writes go through the calendar
-// gateway, logEvent becomes api.log. This file imports NOTHING.
+// renamed into the plugin namespace, logEvent becomes api.log. This file
+// imports NOTHING.
 //
 // Tables: plugin_editorial_blog_posts, plugin_editorial_aeo_questions,
 //         plugin_editorial_aeo_feedback
-// Host reads: calendar_events (SELECT-only, to find the mirror row on delete)
-// Gateways: calendar(upsert, remove)
+// Gateways: none
 
 const now = () => Date.now();
 const uid = () => crypto.randomUUID();
@@ -53,50 +52,12 @@ export async function writeBlogPost(api, { slug, title, excerpt = null, body = n
   }
   await api.log('blog_post_updated', { slug, title, actor: updated_by });
 
-  // Mirror the publish into the calendar so the timeline always sees it.
-  // Upsert semantics come from the host calendar gateway (UNIQUE(source,
-  // source_ref)). The blog-to-calendar-mirror workflow is the named system
-  // workflow for this hop; the plugin cannot write workflow_runs, so the run
-  // record rides the activity bus instead.
-  if (published && published_at) {
-    const startedAt = now();
-    try {
-      await api.gateway('calendar', 'upsert', {
-        kind:        'blog_publish',
-        title,
-        description: excerpt,
-        starts_at:   published_at,
-        all_day:     true,
-        status:      published_at <= now() ? 'done' : 'confirmed',
-        source:      'blog',
-        source_ref:  slug,
-        link_url:    `/blog/${slug}`,
-        created_by:  updated_by,
-        updated_by,
-      });
-      await api.log('workflow_run', {
-        workflow_slug: 'blog-to-calendar-mirror', status: 'succeeded', trigger_kind: 'event',
-        trigger_payload: { blog_slug: slug, title },
-        output: { calendar_event_source: 'blog', calendar_event_source_ref: slug },
-        started_at: startedAt,
-      });
-    } catch (e) {
-      await api.log('workflow_run', {
-        workflow_slug: 'blog-to-calendar-mirror', status: 'failed', trigger_kind: 'event',
-        trigger_payload: { blog_slug: slug, title },
-        error: String(e?.message || e),
-        started_at: startedAt,
-      });
-      // re-throw — calendar mirror failure shouldn't be silent
-      throw e;
-    }
-  }
   return readBlogPost(api, slug);
 }
 
 // Safe partial edit: changes ONLY the fields passed; everything else is
-// preserved. Reuses writeBlogPost so the calendar mirror + event log still
-// fire. Throws if the post doesn't exist (use writeBlogPost to create).
+// preserved. Reuses writeBlogPost so the event log still
+// fires. Throws if the post doesn't exist (use writeBlogPost to create).
 export async function patchBlogPost(api, slug, patch = {}) {
   const existing = await readBlogPost(api, slug);
   if (!existing) throw new Error(`blog post not found: ${slug}`);
@@ -114,15 +75,6 @@ export async function patchBlogPost(api, slug, patch = {}) {
 
 export async function deleteBlogPost(api, slug) {
   await api.db.prepare('DELETE FROM plugin_editorial_blog_posts WHERE slug = ?').bind(slug).run();
-  // Tidy up the mirrored calendar event too — it's pointing at a dead row.
-  // calendar_events is a declared host READ; the delete goes through the
-  // calendar gateway (a plugin write statement may never name a host table).
-  try {
-    const ev = await api.db.prepare(
-      `SELECT id FROM calendar_events WHERE source = 'blog' AND source_ref = ?`,
-    ).bind(slug).first();
-    if (ev?.id) await api.gateway('calendar', 'remove', { id: ev.id });
-  } catch { /* mirror row cleanup is best-effort */ }
   await api.log('blog_post_deleted', { slug });
 }
 

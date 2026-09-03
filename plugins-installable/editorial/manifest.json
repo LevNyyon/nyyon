@@ -2,8 +2,8 @@
   "nyyon_plugin": 2,
   "name": "editorial",
   "title": "Editorial",
-  "version": "2.0.0",
-  "description": "Editorial: the Blog with its AEO writer, Hot Takes, and Social drafting and posting. Text works fully on a lean install; image rendering, calendar scheduling and vision are reported as unavailable rather than failing quietly.",
+  "version": "3.0.1",
+  "description": "Editorial: the Blog with its AEO writer, Hot Takes, and Social drafting and posting. This build writes and publishes text; it produces no images.",
   "origin": {
     "system": "nyyon-app"
   },
@@ -33,10 +33,6 @@
       "code_file": "lib/brain.mjs"
     },
     {
-      "path": "cards-figures.mjs",
-      "code_file": "lib/cards-figures.mjs"
-    },
-    {
       "path": "heartbeat.mjs",
       "code_file": "lib/heartbeat.mjs"
     },
@@ -64,27 +60,12 @@
   "requires": {
     "gateways": [
       {
-        "slug": "calendar",
-        "modes": [
-          "remove",
-          "upsert"
-        ],
-        "purpose": "calendar mirror rows for scheduled releases + follow-ups"
-      },
-      {
-        "slug": "crm",
-        "modes": [
-          "write_contact"
-        ],
-        "purpose": "contact upserts from digest share actions"
-      },
-      {
         "slug": "llm",
         "modes": [
           "json",
           "text"
         ],
-        "purpose": "drafting, scoring, synthesis, and the featured-image vision judge"
+        "purpose": "drafting, scoring, and synthesis"
       },
       {
         "slug": "outbox",
@@ -94,16 +75,6 @@
           "sent"
         ],
         "purpose": "audited send claims for every social/blog release"
-      },
-      {
-        "slug": "render",
-        "modes": [
-          "card",
-          "cover",
-          "figures",
-          "images"
-        ],
-        "purpose": "host resvg renderer: share cards, article figures, covers, image candidates"
       },
       {
         "slug": "setup",
@@ -129,30 +100,9 @@
           "text"
         ],
         "purpose": "feed pulls, article text, scrapers, edge publish verify + IndexNow ping"
-      },
-      {
-        "slug": "whatsapp",
-        "modes": [
-          "group_info",
-          "reply",
-          "send"
-        ],
-        "purpose": "digest delivery, quote-replies, group context"
       }
     ],
     "host_reads": [
-      {
-        "table": "contacts",
-        "purpose": "digest generator resolves sender names"
-      },
-      {
-        "table": "calendar_events",
-        "purpose": "digest calendar channel + locating the blog mirror row before gateway removal"
-      },
-      {
-        "table": "events",
-        "purpose": "activity-bus reads: dismissal-learning marker, digest stats, share trails"
-      },
       {
         "table": "feature_flags",
         "purpose": "the hottakes.live flag that gates real distribution (dry-run default)"
@@ -196,7 +146,7 @@
       },
       {
         "name": "plugin_editorial_blog_posts",
-        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_blog_posts (slug TEXT PRIMARY KEY, title TEXT NOT NULL, excerpt TEXT, body TEXT, tags TEXT, published_at INTEGER, published INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, updated_by TEXT, featured_image_url TEXT, featured_image_prompt TEXT, featured_image_model TEXT, featured_image_generated_at INTEGER); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_blog_posts_published_at ON plugin_editorial_blog_posts (published_at DESC); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_blog_posts_published ON plugin_editorial_blog_posts (published)"
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_blog_posts (slug TEXT PRIMARY KEY, title TEXT NOT NULL, excerpt TEXT, body TEXT, tags TEXT, published_at INTEGER, published INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, updated_by TEXT); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_blog_posts_published_at ON plugin_editorial_blog_posts (published_at DESC); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_blog_posts_published ON plugin_editorial_blog_posts (published)"
       },
       {
         "name": "plugin_editorial_aeo_questions",
@@ -220,11 +170,7 @@
       },
       {
         "name": "plugin_editorial_social_posts",
-        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_social_posts (id TEXT PRIMARY KEY, blog_slug TEXT, package_id TEXT, channel TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', content TEXT NOT NULL DEFAULT '', notes TEXT, image_url TEXT, error TEXT, outbox_id TEXT, scheduled_at INTEGER, posted_at INTEGER, actor TEXT, blog_title TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_posts_blog_slug ON plugin_editorial_social_posts (blog_slug); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_posts_status ON plugin_editorial_social_posts (status); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_posts_package_id ON plugin_editorial_social_posts (package_id); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_posts_scheduled_at ON plugin_editorial_social_posts (scheduled_at)"
-      },
-      {
-        "name": "plugin_editorial_social_cards",
-        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_social_cards (id INTEGER PRIMARY KEY AUTOINCREMENT, slug TEXT, template TEXT NOT NULL, url TEXT NOT NULL, r2_key TEXT NOT NULL, slots_json TEXT, width INTEGER, height INTEGER, actor TEXT, created_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_cards_slug ON plugin_editorial_social_cards (slug)"
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_social_posts (id TEXT PRIMARY KEY, blog_slug TEXT, package_id TEXT, channel TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', content TEXT NOT NULL DEFAULT '', notes TEXT, error TEXT, outbox_id TEXT, scheduled_at INTEGER, posted_at INTEGER, actor TEXT, blog_title TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_posts_blog_slug ON plugin_editorial_social_posts (blog_slug); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_posts_status ON plugin_editorial_social_posts (status); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_posts_package_id ON plugin_editorial_social_posts (package_id); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_posts_scheduled_at ON plugin_editorial_social_posts (scheduled_at)"
       },
       {
         "name": "plugin_editorial_connections",
@@ -305,7 +251,7 @@
         "code_file": "tools/approve_social_post.mjs",
         "def": {
           "name": "approve_social_post",
-          "description": "Approve one draft for release: refuses a post that already went out, resolves the article's CURRENT cover over whatever image the row captured at draft time, and opens the outbox send claim that push_social_post requires. This is the operator gate — only run it when the operator has approved this specific post.",
+          "description": "Approve one draft for release: refuses a post that already went out, and opens the outbox send claim that push_social_post requires. This is the operator gate — only run it when the operator has approved this specific post.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -394,7 +340,7 @@
         "code_file": "tools/cancel_hottake_schedule.mjs",
         "def": {
           "name": "cancel_hottake_schedule",
-          "description": "Cancel a scheduled publication by package id or blog slug: the package returns to ready, queued legs go back to ready or draft with their times cleared, and the calendar entry is marked cancelled. Nothing is deleted.",
+          "description": "Cancel a scheduled publication by package id or blog slug: the package returns to ready and queued legs go back to ready or draft with their times cleared. Nothing is deleted.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -514,7 +460,7 @@
         "code_file": "tools/delete_social_group.mjs",
         "def": {
           "name": "delete_social_group",
-          "description": "Delete EVERY social post for one source slug at once — an article's whole fan-out group, a digest:<id> reaction set, or a standalone: row. The Outbox, activity feed, and calendar keep the record of anything already posted. Irreversible: confirm the slug with the operator first.",
+          "description": "Delete EVERY social post for one source slug at once — an article's whole fan-out group, a digest:<id> reaction set, or a standalone: row. The Outbox and activity feed keep the record of anything already posted. Irreversible: confirm the slug with the operator first.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -633,99 +579,6 @@
                   "type": "string"
                 },
                 "description": "fallback tags if the writer picks none"
-              }
-            },
-            "required": []
-          }
-        }
-      },
-      {
-        "name": "draft_card",
-        "code_file": "tools/draft_card.mjs",
-        "def": {
-          "name": "draft_card",
-          "description": "Pick the share-card template that fits the article and write its slot text (one cheap LLM step). Templates: split, statement, checklist, flow — split for a contrast, statement for one sharp claim, checklist for criteria, flow for a sequence of steps. Pass template to force one, or slots to dictate the exact wording and skip the drafting entirely.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "title": {
-                "type": "string",
-                "description": "article title, or a custom line"
-              },
-              "excerpt": {
-                "type": "string"
-              },
-              "tags": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "template": {
-                "type": "string",
-                "enum": [
-                  "split",
-                  "statement",
-                  "checklist",
-                  "flow"
-                ],
-                "description": "force a template; omit to let the drafter pick"
-              },
-              "slots": {
-                "type": "object",
-                "description": "exact slot text — skips the drafter; must respect the template char limits"
-              }
-            },
-            "required": []
-          }
-        }
-      },
-      {
-        "name": "draft_cover",
-        "code_file": "tools/draft_cover.mjs",
-        "def": {
-          "name": "draft_cover",
-          "description": "Draft the three hero slots for an article cover (kicker, the highlighted word from the title, and the standfirst) in one cheap reasoning step. Use it when refreshing only the cover; draft_figures already returns these when it runs.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "title": {
-                "type": "string"
-              },
-              "excerpt": {
-                "type": "string"
-              },
-              "blog_slug": {
-                "type": "string",
-                "description": "read title + excerpt from this post instead"
-              }
-            },
-            "required": []
-          }
-        }
-      },
-      {
-        "name": "draft_figures",
-        "code_file": "tools/draft_figures.mjs",
-        "def": {
-          "name": "draft_figures",
-          "description": "Design the set of editorial diagrams for one article, in a single reasoning step: it picks 3-5 templates that match the shapes of the article's ideas, anchors each to the sentence it illustrates, and drafts the cover slots. Returns specs to hand to render_figures; renders nothing itself.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "blog_slug": {
-                "type": "string",
-                "description": "the post to illustrate (title/excerpt/body are read from it when not passed)"
-              },
-              "title": {
-                "type": "string"
-              },
-              "excerpt": {
-                "type": "string"
-              },
-              "body": {
-                "type": "string",
-                "description": "the article body HTML"
               }
             },
             "required": []
@@ -911,36 +764,6 @@
         }
       },
       {
-        "name": "draft_visual_brief",
-        "code_file": "tools/draft_visual_brief.mjs",
-        "def": {
-          "name": "draft_visual_brief",
-          "description": "Draft the AI-illustration brief for one article in a single reasoning step: it picks the light behaviour that makes the article's argument visible and returns the finished image prompt in the house visual style.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "title": {
-                "type": "string"
-              },
-              "excerpt": {
-                "type": "string"
-              },
-              "tags": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "blog_slug": {
-                "type": "string",
-                "description": "read title/excerpt/tags from this post instead"
-              }
-            },
-            "required": []
-          }
-        }
-      },
-      {
         "name": "edit_blog_post",
         "code_file": "tools/edit_blog_post.mjs",
         "def": {
@@ -1008,29 +831,6 @@
             "required": [
               "id",
               "content"
-            ]
-          }
-        }
-      },
-      {
-        "name": "embed_figures",
-        "code_file": "tools/embed_figures.mjs",
-        "def": {
-          "name": "embed_figures",
-          "description": "Place rendered figures into the post body at their anchor sentences. Any figures from a previous run are stripped first, so re-running refreshes the illustrations instead of stacking duplicates.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "blog_slug": {
-                "type": "string"
-              },
-              "figures": {
-                "type": "array",
-                "description": "from render_figures"
-              }
-            },
-            "required": [
-              "figures"
             ]
           }
         }
@@ -1106,34 +906,6 @@
         }
       },
       {
-        "name": "generate_blog_image",
-        "code_file": "tools/generate_blog_image.mjs",
-        "def": {
-          "name": "generate_blog_image",
-          "description": "Generate (or regenerate) one blog post's AI featured image: brief → candidate renders → vision judge → the winner becomes the cover. Pass prompt_override to skip the brief drafter and render exactly that scene. Returns {image:{url, model, prompt, ...}}.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "slug": {
-                "type": "string",
-                "description": "the blog post slug"
-              },
-              "prompt_override": {
-                "type": "string",
-                "description": "render exactly this image prompt instead of drafting a brief"
-              },
-              "model": {
-                "type": "string",
-                "description": "image model override"
-              }
-            },
-            "required": [
-              "slug"
-            ]
-          }
-        }
-      },
-      {
         "name": "generate_social_posts",
         "code_file": "tools/generate_social_posts.mjs",
         "def": {
@@ -1171,35 +943,11 @@
         }
       },
       {
-        "name": "judge_images",
-        "code_file": "tools/judge_images.mjs",
-        "def": {
-          "name": "judge_images",
-          "description": "Score candidate images against the house visual-style doc in one vision step and return the winner's URL. It reads each candidate back from storage itself; when no vision model is configured it falls back to the first candidate rather than blocking the post.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "candidates": {
-                "type": "array",
-                "description": "from render_images"
-              },
-              "title": {
-                "type": "string",
-                "description": "the article title the image is for"
-              }
-            },
-            "required": [
-              "candidates"
-            ]
-          }
-        }
-      },
-      {
         "name": "link_hottake_article",
         "code_file": "tools/link_hottake_article.mjs",
         "def": {
           "name": "link_hottake_article",
-          "description": "Link a written blog draft to its Hot Takes package by slug — stores the slug, headline and intro and moves the package to review. Also emits the article's title, url, excerpt, tags, body and cover so the distribution drafters can use them.",
+          "description": "Link a written blog draft to its Hot Takes package by slug — stores the slug, headline and intro and moves the package to review. Also emits the article's title, url, excerpt, tags and body so the distribution drafters can use them.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1429,7 +1177,7 @@
         "code_file": "tools/list_social_integrations.mjs",
         "def": {
           "name": "list_social_integrations",
-          "description": "List the social CONNECTIONS posts can go out through and whether each is configured: linkedin-company (the Nyyon page, the default for LinkedIn), linkedin-personal (the operator's personal profile, opt-in), facebook-company. Call this before drafting or approving so you name a channel that actually works.",
+          "description": "List the social CONNECTIONS posts can go out through and whether each is configured: linkedin-company, linkedin-personal (the operator's personal profile) and facebook-company. Call this before drafting or approving so you name a channel that actually works.",
           "input_schema": {
             "type": "object",
             "properties": {},
@@ -1591,7 +1339,7 @@
         "code_file": "tools/publish_hottake_website.mjs",
         "def": {
           "name": "publish_hottake_website",
-          "description": "Publish a package's article to the live site right now, skipping the schedule: shared blog publish (edge-verified, IndexNow, Outbox audit), the package moves to published, the calendar mirrors it, and the release auto-completes if its legs are already done. Operator approval gate — call only on an explicit publish.",
+          "description": "Publish a package's article to the live site right now, skipping the schedule: shared blog publish (edge-verified, IndexNow, Outbox audit), the package moves to published, and the release auto-completes if its legs are already done. Operator approval gate — call only on an explicit publish.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1610,7 +1358,7 @@
         "code_file": "tools/push_social_post.mjs",
         "def": {
           "name": "push_social_post",
-          "description": "Send one CLAIMED post through its channel's connection and close the claim. Requires the open claim approve_social_post takes: an unclaimed, already-posted, or image-less post is refused rather than sent. Never call this to \"retry\" on your own — a repeat send is the operator's decision.",
+          "description": "Send one CLAIMED post through its channel's connection and close the claim. Requires the open claim approve_social_post takes: an unclaimed or already-posted post is refused rather than sent. Never call this to \"retry\" on your own — a repeat send is the operator's decision.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1647,7 +1395,7 @@
         "code_file": "tools/read_blog_post.mjs",
         "def": {
           "name": "read_blog_post",
-          "description": "Read one blog post by slug: title, excerpt, body, tags, published state and featured image. Use it before editing, expanding, re-illustrating or sharing a post.",
+          "description": "Read one blog post by slug: title, excerpt, body, tags and published state. Use it before editing, expanding or sharing a post.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1680,7 +1428,7 @@
         "code_file": "tools/read_hottake_article.mjs",
         "def": {
           "name": "read_hottake_article",
-          "description": "Read one Hot Takes package as the article view: the package, its social legs, the linked blog article (title/body/tags/cover/published) when one exists, and the next action.",
+          "description": "Read one Hot Takes package as the article view: the package, its social legs, the linked blog article (title/body/tags/published) when one exists, and the next action.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1907,40 +1655,11 @@
         }
       },
       {
-        "name": "regenerate_blog_figure",
-        "code_file": "tools/regenerate_blog_figure.mjs",
-        "def": {
-          "name": "regenerate_blog_figure",
-          "description": "Redesign one in-article chart: a replacement figure is drafted from the article text around that spot (operator instructions win when given), rendered, and swapped into the body in place. Returns {ok, url, figure_html} — the caller swaps figure_html into its editor view.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "slug": {
-                "type": "string",
-                "description": "the blog post slug"
-              },
-              "src": {
-                "type": "string",
-                "description": "the current figure's img src (public or dev-rewritten URL)"
-              },
-              "instructions": {
-                "type": "string",
-                "description": "operator steering for the replacement chart"
-              }
-            },
-            "required": [
-              "slug",
-              "src"
-            ]
-          }
-        }
-      },
-      {
         "name": "release_social_post",
         "code_file": "tools/release_social_post.mjs",
         "def": {
           "name": "release_social_post",
-          "description": "Release one queued post in a single call: take the atomic outbox send claim, resolve the article's CURRENT cover, send through the channel's connection and close the claim — approve_social_post + push_social_post as one step. This is the operator gate: only run it when the operator approved this exact post. A 'failed' row may be released again; that retry is the operator's decision too. A 'posted' row is refused.",
+          "description": "Release one queued post in a single call: take the atomic outbox send claim, send through the channel's connection and close the claim — approve_social_post + push_social_post as one step. This is the operator gate: only run it when the operator approved this exact post. A 'failed' row may be released again; that retry is the operator's decision too. A 'posted' row is refused.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -1950,128 +1669,6 @@
             },
             "required": [
               "id"
-            ]
-          }
-        }
-      },
-      {
-        "name": "render_card",
-        "code_file": "tools/render_card.mjs",
-        "def": {
-          "name": "render_card",
-          "description": "Render one share card to a PNG in R2 from a template + its slot text. Code-drawn in the brand (no image model, no cost); the same blog slug and template always overwrite the same object, so re-rendering replaces the card instead of littering the bucket. Returns the public URL.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "template": {
-                "type": "string",
-                "enum": [
-                  "split",
-                  "statement",
-                  "checklist",
-                  "flow"
-                ]
-              },
-              "slots": {
-                "type": "object",
-                "description": "slot text for that template"
-              },
-              "blog_slug": {
-                "type": "string",
-                "description": "names the stored object; omit for a one-off card"
-              }
-            },
-            "required": [
-              "template",
-              "slots"
-            ]
-          }
-        }
-      },
-      {
-        "name": "render_cover",
-        "code_file": "tools/render_cover.mjs",
-        "def": {
-          "name": "render_cover",
-          "description": "Render the article's hero cover PNG in the brand template and store it at a fresh cache-busted URL. Reliable by design: no AI image model, no API key, and it falls back to deterministic slots from the title and excerpt when no drafted cover is given. Pass the result to set_featured_image.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "blog_slug": {
-                "type": "string"
-              },
-              "title": {
-                "type": "string"
-              },
-              "excerpt": {
-                "type": "string"
-              },
-              "cover": {
-                "type": "object",
-                "description": "optional {kicker, highlight, sub} from draft_cover or draft_figures"
-              }
-            },
-            "required": []
-          }
-        }
-      },
-      {
-        "name": "render_figures",
-        "code_file": "tools/render_figures.mjs",
-        "def": {
-          "name": "render_figures",
-          "description": "Render drafted figure specs into stored PNGs (brand SVG templates, no AI image model, zero cost). Returns each figure's URL with the anchor it belongs to, for embed_figures to place.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "blog_slug": {
-                "type": "string"
-              },
-              "specs": {
-                "type": "array",
-                "description": "from draft_figures"
-              }
-            },
-            "required": [
-              "specs"
-            ]
-          }
-        }
-      },
-      {
-        "name": "render_images",
-        "code_file": "tools/render_images.mjs",
-        "def": {
-          "name": "render_images",
-          "description": "Render N candidate AI images from one prompt and store them. Only their URLs come back — the image bytes never enter the conversation. Hand the candidates to judge_images to pick a winner.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "blog_slug": {
-                "type": "string"
-              },
-              "prompt": {
-                "type": "string",
-                "description": "from draft_visual_brief"
-              },
-              "n": {
-                "type": "number",
-                "description": "candidates to render (default 3, max 4)"
-              },
-              "model": {
-                "type": "string",
-                "enum": [
-                  "flux-schnell",
-                  "sdxl",
-                  "dreamshaper",
-                  "gpt-image-1",
-                  "dall-e-3"
-                ],
-                "description": "image model; defaults to gpt-image-1 when an OpenAI key is set, else flux-schnell"
-              }
-            },
-            "required": [
-              "prompt"
             ]
           }
         }
@@ -2496,7 +2093,7 @@
         "code_file": "tools/save_hottake_post.mjs",
         "def": {
           "name": "save_hottake_post",
-          "description": "Patch one Hot Takes release leg (a social post): body, notes, image_url, status or scheduled_at. Approving is status:\"scheduled\" — the one state the hourly due-scan sends; \"ready\" holds it back; \"not_planned\" skips it.",
+          "description": "Patch one Hot Takes release leg (a social post): body, notes, status or scheduled_at. Approving is status:\"scheduled\" — the one state the hourly due-scan sends; \"ready\" holds it back; \"not_planned\" skips it.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -2507,9 +2104,6 @@
                 "type": "string"
               },
               "notes": {
-                "type": "string"
-              },
-              "image_url": {
                 "type": "string"
               },
               "status": {
@@ -2746,36 +2340,6 @@
         }
       },
       {
-        "name": "save_social_card",
-        "code_file": "tools/save_social_card.mjs",
-        "def": {
-          "name": "save_social_card",
-          "description": "Record a rendered share card in the social_cards table so it shows up in the card history and can be reused as a post image. Takes the card render_card returned.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "card": {
-                "type": "object",
-                "description": "the {url, key, template, width, height} render_card returned"
-              },
-              "slots": {
-                "type": "object",
-                "description": "the slot text the card was rendered from"
-              },
-              "blog_slug": {
-                "type": "string"
-              },
-              "actor": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "card"
-            ]
-          }
-        }
-      },
-      {
         "name": "save_social_post",
         "code_file": "tools/save_social_post.mjs",
         "def": {
@@ -2803,10 +2367,6 @@
               "title": {
                 "type": "string",
                 "description": "label shown in the queue"
-              },
-              "image_url": {
-                "type": "string",
-                "description": "the image the post goes out with"
               },
               "package_id": {
                 "type": "string",
@@ -2964,35 +2524,6 @@
         }
       },
       {
-        "name": "set_featured_image",
-        "code_file": "tools/set_featured_image.mjs",
-        "def": {
-          "name": "set_featured_image",
-          "description": "Point one post at its featured image. Takes the URL of a rendered cover or a judged AI illustration. This is the only writer of a post's featured-image fields.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "blog_slug": {
-                "type": "string"
-              },
-              "url": {
-                "type": "string",
-                "description": "the cover_url or winner_url to set"
-              },
-              "model": {
-                "type": "string",
-                "description": "what produced it, for the audit trail"
-              },
-              "prompt": {
-                "type": "string",
-                "description": "the image prompt, when there was one"
-              }
-            },
-            "required": []
-          }
-        }
-      },
-      {
         "name": "skip_hottakes_setup",
         "code_file": "tools/skip_hottakes_setup.mjs",
         "def": {
@@ -3101,7 +2632,7 @@
         "code_file": "tools/write_hottake_article.mjs",
         "def": {
           "name": "write_hottake_article",
-          "description": "Write the full article from a package's approved brief — the long step (about a minute): seed from the take + brief, compose in house HTML with charts and cover, save as a blog draft and link it back to the package (status → review). Never overwrites an approved take; run it once the brief is approved.",
+          "description": "Write the full article from a package's approved brief — the long step (about a minute): seed from the take + brief, compose in house HTML, save as a blog draft and link it back to the package (status → review). Never overwrites an approved take; run it once the brief is approved.",
           "input_schema": {
             "type": "object",
             "properties": {
@@ -3129,7 +2660,7 @@
       {
         "slug": "blog-shape",
         "name": "Blog · shape a draft",
-        "goal": "A house-styled DRAFT in Blog > Needs review with 2-5 embedded figures and a code-drawn cover; never published. Run with {title, body?, voice?, target_keyword?}; pass {slug} to reshape an existing post in place.",
+        "goal": "A house-styled DRAFT in Blog > Needs review; never published. Run with {title, body?, voice?, target_keyword?}; pass {slug} to reshape an existing post in place.",
         "steps": [
           {
             "tool": "read_voice_profile"
@@ -3142,33 +2673,13 @@
           },
           {
             "tool": "save_blog_post"
-          },
-          {
-            "tool": "draft_figures",
-            "optional": true
-          },
-          {
-            "tool": "render_figures",
-            "optional": true
-          },
-          {
-            "tool": "embed_figures",
-            "optional": true
-          },
-          {
-            "tool": "render_cover",
-            "optional": true
-          },
-          {
-            "tool": "set_featured_image",
-            "optional": true
           }
         ]
       },
       {
         "slug": "blog-expand",
         "name": "Blog · expand an article",
-        "goal": "Existing post expanded to 1600-2200 words with an FAQ + FAQPage JSON-LD, refreshed figures and cover; publish stays a separate operator action. Run with {slug}.",
+        "goal": "Existing post expanded to 1600-2200 words with an FAQ + FAQPage JSON-LD; publish stays a separate operator action. Run with {slug}.",
         "steps": [
           {
             "tool": "read_blog_post"
@@ -3184,111 +2695,6 @@
           },
           {
             "tool": "append_faq_schema"
-          },
-          {
-            "tool": "draft_figures",
-            "optional": true
-          },
-          {
-            "tool": "render_figures",
-            "optional": true
-          },
-          {
-            "tool": "embed_figures",
-            "optional": true
-          },
-          {
-            "tool": "render_cover",
-            "optional": true
-          },
-          {
-            "tool": "set_featured_image",
-            "optional": true
-          }
-        ]
-      },
-      {
-        "slug": "article-figures",
-        "name": "Blog · article figures",
-        "goal": "2-5 editorial diagrams regenerated and embedded at their anchor sentences, cover refreshed and set as the featured image. Run with {slug}.",
-        "steps": [
-          {
-            "tool": "read_blog_post"
-          },
-          {
-            "tool": "draft_figures"
-          },
-          {
-            "tool": "render_figures"
-          },
-          {
-            "tool": "embed_figures"
-          },
-          {
-            "tool": "render_cover"
-          },
-          {
-            "tool": "set_featured_image"
-          }
-        ]
-      },
-      {
-        "slug": "blog-cover",
-        "name": "Blog · refresh the cover",
-        "goal": "Reliable code-drawn cover regenerated at a cache-busted URL and set as the featured image. No AI image model, no key, zero cost. Run with {slug}.",
-        "steps": [
-          {
-            "tool": "read_blog_post"
-          },
-          {
-            "tool": "draft_cover"
-          },
-          {
-            "tool": "render_cover"
-          },
-          {
-            "tool": "set_featured_image"
-          }
-        ]
-      },
-      {
-        "slug": "blog-featured-image",
-        "name": "Blog · featured image",
-        "goal": "AI-illustration featured image: visual brief, N candidates, vision judge, winner set on the post. Run with {slug, n?, model?}.",
-        "steps": [
-          {
-            "tool": "read_blog_post"
-          },
-          {
-            "tool": "draft_visual_brief"
-          },
-          {
-            "tool": "render_images"
-          },
-          {
-            "tool": "judge_images"
-          },
-          {
-            "tool": "set_featured_image"
-          }
-        ]
-      },
-      {
-        "slug": "social-card",
-        "name": "Social · share card",
-        "goal": "Brand-locked share-card PNG in R2 plus a social-cards record. Run with {slug}; a custom-title card starts at draft_card with {title, excerpt}.",
-        "steps": [
-          {
-            "tool": "read_blog_post"
-          },
-          {
-            "tool": "draft_card"
-          },
-          {
-            "tool": "render_card"
-          },
-          {
-            "tool": "save_social_card"
           }
         ]
       },
@@ -3311,26 +2717,6 @@
           },
           {
             "tool": "save_blog_post"
-          },
-          {
-            "tool": "draft_figures",
-            "optional": true
-          },
-          {
-            "tool": "render_figures",
-            "optional": true
-          },
-          {
-            "tool": "embed_figures",
-            "optional": true
-          },
-          {
-            "tool": "render_cover",
-            "optional": true
-          },
-          {
-            "tool": "set_featured_image",
-            "optional": true
           }
         ]
       },
@@ -3353,7 +2739,7 @@
       {
         "slug": "aeo-write",
         "name": "AEO · write a drafted article",
-        "goal": "A ready (interviewed) AEO question written as a DRAFT article with figures and cover, the question marked drafted, the operator notified. The claim gate blocks un-interviewed or concurrently-claimed questions. Run with {question_slug}, or with nothing to take the next due ready question — the daily cron runs it by slug with no input.",
+        "goal": "A ready (interviewed) AEO question written as a DRAFT article, the question marked drafted, the operator notified. The claim gate blocks un-interviewed or concurrently-claimed questions. Run with {question_slug}, or with nothing to take the next due ready question — the daily cron runs it by slug with no input.",
         "steps": [
           {
             "tool": "claim_aeo_question"
@@ -3378,26 +2764,6 @@
             "input": {
               "status": "drafted"
             }
-          },
-          {
-            "tool": "draft_figures",
-            "optional": true
-          },
-          {
-            "tool": "render_figures",
-            "optional": true
-          },
-          {
-            "tool": "embed_figures",
-            "optional": true
-          },
-          {
-            "tool": "render_cover",
-            "optional": true
-          },
-          {
-            "tool": "set_featured_image",
-            "optional": true
           },
           {
             "tool": "notify_operator"
@@ -3435,26 +2801,6 @@
             "input": {
               "status": "drafted"
             }
-          },
-          {
-            "tool": "draft_figures",
-            "optional": true
-          },
-          {
-            "tool": "render_figures",
-            "optional": true
-          },
-          {
-            "tool": "embed_figures",
-            "optional": true
-          },
-          {
-            "tool": "render_cover",
-            "optional": true
-          },
-          {
-            "tool": "set_featured_image",
-            "optional": true
           },
           {
             "tool": "notify_operator"
@@ -3549,7 +2895,7 @@
       {
         "slug": "social-post-now",
         "name": "Social · post now",
-        "goal": "Publish an ad-hoc post the operator wrote in chat to ONE connection, through the same claim path as everything else (the old direct-post tool bypassed the outbox). Run with {channel, content, image_url, title?} only after the operator has explicitly confirmed the text, the image and the channel. Cross-posting is one run per connection.",
+        "goal": "Publish an ad-hoc post the operator wrote in chat to ONE connection, through the same claim path as everything else (the old direct-post tool bypassed the outbox). Run with {channel, content, title?} only after the operator has explicitly confirmed the text and the channel. Cross-posting is one run per connection.",
         "steps": [
           {
             "tool": "save_social_post"
@@ -3581,7 +2927,7 @@
       {
         "slug": "hottake-produce",
         "name": "Hot Takes · produce a publication",
-        "goal": "A selected topic becomes a full package at review: take, brief, article draft with figures and cover, claim/quality scan, and both LinkedIn legs drafted into the social queue. Nothing publishes — the operator reviews, approves each post, and schedules. Run with {id}.",
+        "goal": "A selected topic becomes a full package at review: take, brief, article draft, claim/quality scan, and both LinkedIn legs drafted into the social queue. Nothing publishes — the operator reviews, approves each post, and schedules. Run with {id}.",
         "steps": [
           {
             "tool": "draft_hottake_take"
@@ -3603,26 +2949,6 @@
           },
           {
             "tool": "save_blog_post"
-          },
-          {
-            "tool": "draft_figures",
-            "optional": true
-          },
-          {
-            "tool": "render_figures",
-            "optional": true
-          },
-          {
-            "tool": "embed_figures",
-            "optional": true
-          },
-          {
-            "tool": "render_cover",
-            "optional": true
-          },
-          {
-            "tool": "set_featured_image",
-            "optional": true
           },
           {
             "tool": "link_hottake_article"
@@ -3678,9 +3004,6 @@
           },
           {
             "tool": "synthesize_hot_topics"
-          },
-          {
-            "tool": "generate_digest"
           }
         ]
       },
@@ -3736,11 +3059,6 @@
         "slug": "plugin-editorial-editorial-taste",
         "title": "Editorial taste",
         "body_file": "knowledge/plugin-editorial-editorial-taste.md"
-      },
-      {
-        "slug": "plugin-editorial-figure-chart-selection",
-        "title": "plugin-editorial-figure-chart-selection",
-        "body_file": "knowledge/plugin-editorial-figure-chart-selection.md"
       },
       {
         "slug": "plugin-editorial-heartbeat-priorities",
@@ -3801,11 +3119,6 @@
         "slug": "plugin-editorial-publish-config",
         "title": "Blog publishing — external endpoints",
         "body_file": "knowledge/plugin-editorial-publish-config.md"
-      },
-      {
-        "slug": "plugin-editorial-visual-style",
-        "title": "Visual style",
-        "body_file": "knowledge/plugin-editorial-visual-style.md"
       },
       {
         "slug": "plugin-editorial-article-playbook",
@@ -3927,24 +3240,6 @@
           "failed"
         ],
         "code_file": "gateway-outbox.mjs"
-      },
-      {
-        "slug": "render",
-        "modes": [
-          "card",
-          "cover",
-          "figures",
-          "images"
-        ],
-        "code_file": "gateway-render.mjs"
-      },
-      {
-        "slug": "calendar",
-        "modes": [
-          "upsert",
-          "remove"
-        ],
-        "code_file": "gateway-calendar.mjs"
       }
     ]
   },

@@ -21,7 +21,6 @@ function resolveArticle(input) {
     excerpt:   input?.excerpt   ?? base.excerpt   ?? null,
     tags:      input?.tags      ?? base.tags      ?? null,
     body_html: input?.body_html ?? base.body_html ?? '',
-    image_url: input?.image_url ?? base.image_url ?? null,
   };
 }
 

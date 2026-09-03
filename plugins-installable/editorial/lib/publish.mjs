@@ -33,8 +33,6 @@ const PUBLISH_CONFIG_SLUG = 'plugin-editorial-publish-config';
 const PUBLISHABLE_BLOG_FIELDS = [
   'title', 'excerpt', 'body', 'tags',
   'published', 'published_at',
-  'featured_image_url', 'featured_image_prompt',
-  'featured_image_model', 'featured_image_generated_at',
 ];
 
 const now = () => Date.now();
@@ -229,8 +227,6 @@ async function generateSocialDrafts(api, slug) {
       url:     `${base}/${slug}`,
       snippet: htmlToText(post.body).slice(0, 1600),
     };
-    const image_url = post.featured_image_url || null;
-
     const brandVoice    = (await api.knowledge('plugin-editorial-brand-voice').catch(() => null))?.body || '';
     const personalVoice = (await api.knowledge('plugin-editorial-personal-voice').catch(() => null))?.body || '';
     const styleRules    = (await api.knowledge('plugin-editorial-writing-style-rules').catch(() => null))?.body || '';
@@ -241,9 +237,9 @@ async function generateSocialDrafts(api, slug) {
         const id = uid();
         const t = now();
         await api.db.prepare(
-          `INSERT INTO plugin_editorial_social_posts (id, blog_slug, package_id, channel, status, content, notes, image_url, scheduled_at, actor, blog_title, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        ).bind(id, slug, null, ch.key, 'draft', content, null, image_url, null, null, article.title || null, t, t).run();
+          `INSERT INTO plugin_editorial_social_posts (id, blog_slug, package_id, channel, status, content, notes, scheduled_at, actor, blog_title, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ).bind(id, slug, null, ch.key, 'draft', content, null, null, null, article.title || null, t, t).run();
         return { channel: ch.key, ok: true, id };
       } catch (e) {
         return { channel: ch.key, ok: false, error: String(e?.message || e) };

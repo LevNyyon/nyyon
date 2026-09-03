@@ -1,12 +1,10 @@
-// GTM plugin — collect_replies. Ported verbatim from the host outreach tools
-// (workers/api/src/tools/outreach.js); env → api, shared code in the pack's
-// parallel lib (same function names, api first).
+// GTM plugin — collect_replies. Read-only: who answered a message we sent.
 
-import { collectReplies } from './outreach-promote.mjs';
+import { collectReplies } from './gtm-outreach.mjs';
 
 export const def = {
   name: 'collect_replies',
-  description: 'Collect everyone who REPLIED to our outreach — LinkedIn (prospects marked replied) and WhatsApp (an inbound message after our first send) — normalized to {source, name, company, title, phone, linkedin, lead_id, replied_at}. Read-only. Step 1 of the outreach-replies-to-pipeline workflow; also useful alone to answer "who has answered".',
+  description: 'Collect every prospect who REPLIED to our outreach: an inbound WhatsApp message landing after our first send to them. Read-only, so it is safe to run on a tick. Each row is {lead_id, name, company, title, phone, linkedin, replied_at, first_contacted_at, sends}. Use to answer "who has answered".',
   input_schema: { type: 'object', properties: {}, required: [] },
 };
 

@@ -21,7 +21,6 @@ function resolveArticle(input) {
     excerpt:   input?.excerpt   ?? base.excerpt   ?? null,
     tags:      input?.tags      ?? base.tags      ?? null,
     body_html: input?.body_html ?? base.body_html ?? '',
-    image_url: input?.image_url ?? base.image_url ?? null,
   };
 }
 
@@ -35,7 +34,6 @@ export const def = {
       content:    { type: 'string', description: 'the full post text' },
       slug:       { type: 'string', description: 'source blog slug — omit for a standalone post' },
       title:      { type: 'string', description: 'label shown in the queue' },
-      image_url:  { type: 'string', description: 'the image the post goes out with' },
       package_id: { type: 'string', description: 'Hot Takes package this leg belongs to' },
       notes:      { type: 'string', description: 'operator note kept alongside the draft' },
       force:      { type: 'boolean', description: 'replace the unposted rows for this slug + channel first' },
@@ -65,7 +63,6 @@ export async function run(api, input) {
     package_id: packageId,
     channel,
     content,
-    image_url:  input?.image_url || article.image_url || null,
     notes:      input?.notes || null,
     actor:      input?.actor || 'nyo',
   });

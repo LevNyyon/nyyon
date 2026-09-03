@@ -6,7 +6,7 @@ import { readProspectThread } from './outreach-wa.mjs';
 
 export const def = {
   name: 'read_prospect_thread',
-  description: 'Open ONE prospect conversation: the full WhatsApp history (oldest first), whether they have ever answered, and the prospect context card (company, title, ICP fit and why, LinkedIn, open roles, org status). Pass chat_id, or lead_id to resolve the chat from the lead\'s phone. Read-only — opening a conversation never writes and never spends a model call.',
+  description: 'Open ONE prospect conversation: the full WhatsApp history (oldest first), whether they have ever answered, and the prospect context card (company, title, ICP fit and why, LinkedIn, phone). Pass chat_id, or lead_id to resolve the chat from the lead\'s phone. Read-only — opening a conversation never writes and never spends a model call.',
   input_schema: {
     type: 'object',
     properties: {

@@ -22,10 +22,9 @@
 //   base string where the host versions took `env` (call publicBlogBase(api)
 //   first).
 // - callOpenAIJson → api.gateway('llm','json'); postToConnection →
-//   api.gateway('social','post',{connection,...}); listConnections →
+//   api.gateway('social','post',{network,text,url}); listConnections →
 //   api.gateway('social','connections') (socialSettings is async now);
-//   outbox lib → api.gateway('outbox','begin'|'sent'|'failed');
-//   upsertCalendarEvent → api.gateway('calendar','upsert').
+//   outbox lib → api.gateway('outbox','begin'|'sent'|'failed').
 // - sendGate's hotTakesLive() lazy import is replaced by the same read
 //   inlined: a SELECT on the host feature_flags table (requires.host_reads).
 // - logEvent → api.log — kinds gain the plugin_editorial_ prefix, actor
@@ -143,8 +142,8 @@ async function draftOne(api, channel, article, voiceBody, { sourceKind = 'blog',
   return text;
 }
 
-async function insertDraft(api, { blog_slug, blog_title, channel, content, image_url }) {
-  return insertSocialPostRow(api, { blog_slug, blog_title, channel, content, image_url });
+async function insertDraft(api, { blog_slug, blog_title, channel, content }) {
+  return insertSocialPostRow(api, { blog_slug, blog_title, channel, content });
 }
 
 // ─── one row per social post, whatever produced it ────────────
@@ -169,22 +168,21 @@ export function articleFromBlogPost(post, base = null) {
     excerpt:   post.excerpt || null,
     tags:      Array.isArray(tags) ? tags : [],
     body_html: post.body || '',
-    image_url: post.featured_image_url || null,
   };
 }
 
 export async function insertSocialPostRow(api, {
   blog_slug = null, blog_title = null, package_id = null, channel, content,
-  image_url = null, notes = null, scheduled_at = null, status = 'draft', actor = null,
+  notes = null, scheduled_at = null, status = 'draft', actor = null,
 } = {}) {
   const id = uid();
   const t = now();
   await api.db.prepare(
-    `INSERT INTO plugin_editorial_social_posts (id, blog_slug, package_id, channel, status, content, notes, image_url, scheduled_at, actor, blog_title, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO plugin_editorial_social_posts (id, blog_slug, package_id, channel, status, content, notes, scheduled_at, actor, blog_title, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     id, blog_slug, package_id, channel, status, stripDashes(String(content || '').trim()),
-    notes, image_url, scheduled_at, actor, blog_title || null, t, t,
+    notes, scheduled_at, actor, blog_title || null, t, t,
   ).run();
   return id;
 }
@@ -227,7 +225,7 @@ export async function clearUnpostedSocialPosts(api, { slug = null, package_id = 
 // it must rewrite the leg, never add a second one to the same release.
 export async function upsertSocialPost(api, {
   blog_slug = null, blog_title = null, package_id = null, channel, content,
-  image_url = null, notes = null, scheduled_at = null, status = 'draft', actor = null,
+  notes = null, scheduled_at = null, status = 'draft', actor = null,
 } = {}) {
   if (!SOCIAL_CHANNELS.includes(channel)) throw new Error(`channel must be one of: ${SOCIAL_CHANNELS.join(', ')}`);
   const body = stripDashes(String(content || '').trim());
@@ -236,15 +234,15 @@ export async function upsertSocialPost(api, {
   const existing = package_id ? await findUnpostedSocialPost(api, { package_id, channel }) : null;
   if (existing) {
     await api.db.prepare(
-      `UPDATE plugin_editorial_social_posts SET content=?, image_url=COALESCE(?, image_url), notes=COALESCE(?, notes),
+      `UPDATE plugin_editorial_social_posts SET content=?, notes=COALESCE(?, notes),
               blog_slug=COALESCE(?, blog_slug), blog_title=COALESCE(?, blog_title),
               status=?, actor=?, error=NULL, updated_at=? WHERE id=?`,
-    ).bind(body, image_url, notes, blog_slug, blog_title, status, actor, now(), existing.id).run();
+    ).bind(body, notes, blog_slug, blog_title, status, actor, now(), existing.id).run();
     await api.log('social_post_saved', { id: existing.id, channel, package_id, replaced: true, actor: actor || 'system' });
     return readSocialPost(api, existing.id);
   }
 
-  const id = await insertSocialPostRow(api, { blog_slug, blog_title, package_id, channel, content: body, image_url, notes, scheduled_at, status, actor });
+  const id = await insertSocialPostRow(api, { blog_slug, blog_title, package_id, channel, content: body, notes, scheduled_at, status, actor });
   await api.log('social_post_saved', { id, channel, package_id, blog_slug, actor: actor || 'system' });
   return readSocialPost(api, id);
 }
@@ -286,7 +284,7 @@ export async function createSocialPost(api, { channel, content, title = null } =
   if (!SOCIAL_CHANNELS.includes(ch)) throw new Error(`channel must be one of: ${SOCIAL_CHANNELS.join(', ')}`);
   const body = stripDashes(String(content || '').trim());
   if (!body) throw new Error('content required');
-  const id = await insertDraft(api, { blog_slug: `standalone:${uid()}`, blog_title: title || 'Standalone post', channel: ch, content: body, image_url: null });
+  const id = await insertDraft(api, { blog_slug: `standalone:${uid()}`, blog_title: title || 'Standalone post', channel: ch, content: body });
   await api.log('social_post_created', { id, channel: ch, standalone: true });
   return readSocialPost(api, id);
 }
@@ -314,8 +312,6 @@ export async function generateSocialPostsForBlog(api, slug, { source = 'blog-pub
     url:     blogPostUrl(slug, base),
     snippet: htmlToText(post.body).slice(0, 1600),
   };
-  const image_url = post.featured_image_url || null;
-
   const brandVoice    = (await api.knowledge('plugin-editorial-brand-voice').catch(() => null))?.body || '';
   const personalVoice = (await api.knowledge('plugin-editorial-personal-voice').catch(() => null))?.body || '';
   const styleRules    = (await api.knowledge('plugin-editorial-writing-style-rules').catch(() => null))?.body || '';
@@ -323,7 +319,7 @@ export async function generateSocialPostsForBlog(api, slug, { source = 'blog-pub
   const results = await Promise.all(CHANNELS.map(async (ch) => {
     try {
       const content = await draftOne(api, ch, article, ch.voice === 'personal' ? personalVoice : brandVoice, { styleRules });
-      const id = await insertDraft(api, { blog_slug: slug, blog_title: article.title, channel: ch.key, content, image_url });
+      const id = await insertDraft(api, { blog_slug: slug, blog_title: article.title, channel: ch.key, content });
       return { channel: ch.key, ok: true, id };
     } catch (e) {
       return { channel: ch.key, ok: false, error: String(e?.message || e) };
@@ -368,7 +364,7 @@ export async function generateSocialPostsForDigestItem(api, item, { force = fals
   const results = await Promise.all(CHANNELS.map(async (ch) => {
     try {
       const content = await draftOne(api, ch, article, ch.voice === 'personal' ? personalVoice : brandVoice, { sourceKind: 'news', styleRules });
-      const id = await insertDraft(api, { blog_slug: slug, blog_title: article.title, channel: ch.key, content, image_url: null });
+      const id = await insertDraft(api, { blog_slug: slug, blog_title: article.title, channel: ch.key, content });
       return { channel: ch.key, ok: true, id };
     } catch (e) {
       return { channel: ch.key, ok: false, error: String(e?.message || e) };
@@ -414,7 +410,7 @@ export async function deleteSocialPost(api, id) {
 }
 
 // Delete every social post for one article (the "topic"). The Outbox + activity
-// + calendar keep the record of anything already posted.
+// bus keep the record of anything already posted.
 export async function deleteSocialGroup(api, slug) {
   const r = await api.db.prepare('DELETE FROM plugin_editorial_social_posts WHERE blog_slug = ?').bind(slug).run();
   return { ok: true, slug, deleted: r?.meta?.changes ?? null };
@@ -454,8 +450,8 @@ export async function sendGate(api, row) {
 
 const CLAIMABLE = ['draft', 'ready', 'scheduled', 'failed'];
 
-// Open the send claim on one post: resolve the CURRENT cover, take the atomic
-// claim, and log the attempt to the Outbox. Returns the claim the sender needs.
+// Open the send claim on one post: take the atomic claim and log the attempt
+// to the Outbox. Returns the claim the sender needs.
 export async function claimSocialPostSend(api, id, { actor = 'operator' } = {}) {
   const row = await readSocialPost(api, id);
   if (!row) throw new Error('social post not found');
@@ -464,19 +460,13 @@ export async function claimSocialPostSend(api, id, { actor = 'operator' } = {}) 
 
   const ch = CHANNELS.find((c) => c.key === row.channel);
   const post = row.blog_slug ? await readPost(api, row.blog_slug).catch(() => null) : null;
-  const imageTitle = post?.title || row.blog_title || '';
-  // Prefer the post's CURRENT cover over whatever was on the row at draft
-  // time. A draft created before the cover existed would otherwise carry a
-  // stale null forever, even after a cover gets generated later (the
-  // 2026-07-09 incident: the post had a cover by the time this was approved,
-  // but the row still held the null captured at draft time).
-  const imageUrl = post?.featured_image_url || row.image_url || '';
+  const articleTitle = post?.title || row.blog_title || '';
 
   const t = now();
   const claim = await api.db.prepare(
-    `UPDATE plugin_editorial_social_posts SET status='claimed', image_url=?, blog_title=COALESCE(blog_title, ?), actor=?, error=NULL, updated_at=?
+    `UPDATE plugin_editorial_social_posts SET status='claimed', blog_title=COALESCE(blog_title, ?), actor=?, error=NULL, updated_at=?
       WHERE id=? AND status IN (${CLAIMABLE.map(() => '?').join(',')})`,
-  ).bind(imageUrl || null, imageTitle || null, actor, t, id, ...CLAIMABLE).run();
+  ).bind(articleTitle || null, actor, t, id, ...CLAIMABLE).run();
   if ((claim.meta?.changes ?? 0) !== 1) {
     const fresh = await readSocialPost(api, id);
     throw new Error(`cannot claim ${id} for sending — it is '${fresh?.status || 'gone'}'`);
@@ -488,7 +478,7 @@ export async function claimSocialPostSend(api, id, { actor = 'operator' } = {}) 
     to_id:      row.channel,
     to_name:    ch?.label || row.channel,
     body:       row.content,
-    payload:    { blog_slug: row.blog_slug, package_id: row.package_id, image_url: imageUrl || null },
+    payload:    { blog_slug: row.blog_slug, package_id: row.package_id },
     source:     'social',
     source_ref: row.blog_slug || row.package_id || id,
   });
@@ -497,7 +487,7 @@ export async function claimSocialPostSend(api, id, { actor = 'operator' } = {}) 
 
   return {
     id, channel: row.channel, content: row.content,
-    image_url: imageUrl || null, image_title: imageTitle, outbox_id: log.id,
+    title: articleTitle, outbox_id: log.id,
   };
 }
 
@@ -511,12 +501,6 @@ export async function sendClaimedSocialPost(api, id, { actor = 'operator' } = {}
     throw new Error(`post ${id} holds no send claim (status '${row.status}') — approve it first`);
   }
 
-  const ch = CHANNELS.find((c) => c.key === row.channel);
-  const imageUrl = row.image_url || '';
-  // The claim already resolved and stored the current cover + title; re-read the
-  // article only to catch a title edited between claim and send.
-  const post = row.blog_slug ? await readPost(api, row.blog_slug).catch(() => null) : null;
-  const imageTitle = post?.title || row.blog_title || '';
   const fail = async (e) => {
     await api.gateway('outbox', 'failed', { id: row.outbox_id, error: String(e?.message || e).slice(0, 2000) });
     const t = now();
@@ -526,44 +510,19 @@ export async function sendClaimedSocialPost(api, id, { actor = 'operator' } = {}
     return { ok: false, id, channel: row.channel, error: String(e?.message || e), outbox_id: row.outbox_id };
   };
 
-  // The Make scenarios cannot complete a post without an image (2026-07-09
-  // incident: they answer 200 and then silently do nothing). Refuse here,
-  // before the gateway, so the operator sees a real failure to fix.
-  if (!imageUrl) return fail(new Error(`no image_url — ${row.channel} cannot post without one`));
-
   try {
+    const base = await publicBlogBase(api);
     const res = await api.gateway('social', 'post', {
-      connection:   row.channel,
-      content:      row.content,
-      imageUrl,
-      imageTitle,
-      altText:      imageTitle,
-      imageCaption: imageTitle,
+      network: row.channel,
+      text:    row.content,
+      url:     row.blog_slug ? blogPostUrl(row.blog_slug, base) : null,
     });
-    await api.gateway('outbox', 'sent', { id: row.outbox_id, message_id: res?.http ? String(res.http) : null });
+    if (!res?.ok) return fail(new Error(res?.error || `${row.channel} webhook did not accept the post`));
+    await api.gateway('outbox', 'sent', { id: row.outbox_id, result: { network: res.network || row.channel, response: res.response || null } });
     const t = now();
     await api.db.prepare(`UPDATE plugin_editorial_social_posts SET status='posted', posted_at=?, error=NULL, updated_at=? WHERE id=?`)
       .bind(t, t, id).run();
-    await api.log('social_posted', { id, channel: row.channel, slug: row.blog_slug, package_id: row.package_id, http: res?.http, actor }).catch(() => {});
-    // Mirror the release onto the calendar (one event per social post). Its own
-    // try/catch so a calendar hiccup never flips a successful send to failed.
-    try {
-      const base = await publicBlogBase(api);
-      await api.gateway('calendar', 'upsert', {
-        kind:        'social_post',
-        title:       `${ch?.label || row.channel}: ${row.blog_title || row.blog_slug || row.package_id || id}`,
-        description: (row.content || '').slice(0, 200),
-        starts_at:   t,
-        all_day:     false,
-        status:      'done',
-        source:      'social',
-        source_ref:  id,
-        link_url:    row.blog_slug ? blogPostUrl(row.blog_slug, base) : null,
-        platform:    ch?.network || null,
-        body:        row.content,
-        created_by:  'system',
-      });
-    } catch { /* best-effort */ }
+    await api.log('social_posted', { id, channel: row.channel, slug: row.blog_slug, package_id: row.package_id, actor }).catch(() => {});
     return { ok: true, id, channel: row.channel, outbox_id: row.outbox_id, result: res };
   } catch (e) {
     return fail(e);
@@ -581,8 +540,15 @@ export async function approveAndPush(api, id, { actor = 'operator' } = {}) {
 // ─── settings tab: which gateways are connected ───────────────
 // (Async in the plugin — the connection list now crosses the social gateway.)
 export async function socialSettings(api) {
-  // Only the three Make-webhook connections this module posts through.
-  const keys = new Set(CHANNELS.map((c) => c.key));
-  const conns = await api.gateway('social', 'connections');
-  return (Array.isArray(conns) ? conns : []).filter((c) => keys.has(c.connection));
+  // Only the connections this module posts through. The gateway answers with a
+  // row per CONNECTED network; a channel with no row is simply not configured.
+  const r = await api.gateway('social', 'connections');
+  const connected = new Set((r?.connections || []).filter((c) => c.connected).map((c) => c.network));
+  return CHANNELS.map((c) => ({
+    connection: c.key,
+    label:      c.label,
+    network:    c.network,
+    kind:       c.voice === 'personal' ? 'personal' : 'page',
+    configured: connected.has(c.key),
+  }));
 }

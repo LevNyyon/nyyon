@@ -10,7 +10,7 @@ import { api, PUBLIC_SITE_URL, type BlogPostWithTags } from './blog-data';
 import { SitePreview, PreviewModePill } from './SitePreview';
 import { useChatState, openChat, navigateTo } from '../../lib/chat';
 import { LinkedIn, Trash } from '../../components/Icons';
-import { devUrl, fmtDate, timeAgo, fmtNum, Thumb, TagList, KV, ColHeader, InlineBodyEditor } from './ArticleBits';
+import { fmtDate, timeAgo, fmtNum, TagList, KV, ColHeader, InlineBodyEditor } from './ArticleBits';
 import { useModulePrereqs } from '../../lib/module-status';
 import { ModuleSetupGate } from '../../components/ModuleSetupGate';
 import { DegradedNotice, ModuleStatusHold } from '../../components/DegradedNotice';
@@ -271,7 +271,6 @@ export default function Blog() {
                 drafting={draftingSlug === p.slug}
                 open={openSlug === p.slug}
                 onOpen={() => setOpenSlug(openSlug === p.slug ? null : p.slug)}
-                onRegenerated={refresh}
               />
             ))}
           </ul>
@@ -405,7 +404,7 @@ function PagerBtn({ disabled, onClick, children }: { disabled: boolean; onClick:
 }
 
 function BlogRow({
-  post, review, approving, onApprove, publishOff, publishOffWhy, onDelete, deleting, onDraftSocial, drafting, open, onOpen, onRegenerated,
+  post, review, approving, onApprove, publishOff, publishOffWhy, onDelete, deleting, onDraftSocial, drafting, open, onOpen,
 }: {
   post: BlogPostWithTags;
   review: boolean;
@@ -419,7 +418,6 @@ function BlogRow({
   drafting: boolean;
   open: boolean;
   onOpen: () => void;
-  onRegenerated: () => void;
 }) {
   const isStub = !post.published && !post.body;
   // Delete action (trash) shown on every collapsed row.
@@ -450,7 +448,6 @@ function BlogRow({
       <li>
         <div onClick={onOpen} className="px-4 py-3 grid grid-cols-12 gap-3 items-center text-[13px] hover:bg-card transition cursor-pointer">
           <div className="col-span-6 min-w-0 flex items-center gap-3">
-            <Thumb post={post} />
             <div className="min-w-0">
               <div className="font-medium text-ink truncate flex items-center gap-2">
                 {post.title}
@@ -478,7 +475,7 @@ function BlogRow({
             </button>
           </div>
         </div>
-        {open && <BlogDetail post={post} onRegenerated={onRegenerated} onDraftSocial={() => onDraftSocial(post)} drafting={drafting} publishOff={publishOff} publishOffWhy={publishOffWhy} />}
+        {open && <BlogDetail post={post} onDraftSocial={() => onDraftSocial(post)} drafting={drafting} publishOff={publishOff} publishOffWhy={publishOffWhy} />}
       </li>
     );
   }
@@ -487,7 +484,6 @@ function BlogRow({
     <li>
       <div onClick={onOpen} className="px-4 py-3 grid grid-cols-12 gap-3 items-baseline text-[13px] hover:bg-card transition cursor-pointer">
         <div className="col-span-4 min-w-0 flex items-center gap-3">
-          <Thumb post={post} />
           <div className="min-w-0">
             <div className="font-medium text-ink truncate flex items-center gap-2">
               {post.title}
@@ -511,7 +507,7 @@ function BlogRow({
         </span>
       </div>
 
-      {open && <BlogDetail post={post} onRegenerated={onRegenerated} onDraftSocial={() => onDraftSocial(post)} drafting={drafting} publishOff={publishOff} publishOffWhy={publishOffWhy} />}
+      {open && <BlogDetail post={post} onDraftSocial={() => onDraftSocial(post)} drafting={drafting} publishOff={publishOff} publishOffWhy={publishOffWhy} />}
     </li>
   );
 }
@@ -531,7 +527,7 @@ function ViewTab({ active, onClick, children }: { active: boolean; onClick: () =
   );
 }
 
-function BlogDetail({ post, onRegenerated, onDraftSocial, drafting, publishOff, publishOffWhy }: { post: BlogPostWithTags; onRegenerated: () => void; onDraftSocial: () => void; drafting: boolean; publishOff: boolean; publishOffWhy: string }) {
+function BlogDetail({ post, onDraftSocial, drafting, publishOff, publishOffWhy }: { post: BlogPostWithTags; onDraftSocial: () => void; drafting: boolean; publishOff: boolean; publishOffWhy: string }) {
   const wordCount = post.body ? post.body.trim().split(/\s+/).filter(Boolean).length : 0;
   const [previewMode, setPreviewMode] = useState<PreviewMode>(loadPreviewMode);
   const base = previewMode === 'live' ? PROD_URL : STAGING_URL;
@@ -542,25 +538,10 @@ function BlogDetail({ post, onRegenerated, onDraftSocial, drafting, publishOff, 
   // no meaning outside the operator's laptop.
   const prodUrl = PROD_URL ? `${PROD_URL}/blog/${post.slug}` : '';
   function flipMode(m: PreviewMode) { setPreviewMode(m); savePreviewMode(m); }
-  const [regenerating, setRegenerating] = useState(false);
-  const [imgError, setImgError]         = useState<string | null>(null);
   const [publishing, setPublishing]     = useState(false);
   const [publishMsg, setPublishMsg]     = useState<{ kind: 'ok' | 'err' | 'pending'; text: string } | null>(null);
   const pollRef = useRef<number | null>(null);
   useEffect(() => () => { if (pollRef.current) window.clearInterval(pollRef.current); }, []);
-
-  async function regenerateImage() {
-    setRegenerating(true);
-    setImgError(null);
-    try {
-      await api.generateBlogImage(post.slug);
-      onRegenerated();
-    } catch (e: any) {
-      setImgError(String(e?.message || e));
-    } finally {
-      setRegenerating(false);
-    }
-  }
 
   // Push this post from LOCAL → PROD D1, then trigger the marketing-site
   // rebuild. Every attempt lands in the Outbox under channel='blog'.
@@ -618,43 +599,6 @@ function BlogDetail({ post, onRegenerated, onDraftSocial, drafting, publishOff, 
         <KV k="last view"    v={post.last_view ? new Date(post.last_view).toLocaleString() : '—'} />
         <KV k="updated"      v={new Date(post.updated_at).toLocaleString() + (post.updated_by ? ` · ${post.updated_by}` : '')} />
         <KV k="word count"   v={wordCount || '—'} />
-      </div>
-
-      {/* Featured image — preview + regenerate */}
-      <div>
-        <div className="flex items-center justify-between mb-1">
-          <div className="mono text-[10px] uppercase tracking-[0.2em] text-mute">
-            featured image{post.featured_image_model ? ` · ${post.featured_image_model}` : ''}
-            {post.featured_image_generated_at && ` · ${new Date(post.featured_image_generated_at).toLocaleString()}`}
-          </div>
-          <button
-            onClick={regenerateImage}
-            disabled={regenerating}
-            className={
-              'mono text-[10px] uppercase tracking-[0.18em] transition ' +
-              (regenerating ? 'text-mute' : 'text-mute hover:text-ink')
-            }
-          >
-            {regenerating ? 'regenerating…' : (post.featured_image_url ? 'regenerate' : 'generate')}
-          </button>
-        </div>
-        {post.featured_image_url ? (
-          <div className="hairline rounded-sm overflow-hidden bg-paper aspect-[16/9] max-w-md">
-            <img
-              src={`${devUrl(post.featured_image_url)}?t=${post.featured_image_generated_at ?? 0}`}
-              alt=""
-              loading="lazy"
-              className="w-full h-full object-cover"
-            />
-          </div>
-        ) : (
-          <div className="hairline rounded-sm bg-card p-6 mono text-[10px] uppercase tracking-[0.18em] text-mute text-center">
-            No image yet. Click <span className="text-ink">generate</span> to create one.
-          </div>
-        )}
-        {imgError && (
-          <div className="mt-2 mono text-[10px] text-rose-700 dark:text-rose-300">{imgError}</div>
-        )}
       </div>
 
       {/* Publish to prod. Mirrors local D1 → prod D1 + triggers the

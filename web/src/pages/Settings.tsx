@@ -8,6 +8,37 @@ import {
 } from '../lib/theme';
 import { Sun, Moon, Monitor, Check } from '../components/Icons';
 
+// One button, one deep link. Cloudflare's Deploy to Workers page reads the
+// repo and walks the person through creating the worker, the database and the
+// bucket in THEIR OWN account. No credential of theirs passes through here.
+const REPO_URL = 'https://github.com/LevNyyon/nyyon';
+const DEPLOY_URL = `https://deploy.workers.cloudflare.com/?url=${encodeURIComponent(REPO_URL)}`;
+
+function DeployCard() {
+  return (
+    <section className="hairline rounded-sm p-4 space-y-2.5">
+      <h2 className="text-[13px] font-semibold">Run this on the internet</h2>
+      <p className="text-[12px] text-mute leading-relaxed">
+        Put a copy of this install in your own Cloudflare account: your worker, your database,
+        your data. The free tier is enough and no card is asked for. Cloudflare handles the
+        sign-in, so nothing about your account passes through here.
+      </p>
+      <div className="flex items-center gap-3">
+        <a href={DEPLOY_URL} target="_blank" rel="noreferrer noopener"
+           className="text-[12px] px-3 h-8 inline-flex items-center rounded-sm bg-ink text-paper">
+          Deploy to Cloudflare
+        </a>
+        <a href={REPO_URL} target="_blank" rel="noreferrer noopener"
+           className="text-[12px] text-mute hover:text-ink underline underline-offset-2">see the code</a>
+      </div>
+      <p className="text-[11px] text-mute leading-relaxed">
+        Cloudflare opens in a new tab and gives you a live address plus a one-time setup link when
+        it finishes. The new copy starts empty; nothing here travels with it.
+      </p>
+    </section>
+  );
+}
+
 export function Settings() {
   return (
     <div className="h-full flex flex-col">
@@ -17,6 +48,7 @@ export function Settings() {
 
       <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-10 max-w-3xl">
         <UnfinishedSetup />
+        <DeployCard />
         <Appearance />
         <NyoBrain />
         <SidebarPlacement />

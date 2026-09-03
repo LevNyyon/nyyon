@@ -9,7 +9,7 @@ import { composeAndSavePost } from './aeo-writer.mjs';
 
 export const def = {
   name: 'write_hottake_article',
-  description: 'Write the full article from a package\'s approved brief — the long step (about a minute): seed from the take + brief, compose in house HTML with charts and cover, save as a blog draft and link it back to the package (status → review). Never overwrites an approved take; run it once the brief is approved.',
+  description: 'Write the full article from a package\'s approved brief — the long step (about a minute): seed from the take + brief, compose in house HTML, save as a blog draft and link it back to the package (status → review). Never overwrites an approved take; run it once the brief is approved.',
   input_schema: {
     type: 'object',
     properties: {

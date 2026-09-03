@@ -57,23 +57,8 @@ export type BlogPost = {
   last_view: number | null;
   avg_scroll: number;           // 0-100
   cta_clicks: number;
-  featured_image_url: string | null;
-  featured_image_prompt: string | null;
-  featured_image_model: string | null;
-  featured_image_generated_at: number | null;
 };
 export type BlogPostWithTags = Omit<BlogPost, 'tags'> & { tags: string[] };
-export type BlogImageResult = {
-  url: string;
-  key?: string;
-  model?: string;
-  prompt?: string;
-  generated_at: number;
-  size_bytes?: number;
-  width?: number;
-  height?: number;
-  slug?: string;
-};
 
 export type HotTakePackage = {
   id: string;
@@ -114,7 +99,6 @@ export type HotTakePost = {
   channel: string;
   body: string | null;
   notes: string | null;
-  image_url: string | null;
   status: string;
   scheduled_at: number | null;
   posted_at: number | null;
@@ -148,7 +132,7 @@ export type HotTakeClaim = { text: string; support: string; source?: string; sta
 export type HotTakeFlag = { kind: string; section?: string; note?: string; severity?: string; resolved?: boolean };
 export type HotTakeArticle = {
   slug: string; title: string; excerpt: string | null; body: string | null;
-  tags: string[]; featured_image_url: string | null; published: boolean; published_at: number | null;
+  tags: string[]; published: boolean; published_at: number | null;
 };
 export type HotTakeView = {
   package: HotTakePackage; posts: HotTakePost[]; article: HotTakeArticle | null; next_action: string;
@@ -383,8 +367,6 @@ export const api = {
   getBlogPost: (slug: string) =>
     invoke<{ found: boolean; post: BlogPost }>('read_blog_post', { slug })
       .then((r) => { if (!r.found || !r.post) throw new Error('not found'); return parseTags(r.post); }),
-  generateBlogImage: (slug: string, opts: { prompt_override?: string; model?: string } = {}) =>
-    invoke<{ image: BlogImageResult }>('generate_blog_image', { slug, ...opts }).then((r) => r.image),
   publishBlogPost: (slug: string, opts: { deploy?: boolean } = {}) =>
     invoke<{
       ok: boolean; slug: string; live: boolean; url: string;

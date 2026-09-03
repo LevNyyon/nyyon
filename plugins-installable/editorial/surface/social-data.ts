@@ -23,7 +23,6 @@ export type SocialPost = {
   channel: SocialChannel;
   status: SocialStatus;
   content: string;
-  image_url: string | null;
   error: string | null;
   outbox_id: string | null;
   posted_at: number | null;

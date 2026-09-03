@@ -417,7 +417,6 @@ function DraftRow({ post, busy, canPost, offReason, onApprove, onSkip, onSave, o
           </span>
         )}
         <span className="flex-1 truncate text-[13px] text-mute">{preview}</span>
-        {post.image_url && <span className="mono text-[9px] uppercase tracking-[0.18em] text-mute opacity-60 shrink-0" title="cover image attached">img</span>}
         <span className="mono text-[10px] text-mute shrink-0">{post.content.length}</span>
         <span className={'text-mute text-sm leading-none transition-transform shrink-0 ' + (open ? 'rotate-90' : '')}>›</span>
       </button>

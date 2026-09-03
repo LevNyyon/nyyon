@@ -6,12 +6,12 @@
 //
 // The intake + identity-enrichment layer: lead store, phone-list import, and the
 // per-lead enrichment chain (accuracy order):
-//   locate (at import) → WhatsApp → company-from-LinkedIn → PDL → Twilio → Google
+//   locate (at import) → company-from-LinkedIn-result → PDL → Twilio → Google
 // External services are reached ONLY through declared gateways:
-//   whatsapp(contact) · web(text, bytes) · assets(store) · pdl(person) ·
-//   twilio(lookup) · serp(search) · llm(text) · theorg(org_chart, probe) ·
-//   linkedin(company, company_jobs)
-// Usage metering for pdl/twilio/serp lives INSIDE those host gateways now.
+//   web(text) · pdl(person) · twilio(lookup) · serp(search) · llm(text)
+// pdl, serp and twilio are the pack's OWN bundled gateways: each one reads the
+// key the operator pasted, and answers a plain "not connected" when there is
+// none, so every step degrades to a skip rather than a failure.
 //
 // Provenance model (ported): leads.sources = {field:{tool,at}}; disagreements
 // append to leads.conflicts instead of overwriting; removed social links are
@@ -178,19 +178,18 @@ const LEAD_COLS = new Set([
   'phone', 'normalized_phone', 'status', 'source', 'batch_id', 'country', 'region',
   'name', 'photo', 'socials', 'linkedin', 'email', 'company', 'position',
   'line_type', 'carrier', 'sources', 'conflicts', 'dismissed', 'active_tool',
-  'org_status', 'org_note', 'theorg_slug', 'icp_fit', 'icp_reasons',
+  'icp_fit', 'icp_reasons',
   'company_li_id', 'open_positions', 'positions_checked_at', 'outreach_lang', 'client_id',
   'steps',
   'company_staff_count', 'company_context', 'company_checked_at',
 ]);
 
 // ── the enrichment chain, as data ────────────────────────────────────────────
-// The six steps enrichFullOne runs, in order, each with the predicate that
+// The five steps enrichFullOne runs, in order, each with the predicate that
 // decides whether a call that RAN actually found anything. `label` travels with
 // the persisted record so a surface renders what the chain reports rather than
 // keeping its own copy of the step list.
 const ENRICH_STEPS = [
-  { key: 'wa',      label: 'WhatsApp', found: (r) => !!(r.name || r.photo || r.about || r.on_whatsapp) },
   { key: 'li',      label: 'LinkedIn', found: (r) => !!r.company },
   { key: 'pdl',     label: 'PDL',      found: (r) => !!(r.matched && (r.name || r.company)) },
   { key: 'twilio',  label: 'Twilio',   found: (r) => !!(r.line_type || r.carrier || r.caller_name) },
@@ -410,8 +409,6 @@ export function linkedinBelongsTo(leadName, { url, title }) {
 }
 
 // Levenshtein-tolerant person-name match (<=2 edits on first AND last token).
-// Lives here because reconcileIdentity runs the CEO-mismatch heuristic — one
-// definition, so "is this org root the lead" has one answer.
 function levName(a, b) {
   const m = a.length, n = b.length;
   if (Math.abs(m - n) > 2) return 3;
@@ -532,8 +529,7 @@ export function evaluateConfidence(lead) {
 // ── provenance helpers ───────────────────────────────────────────────────────
 
 // The merges themselves are pure and return VALUES; the *string* variants below
-// are what the column writers want. reconcileIdentity needs the values (it hands
-// JSON across the workflow context, where a pre-stringified column is opaque).
+// are what the column writers want.
 export function mergedSources(lead, upd) {
   let s = {};
   try { s = lead.sources ? JSON.parse(lead.sources) : {}; } catch { s = {}; }
@@ -601,16 +597,44 @@ export async function importLeads(api, { text, url, source } = {}) {
 //    its key, exactly as before — the gateway carries the secret + the usage
 //    meter, the plugin never sees a credential) ────────────────────────────────
 
+// Each wrapper TRANSLATES its gateway's raw answer into the flat shape the
+// enrichment passes below read. The gateways stay dumb boundaries (they hand
+// back what the vendor said); the shape the module reasons about is decided
+// exactly once, here.
 export async function pdlEnrich(api, { phone, name, region, country } = {}) {
-  return api.gateway('pdl', 'person', { phone, name, region, country });
+  const r = await api.gateway('pdl', 'person', { phone, name, region, country });
+  if (!r?.ok) return { skipped: r?.error || 'People Data Labs is not connected' };
+  if (!r.found || !r.person) return { matched: false };
+  const p = r.person || {};
+  const exp = (p.experience || []).find((e) => e?.is_primary) || (p.experience || [])[0] || {};
+  const profiles = (p.profiles || [])
+    .map((x) => ({ type: x?.network || null, url: x?.url ? (/^https?:/i.test(x.url) ? x.url : `https://${x.url}`) : null }))
+    .filter((x) => x.url);
+  return {
+    matched: true,
+    likelihood: r.likelihood ?? null,
+    name: p.full_name || null,
+    company: p.job_company_name || exp?.company?.name || null,
+    job_title: p.job_title || exp?.title?.name || null,
+    email: p.work_email || (p.emails || [])[0]?.address || null,
+    region: p.location_region || null,
+    country: p.location_country || null,
+    profiles,
+  };
 }
 
 export async function twilioLookup(api, number) {
-  return api.gateway('twilio', 'lookup', { phone: number });
+  const r = await api.gateway('twilio', 'lookup', { phone: number });
+  if (!r?.ok) return { skipped: r?.error || 'Twilio is not connected' };
+  return { valid: !!r.valid, line_type: r.type || null, carrier: r.carrier || null, caller_name: r.caller_name || null, country: r.country || null };
 }
 
-export async function serpSearch(api, { q, engine = 'google', num = 10, url } = {}) {
-  return api.gateway('serp', 'search', { q, engine, num, url });
+export async function serpSearch(api, { q, num = 10 } = {}) {
+  const r = await api.gateway('serp', 'search', { q, num });
+  if (!r?.ok) return { skipped: r?.error || 'SerpApi is not connected' };
+  // The gateway answers {url}; every reader below reads `link`. Carry both, so
+  // neither side has to know the other's name for the same thing.
+  return { query: r.query, results: (r.results || []).map((x) => ({ ...x, link: x.url })) };
 }
 
 // ── small shared LLM helper ─────────────────────────────────────────────────
@@ -665,58 +689,7 @@ export async function extractSocials(api, { text, website } = {}) {
   return { socials: [...found.values()], website: site };
 }
 
-// ── photo storage: copy an expiring URL into R2 via the assets gateway ──────
-
-export async function storeLeadPhoto(api, url, key) {
-  try {
-    const r = await api.gateway('web', 'bytes', { url });
-    if (!r.ok) return null;
-    const stored = await api.gateway('assets', 'store', { key, bytes: r.bytes, metadata: {} });
-    return stored || null;
-  } catch { return null; }
-}
-
 // ── enrichment passes (each re-reads the lead; conflict-aware writes) ────────
-
-// WhatsApp pass: pushname / photo / about via the shared whatsapp gateway;
-// socials from the about text. Photo copied to R2 so it survives URL expiry.
-export async function waEnrichOne(api, lead) {
-  await updateLead(api, lead.id, { active_tool: 'whatsapp' });
-  try {
-    const number = lead.normalized_phone || lead.phone;
-    const info = await api.gateway('whatsapp', 'contact', { number });
-    const soc = info.about ? await extractSocials(api, { text: info.about }) : { socials: [] };
-    const existing = parseJson(lead.socials, []);
-    const dismissed = new Set(parseJson(lead.dismissed, []));
-    const seen = new Set(existing.map((s) => s.url));
-    const at = new Date().toISOString();
-    const socials = [...existing];
-    for (const s of soc.socials) {
-      if (!s.url || seen.has(s.url) || dismissed.has(s.url)) continue;
-      socials.push({ ...s, src: 'extract_socials', at });
-      seen.add(s.url);
-    }
-    const srcUpd = {};
-    const conflicts = [];
-    let photo = lead.photo || null;
-    if (info.photo) {
-      const stored = await storeLeadPhoto(api, info.photo, `gtm/leads/${lead.id}.jpg`);
-      if (stored) { photo = stored; srcUpd.photo = 'wa_fetch_photo'; }
-    }
-    const fields = { status: 'enriched', photo, socials: JSON.stringify(socials), active_tool: null };
-    if (info.name) {
-      if (!lead.name) { fields.name = info.name; srcUpd.name = 'wa_fetch_name'; }
-      else if (!eqCI(info.name, lead.name)) conflicts.push({ field: 'name', value: info.name, tool: 'wa_fetch_name' });
-    }
-    fields.sources = mergeSources(lead, srcUpd);
-    if (conflicts.length) fields.conflicts = mergeConflicts(lead, conflicts);
-    await updateLead(api, lead.id, fields);
-    return { on_whatsapp: !!info.on_whatsapp, name: fields.name ?? lead.name, photo, about: info.about || null, is_business: !!info.is_business };
-  } catch (e) {
-    await updateLead(api, lead.id, { active_tool: null });
-    return { error: String(e.message || e) };
-  }
-}
 
 // PDL pass: phone-anchored identity. PAID — hard-skipped when name+company are
 // already present (the cheaper sources already did the job).
@@ -776,7 +749,7 @@ export async function twilioEnrichOne(api, l) {
 // Google (SerpApi) pass. HARD-GATED: requires an already-sourced name — never
 // search an invented name into a false identity.
 export async function serpEnrichOne(api, l) {
-  if (!l.name || !String(l.name).trim()) return { skipped: 'no sourced name yet — get a name from WhatsApp/PDL first' };
+  if (!l.name || !String(l.name).trim()) return { skipped: 'no sourced name yet — get a name from PDL, Twilio or a manual edit first' };
   await updateLead(api, l.id, { active_tool: 'google' });
   try {
     const where = [l.region, l.country].filter(Boolean).join(' ');
@@ -839,41 +812,6 @@ export async function serpEnrichOne(api, l) {
     await updateLead(api, l.id, { active_tool: null });
     return { error: String(e.message || e) };
   }
-}
-
-// ── retroactive identity audit ──────────────────────────────────────────────
-// Find every lead whose assigned linkedin does NOT match their name (the bad
-// assignments made before the verification gate existed). fix:true cleans them:
-// clears the linkedin, tombstones the URL (dismissed — can never be re-added),
-// records a visible conflict, and ALSO clears company/position when they were
-// derived FROM that wrong profile (sources.{field}.tool === company_from_linkedin
-// — the poison spreads, so the cleanup must follow it).
-export async function auditLinkedinIdentity(api, { fix = false } = {}) {
-  const r = await api.db.prepare(
-    `SELECT * FROM plugin_gtm_leads WHERE linkedin IS NOT NULL AND name IS NOT NULL`,
-  ).all();
-  const leads = r.results || [];
-  const report = { checked: leads.length, match: 0, unverifiable: 0, mismatch: [], fixed: 0 };
-  for (const l of leads) {
-    const verdict = slugNameCheck(l.name, l.linkedin);
-    if (verdict === 'match') { report.match++; continue; }
-    if (verdict === 'unverifiable') { report.unverifiable++; continue; }
-    report.mismatch.push({ id: l.id, name: l.name, linkedin: l.linkedin, company: l.company });
-    if (!fix) continue;
-    const sources = parseJson(l.sources, {});
-    const dismissed = [...new Set([...parseJson(l.dismissed, []), l.linkedin])];
-    const fields = { linkedin: null, dismissed: JSON.stringify(dismissed) };
-    for (const f of ['company', 'position']) {
-      if (sources?.[f]?.tool === 'company_from_linkedin') { fields[f] = null; delete sources[f]; }
-    }
-    delete sources.linkedin;
-    fields.sources = JSON.stringify(sources);
-    fields.conflicts = mergeConflicts(l, [{ field: 'linkedin', value: l.linkedin, tool: 'identity_audit' }]);
-    await updateLead(api, l.id, fields);
-    await api.log('linkedin_cleared', { id: l.id, name: l.name, url: l.linkedin });
-    report.fixed++;
-  }
-  return report;
 }
 
 // Company (and title) off the person's LinkedIn search result — cheap,
@@ -949,10 +887,9 @@ export async function companyFromLinkedinOne(api, l) {
 // itself once name+company exist).
 export async function enrichFullOne(api, id) {
   const at = now();
-  const wa = await waEnrichOne(api, await getLead(api, id));
   let l = await getLead(api, id);
-  // If WhatsApp (or a previous pass) surfaced a linkedin, resolve the company
-  // off it before paying for PDL.
+  // If a previous pass surfaced a linkedin, resolve the company off it before
+  // paying for PDL.
   const liBefore = l.linkedin || null;
   const cfl = await companyFromLinkedinOne(api, l);
   const pdl = await pdlEnrichOne(api, await getLead(api, id));
@@ -984,7 +921,7 @@ export async function enrichFullOne(api, id) {
   // must not take the whole enrichment chain down with it.
   // Non-chain verdicts (the manual ICP match) are carried forward, not wiped —
   // this pass replaces only what it actually re-ran.
-  const results = { wa, li: cfl, pdl, twilio, serp, confirm };
+  const results = { li: cfl, pdl, twilio, serp, confirm };
   const steps = [...ENRICH_STEPS.map((d) => stepVerdict(d, results[d.key], at)), ...foreignSteps(parseJson(cur?.steps, null))];
   try {
     await updateLead(api, id, { steps: JSON.stringify(steps) });
@@ -994,7 +931,7 @@ export async function enrichFullOne(api, id) {
 
   const done = await getLead(api, id);
   await api.log('lead_enriched', { id, state: leadState(done), steps: steps.map((s) => `${s.key}:${s.status}`) });
-  return { id, state: leadState(done), steps, wa, company_from_linkedin: cfl, pdl, twilio, serp, confirm };
+  return { id, state: leadState(done), steps, company_from_linkedin: cfl, pdl, twilio, serp, confirm };
 }
 
 // Resume the TAIL of the chain after the operator has typed something in by
@@ -1004,10 +941,10 @@ export async function enrichFullOne(api, id) {
 // Typing a name or pasting a profile URL unblocks exactly those two, so this
 // re-runs only them.
 //
-// It deliberately does NOT re-run WhatsApp / PDL / Twilio: Twilio bills per
-// lookup and PDL is paid, and nothing the operator typed changes what either
-// would return for the same phone number. Re-running the full chain to pick up
-// one manual edit is how a "just refresh it" button quietly becomes expensive.
+// It deliberately does NOT re-run PDL / Twilio: Twilio bills per lookup and PDL
+// is paid, and nothing the operator typed changes what either would return for
+// the same phone number. Re-running the full chain to pick up one manual edit
+// is how a "just refresh it" button quietly becomes expensive.
 //
 // Verdicts are MERGED over whatever is already recorded, so the steps this pass
 // didn't touch keep their previous result instead of being reset to unknown.
@@ -1153,390 +1090,14 @@ export async function manualEditLead(api, id, body = {}) {
   return getLead(api, id);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GRANULAR ENRICHMENT (v2): the chain above becomes a WORKFLOW.
-//
-// enrichFullOne is one function doing eight things — fetch five sources, merge
-// them in accuracy order, verify identity, score steps, persist, log. The v2
-// split is: each source is a PURE LOOKUP that returns what it found and writes
-// nothing; reconcileIdentity does every merge decision; saveLeadPatch is the
-// only writer. The order that made the old chain correct now lives in the
-// workflow's step list, where it is visible and re-runnable.
-//
-// The lookups deliberately re-derive nothing from the DB: they take what they
-// need as arguments so the workflow context is the only state, and a re-run of
-// one step can't silently depend on a write another step made.
-// ─────────────────────────────────────────────────────────────────────────────
-
-// A source result is DATA only when it neither self-skipped nor failed. Every
-// branch of reconcileIdentity checks this before believing a field.
-const usableSource = (r) => !!r && typeof r === 'object' && !r.skipped && !r.error;
-
-// WhatsApp identity. The photo is copied into R2 HERE, not at save time: the
-// gateway's URL expires, and a workflow that pauses (or fails) between this step
-// and the save must never persist a link that has already died.
-export async function lookupWaIdentity(api, { phone, lead_id = null } = {}) {
-  if (!phone) return { error: 'no phone number' };
-  const info = await api.gateway('whatsapp', 'contact', { number: phone });
-  let photo = info.photo || null;
-  if (photo && lead_id) photo = await storeLeadPhoto(api, photo, `gtm/leads/${lead_id}.jpg`);
-  const about = info.about || null;
-  const soc = about ? await extractSocials(api, { text: about }) : { socials: [] };
-  return {
-    on_whatsapp: !!info.on_whatsapp,
-    wa_name: info.name || null,
-    wa_photo_url: photo || null,
-    wa_about: about,
-    is_business: !!info.is_business,
-    wa_socials: soc.socials,
-  };
-}
-
-// Company + title read off the person's own (name-verified) LinkedIn result.
-// Self-skips exactly where the old pass did: no profile to read, or both fields
-// already on file — a SerpApi query is billed either way.
-export async function lookupCompanyFromLinkedin(api, { name = null, linkedin = null, company = null, position = null } = {}) {
-  if (!linkedin) return { skipped: 'no linkedin' };
-  if (company && position) return { skipped: 'company + title already on file' };
-  const slug = (String(linkedin).match(/\/in\/([^/?#]+)/) || [])[1] || '';
-  const q = name ? `${name} site:linkedin.com/in` : `site:linkedin.com/in/${slug}`;
-  const res = await serpSearch(api, { q, num: 8 });
-  if (res.skipped || res.error) return res;
-  const results = res.results || [];
-  // Exact-slug hit = the lead's own already-verified profile. The fallback must
-  // ALSO pass identity verification, or company AND title get read off a total
-  // stranger's page.
-  const hit = (slug && results.find((o) => (o.link || '').toLowerCase().includes('/in/' + slug.toLowerCase())))
-    || results.find((o) => /linkedin\.com\/in\//i.test(o.link || '') && linkedinBelongsTo(name, { url: o.link, title: o.title }) === 'yes');
-  const rejected = results
-    .filter((o) => /linkedin\.com\/in\//i.test(o.link || '') && o.link !== hit?.link)
-    .map((o) => ({ url: o.link, verdict: linkedinBelongsTo(name, { url: o.link, title: o.title }) }));
-  if (!hit) return { li_company: null, li_position: null, li_profile_url: null, li_rejected: rejected, note: 'no name-verified linkedin result found' };
-  // "Name - Title at Company" parses with a regex; messy headlines fall to the LLM.
-  const t = String(hit.title || '').replace(/\s*[|–-]\s*LinkedIn.*$/i, '').replace(/[.…]+\s*$/, '').trim();
-  let liCompany = null, jobTitle = null;
-  const dash = t.indexOf(' - ');
-  if (dash !== -1) {
-    const rest = t.slice(dash + 3);
-    const m = rest.match(/^(.*?)\s+(?:at|@)\s+(.+)$/i);
-    if (m) { jobTitle = m[1].trim() || null; liCompany = m[2].replace(/\s*\(.*?\)\s*$/, '').trim() || null; }
-    else jobTitle = rest || null;
-  }
-  if (!liCompany) {
-    try {
-      const txt = await gtmLLM(api, {
-        system: 'Extract the person\'s CURRENT company and job title from a LinkedIn search result. Headlines are messy: "EIR @Notable, GTM Nerd!" means title "EIR", company "Notable". Return ONLY strict JSON {"company": string|null, "job_title": string|null}.',
-        prompt: `Title: ${hit.title}\nSnippet: ${hit.snippet || ''}`,
-        model: null, // llm gateway resolves the configured default (was NYO_MODEL_MID)
-        maxTokens: 300,
-      });
-      const o = extractJson(txt);
-      liCompany = o.company || liCompany;
-      jobTitle = o.job_title || jobTitle;
-    } catch { /* keep the regex result */ }
-  }
-  return { li_company: liCompany || null, li_position: jobTitle || null, li_profile_url: hit.link, li_rejected: rejected };
-}
-
-// PDL is PAID: it self-skips the moment the cheaper sources have already
-// answered the question it would answer.
-export async function enrichPersonPdl(api, { phone, name = null, company = null, region = null, country = null } = {}) {
-  if (name && company) return { skipped: 'name + company already present, PDL is paid' };
-  const res = await pdlEnrich(api, { phone, name: name || undefined, region: region || undefined, country: country || undefined });
-  if (res.skipped || res.error || res.matched === false) return res;
-  return {
-    matched: res.matched,
-    likelihood: res.likelihood,
-    pdl_name: res.name || null,
-    pdl_company: res.company || null,
-    pdl_title: res.job_title || null,
-    pdl_email: res.email || null,
-    pdl_region: res.region || null,
-    pdl_country: res.country || null,
-    pdl_profiles: res.profiles || [],
-  };
-}
-
-export async function lookupLineTwilio(api, { phone } = {}) {
-  if (!phone) return { error: 'no phone number' };
-  const r = await twilioLookup(api, phone);
-  if (r.skipped || r.error) return r;
-  return { valid: r.valid, line_type: r.line_type, carrier: r.carrier, caller_name: r.caller_name };
-}
-
-// HARD-GATED on an already-sourced name: searching an invented name is how a
-// lead acquires a stranger's identity. LinkedIn hits come back as unattached
-// CANDIDATES — verification is reconcileIdentity's job, not the searcher's.
-export async function searchSocialsSerp(api, { name, region = null, country = null } = {}) {
-  if (!name || !String(name).trim()) return { skipped: 'no sourced name yet — get a name from WhatsApp/PDL first' };
-  const where = [region, country].filter(Boolean).join(' ');
-  const q = `"${name}"${where ? ' ' + where : ''} linkedin OR twitter OR instagram`;
-  const res = await serpSearch(api, { q, num: 10 });
-  if (res.skipped || res.error) return res;
-  const results = res.results || [];
-  const corpus = results.map((r) => `${r.link} ${r.title} ${r.snippet || ''}`).join('\n');
-  const soc = await extractSocials(api, { text: corpus });
-  const linkedin_candidates = results
-    .filter((r) => /linkedin\.com\/in\//i.test(r.link || ''))
-    .map((r) => ({ url: r.link, title: r.title }));
-  return { socials: soc.socials, linkedin_candidates, query: q };
-}
-
-// Every merge decision the old chain spread across five write-passes, in one
-// pure function: fill-don't-overwrite precedence, LinkedIn identity
-// verification with namesake rejection, tombstone respect, the conflict list,
-// the CEO-mismatch org warn, and the per-step verdicts.
-//
-// Pure on purpose — no api, no I/O. It reads the raw source results off the
-// workflow context and returns a PATCH; saveLeadPatch is the only thing that
-// touches D1. Absent sources contribute nothing, so the same function serves
-// enrich-lead (five sources), company-context (company facts only) and
-// clean-identity (a deliberate teardown).
-export function reconcileIdentity(ctx = {}) {
-  const lead = ctx.lead || {};
-  const at = now();
-  const stamp = new Date().toISOString();
-  const patch = {};
-  const srcUpd = {};
-  const srcDrop = [];
-  const conflicts = [];
-  const results = {};                                   // step key → raw result, for stepVerdict
-  const dismissed = new Set(parseJson(lead.dismissed, []));
-  const socials = parseJson(lead.socials, []);
-  const seen = new Set(socials.map((s) => s.url));
-  let addedSocials = 0;
-  let socialsTouched = false;
-
-  const addSocial = (s, src) => {
-    if (!s?.url || seen.has(s.url) || dismissed.has(s.url)) return;
-    socials.push({ ...s, src, at: stamp });
-    seen.add(s.url);
-    addedSocials++;
-    socialsTouched = true;
-  };
-  // Later sources see what earlier ones staged — the old chain got this by
-  // re-reading the row between passes; here the patch IS the running truth.
-  const current = (field) => (patch[field] !== undefined ? patch[field] : lead[field]);
-  const fillOrConflict = (field, value, tool) => {
-    if (!value) return;
-    const held = current(field);
-    if (!held) { patch[field] = value; srcUpd[field] = tool; }
-    else if (!eqCI(value, held)) conflicts.push({ field, value, tool });
-  };
-  const fillIfEmpty = (field, value, tool) => {
-    if (!value || current(field)) return;
-    patch[field] = value;
-    srcUpd[field] = tool;
-  };
-
-  // ── clean-identity: a REPORTED mismatch, torn down deliberately ────────────
-  // Not an enrichment path: the operator (via audit_identities) says this
-  // LinkedIn is the wrong person. Clear it, tombstone the URL so no future
-  // search can re-attach it, leave a visible conflict, and follow the poison —
-  // company/position derived FROM that profile go too.
-  if (ctx.clean_identity && lead.linkedin) {
-    const priorSources = parseJson(lead.sources, {});
-    patch.linkedin = null;
-    dismissed.add(lead.linkedin);
-    srcDrop.push('linkedin');
-    for (const f of ['company', 'position']) {
-      if (priorSources?.[f]?.tool === 'company_from_linkedin') { patch[f] = null; srcDrop.push(f); }
-    }
-    conflicts.push({ field: 'linkedin', value: lead.linkedin, tool: 'identity_audit' });
-    return {
-      lead_patch: patch,
-      sources: applySourceDrops(mergedSources(lead, srcUpd), srcDrop),
-      conflicts: mergedConflicts(lead, conflicts),
-      dismissed: [...dismissed],
-      steps: parseJson(lead.steps, null) || [],
-      cleaned_linkedin: lead.linkedin,
-    };
-  }
-
-  // ── WhatsApp ───────────────────────────────────────────────────────────────
-  if (ctx.wa) {
-    results.wa = { name: ctx.wa.wa_name, photo: ctx.wa.wa_photo_url, about: ctx.wa.wa_about, on_whatsapp: ctx.wa.on_whatsapp, error: ctx.wa.error, skipped: ctx.wa.skipped };
-    if (usableSource(ctx.wa)) {
-      for (const s of ctx.wa.wa_socials || []) addSocial(s, 'extract_socials');
-      if (ctx.wa.wa_photo_url) { patch.photo = ctx.wa.wa_photo_url; srcUpd.photo = 'wa_fetch_photo'; }
-      fillOrConflict('name', ctx.wa.wa_name, 'wa_fetch_name');
-    }
-  }
-
-  // ── company off the person's LinkedIn ──────────────────────────────────────
-  if (ctx.li) {
-    results.li = { company: ctx.li.li_company, note: ctx.li.note, error: ctx.li.error, skipped: ctx.li.skipped };
-    if (usableSource(ctx.li)) {
-      fillOrConflict('company', ctx.li.li_company, 'company_from_linkedin');
-      fillIfEmpty('position', ctx.li.li_position, 'company_from_linkedin');
-    }
-  }
-
-  // ── PDL ────────────────────────────────────────────────────────────────────
-  if (ctx.pdl) {
-    results.pdl = { matched: ctx.pdl.matched, name: ctx.pdl.pdl_name, company: ctx.pdl.pdl_company, error: ctx.pdl.error, skipped: ctx.pdl.skipped };
-    if (usableSource(ctx.pdl) && ctx.pdl.matched !== false) {
-      for (const p of ctx.pdl.pdl_profiles || []) addSocial(p, 'pdl_enrich');
-      fillOrConflict('name', ctx.pdl.pdl_name, 'pdl_enrich');
-      fillOrConflict('company', ctx.pdl.pdl_company, 'pdl_enrich');
-      fillIfEmpty('position', ctx.pdl.pdl_title, 'pdl_enrich');
-      fillIfEmpty('email', ctx.pdl.pdl_email, 'pdl_enrich');
-      fillIfEmpty('region', ctx.pdl.pdl_region, 'pdl_enrich');
-      fillIfEmpty('country', ctx.pdl.pdl_country, 'pdl_enrich');
-    }
-  }
-
-  // ── Twilio ─────────────────────────────────────────────────────────────────
-  if (ctx.twilio) {
-    results.twilio = { line_type: ctx.twilio.line_type, carrier: ctx.twilio.carrier, caller_name: ctx.twilio.caller_name, error: ctx.twilio.error, skipped: ctx.twilio.skipped };
-    if (usableSource(ctx.twilio)) {
-      // Twilio IS the authority on these two, so it writes them outright.
-      patch.line_type = ctx.twilio.line_type || null;
-      patch.carrier = ctx.twilio.carrier || null;
-      if (ctx.twilio.line_type) srcUpd.line_type = 'twilio_lookup';
-      if (ctx.twilio.carrier) srcUpd.carrier = 'twilio_lookup';
-      fillOrConflict('name', ctx.twilio.caller_name, 'twilio_lookup');
-    }
-  }
-
-  // ── Google (SerpApi) — verified LinkedIn only ──────────────────────────────
-  let rejectedLinkedin = null;
-  if (ctx.serp) {
-    const before = addedSocials;
-    let verified = [], rejected = [];
-    if (usableSource(ctx.serp)) {
-      // The raw corpus scrape must never attach a LinkedIn profile: those go
-      // through identity verification below, one candidate at a time.
-      for (const s of ctx.serp.socials || []) if (s.type !== 'linkedin') addSocial(s, 'serp_search');
-      const name = current('name');
-      const verdicts = (ctx.serp.linkedin_candidates || [])
-        .map((c) => ({ url: c.url, title: c.title, verdict: linkedinBelongsTo(name, { url: c.url, title: c.title }) }));
-      verified = verdicts.filter((v) => v.verdict === 'yes' && !dismissed.has(v.url));
-      rejected = verdicts.filter((v) => v.verdict !== 'yes' && !dismissed.has(v.url));
-      for (const v of verified) addSocial({ type: 'linkedin', url: v.url }, 'serp_search');
-      // Promote to the lead's linkedin field only from a verified or trusted
-      // origin, and even then a hard slug-vs-name mismatch blocks it.
-      if (!current('linkedin')) {
-        const cand = socials.find((s) => s.type === 'linkedin' && /linkedin\.com\/in\//i.test(s.url)
-          && ['serp_search', 'extract_socials', 'pdl_enrich'].includes(s.src)
-          && slugNameCheck(name, s.url) !== 'mismatch');
-        if (cand) patch.linkedin = cand.url;
-        else if (rejected.length) {
-          // Surface the candidate we REFUSED to auto-attach — visible, reviewable.
-          conflicts.push({ field: 'linkedin', value: rejected[0].url, tool: 'serp_search' });
-          rejectedLinkedin = rejected[0];
-        }
-      }
-    }
-    results.serp = {
-      added: addedSocials - before,
-      linkedin_verified: verified.length,
-      linkedin_rejected: rejected.length,
-      query: ctx.serp.query,
-      error: ctx.serp.error,
-      skipped: ctx.serp.skipped,
-    };
-  }
-
-  if (socialsTouched) patch.socials = JSON.stringify(socials);
-
-  // ── org chart: CEO-mismatch heuristic ──────────────────────────────────────
-  // Only when the org step actually RAN this pass — otherwise the context still
-  // carries the lead's stored people and we would re-judge stale data. A leg
-  // that ran and failed still records its verdict ('none' + why), which is what
-  // keeps "we looked and found nothing" distinct from "we never looked".
-  let org_status, org_note;
-  if (ctx.org_fetched || ctx.org_error) {
-    if (ctx.org_error) { org_status = 'none'; org_note = String(ctx.org_error); }
-    else {
-      const people = Array.isArray(ctx.org_people) ? ctx.org_people : [];
-      const topTitle = /\b(ceo|founder|co-?founder|president|owner)\b/i.test(String(current('position') || ''));
-      const roots = people.filter((p) => !p.parentId);
-      const leadIsRoot = roots.some((p) => namesMatch(p.name, current('name')));
-      org_status = 'saved';
-      org_note = null;
-      if (topTitle && roots.length && !leadIsRoot) {
-        org_status = 'warn';
-        org_note = `${current('name')} reads as a top exec but theorg's chart for "${ctx.org_company || current('company')}" is headed by ${roots[0]?.name}. Possible namesake company — confirm the theorg slug.`;
-      }
-    }
-    patch.org_status = org_status;
-    patch.org_note = org_note ?? null;
-    if (ctx.theorg_slug) patch.theorg_slug = ctx.theorg_slug;
-  }
-
-  // ── company facts (company-context workflow) ───────────────────────────────
-  let companyVerdict = null;
-  if (ctx.company_profile || ctx.positions) {
-    const cp = ctx.company_profile || {};
-    if (cp.company_id) patch.company_li_id = cp.company_id;
-    // COALESCE, never clobber: LinkedIn can answer 200 with no headcount, and
-    // overwriting a known number with null makes a checked row read "unknown".
-    if (cp.staff_count !== undefined && cp.staff_count !== null) patch.company_staff_count = cp.staff_count;
-    if (cp.staff_count_fresh) srcUpd.company_staff_count = 'linkedin_company';
-    if (cp.company_context) patch.company_context = JSON.stringify(cp.company_context);
-    if (cp.checked_at) patch.company_checked_at = cp.checked_at;
-    if (Array.isArray(ctx.positions)) {
-      patch.open_positions = JSON.stringify(ctx.positions);
-      patch.positions_checked_at = at;
-    }
-    const orgCount = ctx.org_fetched && Array.isArray(ctx.org_people) ? ctx.org_people.length : 0;
-    const staff = patch.company_staff_count ?? lead.company_staff_count ?? null;
-    const roles = Array.isArray(ctx.positions) ? ctx.positions.length : 0;
-    const found = orgCount > 0 || staff !== null || roles > 0;
-    const summary = [
-      staff !== null ? `${staff} employees` : null,
-      orgCount ? `${orgCount} org people` : null,
-      roles ? `${roles} open roles` : null,
-    ].filter(Boolean).join(' · ');
-    const errors = [...new Set([ctx.org_error, cp.error, ctx.positions_error].filter(Boolean))];
-    companyVerdict = { key: 'company', label: 'Company', status: found ? 'found' : 'empty', reason: found ? summary : (errors[0] || 'nothing found'), at };
-  }
-
-  // ── step verdicts: merged per key over whatever is already recorded ────────
-  // A step this run did not touch keeps its previous verdict rather than being
-  // reset to unknown, and non-chain verdicts (ICP, Company) ride along.
-  const prior = parseJson(lead.steps, null);
-  const byKey = new Map((Array.isArray(prior) ? prior : []).map((s) => [s.key, s]));
-  for (const d of ENRICH_STEPS) if (d.key in results) byKey.set(d.key, stepVerdict(d, results[d.key], at));
-  if (companyVerdict) byKey.set('company', companyVerdict);
-  const steps = [
-    ...ENRICH_STEPS.map((d) => byKey.get(d.key)).filter(Boolean),
-    ...[...byKey.values()].filter((s) => s && !ENRICH_KEYS.has(s.key)),
-  ];
-
-  // status means ATTEMPTED, not successful — the red/yellow/green state carries
-  // quality. Without this a lead whose every source skipped stays 'new' and the
-  // batch drain re-selects it forever.
-  const ranIdentityChain = ENRICH_STEPS.some((d) => d.key in results);
-  if (ranIdentityChain) patch.status = 'enriched';
-
-  return {
-    lead_patch: patch,
-    sources: applySourceDrops(mergedSources(lead, srcUpd), srcDrop),
-    conflicts: conflicts.length ? mergedConflicts(lead, conflicts) : parseJson(lead.conflicts, []),
-    dismissed: [...dismissed],
-    steps,
-    org_status: org_status ?? lead.org_status ?? null,
-    org_note: org_note ?? null,
-    rejected_linkedin: rejectedLinkedin,
-  };
-}
-
-// A cleared value's provenance stamp must die with it, or it outlives the fact
-// it described and mislabels whatever lands next.
-function applySourceDrops(sources, drop) {
-  if (!drop?.length) return sources;
-  const s = { ...sources };
-  for (const k of drop) delete s[k];
-  return s;
-}
+// ── the patch writer ────────────────────────────────────────────────────────
 
 const asColumnJson = (v) => (v == null ? null : (typeof v === 'string' ? v : JSON.stringify(v)));
 
-// The ONLY writer for a reconciled lead. Coalesce-never-clobber lives upstream:
-// reconcileIdentity emits a key only when it means to write it, so an absent key
-// leaves the column alone and an explicit null is a deliberate clear.
+// Write named columns onto a lead, coalesce-never-clobber: a key that is absent
+// from the patch leaves its column alone, and an explicit null is a deliberate
+// clear. Provenance, conflicts, tombstones, step verdicts and an ICP verdict
+// ride along in their own arguments so a caller never has to hand-encode them.
 export async function saveLeadPatch(api, {
   id, lead_patch = {}, sources = null, conflicts = null, dismissed = null, steps = null,
   icp_fit = null, icp_reasons = null, icp_gaps = null, rejected_linkedin = null, actor = 'operator',
@@ -1583,11 +1144,10 @@ export async function saveLeadPatch(api, {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// GTM · Context Enrich (ported from lib/gtm-context.js) — org chart (theorg
-// gateway), ICP fit (LLM vs the brand-baseline `brand-icp` doc — single
-// source), open roles (linkedin gateway: one throttled company resolve, cached
-// on the lead, then the guest-jobs API), and warm-path detection (fuzzy-match
-// the operator's connections from `plugin-gtm-you` against org people).
+// GTM · company context and ICP fit. The company facts come from the two
+// sources this install has — a SerpApi search and a fetch of the company's own
+// site — and are cached on the lead; the ICP verdict is the LLM reading those
+// facts against the brand-baseline `brand-icp` doc.
 // ═════════════════════════════════════════════════════════════════════════════
 
 // ── knowledge doc helpers (the control surfaces live in knowledge docs) ─────
@@ -1599,182 +1159,17 @@ export async function gtmDoc(api, slug, fallback = '') {
   } catch { return fallback; }
 }
 
-// ── gtm policy (editable, seeded on first read) ─────────────────────────────
-// How stale a cached company fact may get before the bulk action re-fetches it.
-// Operator-facing: the Qualification tab's button copy promises this window, so
-// it must be tunable by editing a note rather than by a deploy.
-const GTM_POLICY_DEFAULTS = Object.freeze({
-  company_context_max_age_days: 30,   // a good headcount is re-checked this rarely
-  company_retry_after_hours: 2,       // a FAILED resolve retries this soon — a dead
-                                      // LinkedIn session is usually fixed in minutes,
-                                      // so failures must not be cached for 30 days
-});
-function polNum(v, fallback) {
-  const n = Number(v);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
-async function loadGtmPolicy(api) {
-  try {
-    const row = await api.knowledge('plugin-gtm-policy');
-    if (!row?.body) {
-      await api.saveKnowledge('plugin-gtm-policy', {
-        title: 'GTM policy — company-context cache windows',
-        body: JSON.stringify(GTM_POLICY_DEFAULTS, null, 2),
-      }).catch(() => {});
-      return { ...GTM_POLICY_DEFAULTS };
-    }
-    const m = String(row.body).match(/\{[\s\S]*\}/);
-    const src = m ? JSON.parse(m[0]) : {};
-    const out = {};
-    for (const [k, dflt] of Object.entries(GTM_POLICY_DEFAULTS)) out[k] = polNum(src[k], dflt);
-    return out;
-  } catch {
-    return { ...GTM_POLICY_DEFAULTS };
-  }
-}
-
 export async function readYou(api) {
   try { return JSON.parse(await gtmDoc(api, 'plugin-gtm-you', '{}')); } catch { return {}; }
 }
 
-export async function writeYou(api, patch = {}) {
-  const cur = await readYou(api);
-  const ALLOW = ['name', 'role', 'business', 'phone', 'email', 'linkedin', 'location', 'about', 'groups', 'connections'];
-  const next = { ...cur };
-  for (const k of ALLOW) if (patch[k] !== undefined) next[k] = patch[k];
-  await api.saveKnowledge('plugin-gtm-you', { title: 'GTM · You — operator profile', body: JSON.stringify(next, null, 0) });
-  return next;
-}
+// ── the fully identified prospects ──────────────────────────────────────────
 
-// ── theorg org chart (via the theorg gateway — GraphQL lives in the host) ────
-
-export async function fetchTheorg(api, { company, slug } = {}) {
-  return api.gateway('theorg', 'org_chart', { company, slug });
-}
-
-// Health probe — delegated to the theorg gateway (empty POST answers 400,
-// which still proves theorg is up, and no real query means health probes
-// never hit quota).
-export async function probeTheorg(api) {
-  return api.gateway('theorg', 'probe', {});
-}
-
-export async function listOrgPeople(api, leadId) {
-  const r = await api.db.prepare('SELECT * FROM plugin_gtm_org_people WHERE lead_id = ? ORDER BY created_at').bind(leadId).all();
-  return r.results || [];
-}
-
-async function replaceOrgPeople(api, leadId, company, people) {
-  await api.db.prepare('DELETE FROM plugin_gtm_org_people WHERE lead_id = ?').bind(leadId).run();
-  for (const p of people) {
-    await api.db.prepare(`
-      INSERT INTO plugin_gtm_org_people (id, lead_id, company, node_id, parent_node_id, name, role, photo_url, report_count, source, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'theorg', ?)
-    `).bind(gid('gp'), leadId, company || null, p.nodeId || null, p.parentId || null, p.name || null, p.role || null, p.photo || null, p.reportCount ?? null, now()).run();
-  }
-}
-
-// Fetch (or serve the persisted) org chart for a lead. theorg is hit only on
-// first check or explicit refresh/slug override — the outcome is cached on the
-// lead as org_status (saved | warn | none) + org_note. A CEO-mismatch heuristic
-// (the lead claims a top title but theorg's root is someone else) sets 'warn',
-// which BLOCKS outreach generation until the operator confirms the slug.
-export async function orgChartForLead(api, { id, refresh = false, slug = null } = {}) {
-  const lead = await getLead(api, id);
-  if (!lead) return { error: 'no lead' };
-  if (!refresh && !slug && lead.org_status) {
-    const people = await listOrgPeople(api, id);
-    if (people.length || lead.org_status === 'none') {
-      return { company: lead.company, people, status: lead.org_status, note: lead.org_note, fromDb: true };
-    }
-  }
-  if (!lead.company && !slug && !lead.theorg_slug) {
-    await updateLead(api, id, { org_status: 'none', org_note: 'no company on the lead yet' });
-    return { error: 'no company on the lead yet', people: [], status: 'none' };
-  }
-  const useSlug = (slug && String(slug).trim()) || lead.theorg_slug || null;
-  // Accept a pasted theorg URL as the slug override.
-  const cleanSlug = useSlug ? (useSlug.match(/theorg\.com\/org\/([^/?#]+)/) || [null, useSlug])[1] : null;
-  const r = await fetchTheorg(api, { company: lead.company, slug: cleanSlug });
-  if (r.error) {
-    await updateLead(api, id, { org_status: 'none', org_note: r.error, theorg_slug: cleanSlug || lead.theorg_slug });
-    return { ...r, status: 'none' };
-  }
-  // Localize photos into R2 (theorg URLs expire / hotlink-block).
-  const localized = [];
-  for (const p of r.people) {
-    let photo = p.photo;
-    if (photo && /^https?:/i.test(photo)) {
-      const stored = await storeLeadPhoto(api, photo, `gtm/org/${id}/${p.nodeId}.jpg`);
-      if (stored) photo = stored;
-    }
-    localized.push({ ...p, photo });
-  }
-  await replaceOrgPeople(api, id, r.company, localized);
-  // CEO-mismatch heuristic: lead has a top title but the org root is someone else.
-  const topTitle = /\b(ceo|founder|co-?founder|president|owner)\b/i.test(String(lead.position || ''));
-  const roots = localized.filter((p) => !p.parentId);
-  const leadIsRoot = roots.some((p) => namesMatch(p.name, lead.name));
-  let status = 'saved', note = null;
-  if (topTitle && roots.length && !leadIsRoot) {
-    status = 'warn';
-    note = `${lead.name} reads as a top exec but theorg's chart for "${r.company}" is headed by ${roots[0]?.name}. Possible namesake company — confirm the theorg slug.`;
-  }
-  await updateLead(api, id, { org_status: status, org_note: note, theorg_slug: cleanSlug || lead.theorg_slug });
-  // Copy the prospect's theorg photo onto the lead if it has none.
-  if (!(await getLead(api, id)).photo) {
-    const self = localized.find((p) => namesMatch(p.name, lead.name));
-    if (self?.photo) await updateLead(api, id, { photo: self.photo });
-  }
-  await api.log('org_chart', { id, company: r.company, people: localized.length, status });
-  const people = await listOrgPeople(api, id);
-  return { company: r.company, people, status, note };
-}
-
-// ── warm-path detection: You.connections × org people ───────────────────────
-
-// Which of a lead's org people match the operator's warm connections.
-export async function contactsInOrg(api, leadId) {
-  const you = await readYou(api);
-  const conns = you.connections || [];
-  if (!conns.length) return [];
-  const people = await listOrgPeople(api, leadId);
-  return people.filter((p) => conns.some((c) => namesMatch(c, p.name))).map((p) => ({ name: p.name, role: p.role }));
-}
-
-// Green leads for the Enrich/Outreach tabs, with has_contact flags.
-// BATCHED on purpose: the old shape called contactsInOrg per lead (a knowledge
-// read + an org query each — ~2 subrequests/lead). At ~10 greens that was fine;
-// the first big import pushed it past the Worker's 50-subrequest budget, the
-// invocation died with error 1102, and the Enrich tab rendered blank. Now it is
-// one knowledge read + one IN() query regardless of lead count.
+// Green leads for the Verified Contacts and Qualification tabs. One query: the
+// state filter already does the work, and the caller merges angles and contact
+// status on top.
 export async function greenLeads(api) {
-  const leads = await listLeads(api, { stage: 'green' });
-  if (!leads.length) return [];
-  const you = await readYou(api);
-  const conns = you.connections || [];
-
-  // all org people for all green leads, chunked to stay under D1's bind limit
-  const byLead = new Map();
-  const ids = leads.map((l) => l.id);
-  for (let i = 0; i < ids.length; i += 80) {
-    const chunk = ids.slice(i, i + 80);
-    const r = await api.db.prepare(
-      `SELECT lead_id, name, role FROM plugin_gtm_org_people WHERE lead_id IN (${chunk.map(() => '?').join(',')}) ORDER BY created_at`,
-    ).bind(...chunk).all();
-    for (const p of r.results || []) {
-      if (!byLead.has(p.lead_id)) byLead.set(p.lead_id, []);
-      byLead.get(p.lead_id).push(p);
-    }
-  }
-
-  return leads.map((l) => {
-    const people = byLead.get(l.id) || [];
-    const contacts = conns.length
-      ? people.filter((p) => conns.some((c) => namesMatch(c, p.name))).map((p) => ({ name: p.name, role: p.role }))
-      : [];
-    return { ...l, has_contact: contacts.length > 0, contacts };
-  });
+  return listLeads(api, { stage: 'green' });
 }
 
 // ── ICP fit ──────────────────────────────────────────────────────────────────
@@ -1789,22 +1184,20 @@ export async function scoreIcpFit(api, leadId) {
   if (!String(lead.name || '').trim() || !lead.company || !lead.position) {
     return { error: 'needs a name, company and title before ICP match' };
   }
-  const people = await listOrgPeople(api, leadId);
   // Single source of truth: the brand-baseline ICP (brand-icp, a HOST doc
   // declared in requires.knowledge). No gtm-specific ICP copy — the ICP is the
   // ICP, defined once in the brand tree.
   const icp = await gtmDoc(api, 'brand-icp', 'ICP not written yet — judge loosely by seniority + reachability.');
-  const org = people.map((p) => `${p.name} - ${p.role}`).join('\n') || '(no org on file)';
   // Company facts gathered by companyContextForLead. The ICP is mostly a
-  // statement about COMPANIES (size band, geography, technology-dependence), so
-  // without these the model was inferring headcount from a brand name it may
+  // statement about COMPANIES (size band, geography, what they build), so
+  // without these the model was inferring everything from a brand name it may
   // never have heard of.
   const size = Number.isFinite(Number(lead.company_staff_count)) ? Number(lead.company_staff_count) : null;
-  let openRoles = [];
-  try { openRoles = JSON.parse(lead.open_positions || '[]') || []; } catch { openRoles = []; }
-  const rolesLine = openRoles.length
-    ? openRoles.slice(0, 12).map((p) => p.title).filter(Boolean).join(' · ')
-    : (lead.positions_checked_at ? '(checked — none open)' : '(not checked)');
+  let ctx = null;
+  try { ctx = JSON.parse(lead.company_context || 'null'); } catch { ctx = null; }
+  const ctxLine = ctx && !ctx.error
+    ? [ctx.summary, ctx.industry, ctx.hq, ctx.website].filter(Boolean).join(' · ')
+    : '(not checked)';
   const system = `Score how well a prospect fits this Ideal Customer Profile.
 
 ICP:
@@ -1813,12 +1206,10 @@ ${icp}
 Return STRICT JSON only:
 {"fit":"strong|medium|weak","reasons":["1-2 word tag"],"gaps":["1-2 word tag"]}
 Each reason and gap is a 1 to 2 word tag, ultra glanceable, NOT a sentence and NOT a phrase (e.g. "Israeli founder", "reachable exec", "enterprise", "wrong stage", "no build need"). At most 3 of each. Judge only against the ICP. If a disqualifier applies, fit is weak.
-Company facts come from LinkedIn and theorg. "unknown" or "not checked" means we have not looked it up — treat it as missing evidence, NEVER as a zero and never as a disqualifier on its own.`;
+Company facts come from a web search of the company. "unknown" or "not checked" means we have not looked it up — treat it as missing evidence, NEVER as a zero and never as a disqualifier on its own.`;
   const prompt = `PROSPECT: ${lead.name} - ${lead.position || '?'} at ${lead.company || '?'} (${[lead.region, lead.country].filter(Boolean).join(', ') || 'location unknown'})
-COMPANY: ${lead.company || '?'} — ${size !== null ? `${size} employees (LinkedIn)` : 'headcount unknown'}
-OPEN ROLES: ${rolesLine}
-ORG CHART:
-${org}
+COMPANY: ${lead.company || '?'} — ${size !== null ? `${size} employees` : 'headcount unknown'}
+COMPANY CONTEXT: ${ctxLine}
 
 Produce the JSON.`;
   try {
@@ -1847,352 +1238,122 @@ Produce the JSON.`;
   }
 }
 
-// ── the company behind the lead (LinkedIn) ───────────────────────────────────
+// ── the company behind the lead ─────────────────────────────────────────────
 
-// Resolve the lead's company on LinkedIn once and KEEP what comes back.
-// The linkedin gateway's company mode answers { company_id, name,
-// universal_name, staff_count, url }: company_id is what the jobs API needs,
-// and staff_count is the size band the ICP is largely written in.
+// Everything we can learn about the COMPANY behind a lead, from the two sources
+// this install actually has: a SerpApi search for the company, and a fetch of
+// whatever site that search points at. The model turns both into a small fact
+// sheet, which is cached on the lead and read back by the ICP match.
 //
-// Cached on the lead behind company_checked_at: a bulk pass over a list re-pays
-// the throttled resolve only for leads never checked (or gone stale), which
-// is what makes "fetch company context" safe to run on 50 rows.
-//
-// FAILURES are cached too, on a much shorter clock. Stamping only successes
-// meant a lead whose resolve failed — an expired session, a private page, a bad
-// name-slug — was re-attempted in full on every pass, so the exact rows that
-// cost the most were the ones the cache never covered. The short retry window
-// keeps a transient outage from being remembered for a month.
-async function resolveLiCompany(api, lead, { refresh = false } = {}) {
-  const pol = await loadGtmPolicy(api);
-  let prevCtx = null;
-  try { prevCtx = JSON.parse(lead.company_context || 'null'); } catch { prevCtx = null; }
-  const lastFailed = !!prevCtx?.error;
-  const ttl = lastFailed
-    ? pol.company_retry_after_hours * 60 * 60 * 1000
-    : pol.company_context_max_age_days * 24 * 60 * 60 * 1000;
-  const checkedRecently = lead.company_checked_at && (now() - lead.company_checked_at) < ttl;
-  if (!refresh && checkedRecently && (lead.company_li_id || lastFailed)) {
-    return lastFailed
-      ? { error: `${prevCtx.error} (cached — retried at most every ${pol.company_retry_after_hours}h)`, cached: true }
-      : { company_id: lead.company_li_id, staff_count: lead.company_staff_count ?? null, cached: true };
-  }
-  // Find the company slug: a /company/ url among the socials, else the company
-  // name slugified (no DDG here — datacenter IPs get blocked; the operator or
-  // Nyo can paste the company page url).
-  let liUrl = null;
-  try { liUrl = (JSON.parse(lead.socials || '[]').find((x) => /linkedin\.com\/company\//i.test(x.url || '')) || {}).url; } catch { /* none */ }
-  let slug = liUrl ? (liUrl.match(/\/company\/([^/?#]+)/) || [])[1] : null;
-  if (!slug && lead.company) slug = String(lead.company).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  if (!slug) return { error: 'no company name or LinkedIn /company/ url on the lead' };
+// PARTIAL BY DESIGN. Search may be unconnected, the site may be down, the model
+// may find no headcount. Whatever lands is kept, whatever failed is named in
+// errors[], and facts already on the lead are never overwritten with nothing —
+// a checked row must not start reading as unchecked.
+const COMPANY_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
-  let c;
-  try {
-    // LinkedIn lookups need a signed-in session running as its own service.
-    // This install has none, so the lead keeps whatever it already holds.
-    throw new Error('LinkedIn lookups are not available on this install');
-  } catch (e) {
-    const error = `LinkedIn company resolve failed for slug "${slug}": ${String(e.message || e)}. Paste the company's linkedin.com/company/ URL into the lead's socials and retry.`;
-    // Remember the FAILURE (not the values) so the retry window applies. The
-    // value columns are deliberately untouched: a dead session must never cost
-    // a headcount we already hold.
-    try {
-      await updateLead(api, lead.id, { company_context: JSON.stringify({ error, at: now() }), company_checked_at: now() });
-      await api.log('company_resolved', { id: lead.id, ok: false, error: error.slice(0, 200) });
-    } catch { /* the column may predate its migration — the error still returns */ }
-    return { error };
-  }
-  // COALESCE, never clobber: the resolve can answer 200 with no staff_count
-  // (private page, incomplete profile), and overwriting a good headcount with
-  // null would make a checked row render as "not checked" — a lie about data we
-  // already had. Same reasoning as the company id just below.
-  const fresh = Number.isFinite(Number(c?.staff_count)) ? Number(c.staff_count) : null;
-  const staff = fresh ?? (lead.company_staff_count ?? null);
-  const cid = c?.company_id || lead.company_li_id || null;
-  const answered = !!(c?.name || fresh !== null);
-  const snapshot = answered
-    ? { name: c?.name ?? null, universal_name: c?.universal_name ?? null, url: c?.url ?? null, staff_count: staff, at: now() }
-    : { ...(prevCtx && !prevCtx.error ? prevCtx : {}), staff_count: staff, at: now() };
-  // The company_* columns arrive by a MANUAL migration. If a deploy ever lands
-  // ahead of it, still persist the company id — the jobs fetch depends on it —
-  // and lose only the size snapshot.
-  // Stamp provenance whenever LinkedIn actually answered with a figure. The
-  // 'manual' marker is load-bearing — manualEditLead preserves a hand-entered
-  // headcount across a company correction — so a fetched number must overwrite
-  // the marker too, or it inherits protection it did not earn. A coalesced
-  // value (LinkedIn had none) leaves the existing stamp alone, because the
-  // number it describes has not changed.
-  let srcs = {};
-  try { srcs = JSON.parse(lead.sources || '{}') || {}; } catch { srcs = {}; }
-  if (fresh !== null) srcs.company_staff_count = { tool: 'linkedin_company', at: new Date().toISOString() };
-  try {
-    await updateLead(api, lead.id, {
-      company_li_id: cid,
-      company_staff_count: staff,
-      company_context: JSON.stringify(snapshot),
-      company_checked_at: now(),
-      ...(fresh !== null ? { sources: JSON.stringify(srcs) } : {}),
-    });
-    await api.log('company_resolved', { id: lead.id, ok: true, company_id: cid, staff_count: staff });
-  } catch (e) {
-    console.error('gtm: company context not persisted (are the company_* columns migrated?)', e?.message || e);
-    try { await updateLead(api, lead.id, { company_li_id: cid }); } catch { /* id is best-effort too */ }
-  }
-  return { company_id: cid, staff_count: staff, name: c?.name || null, url: c?.url || null };
-}
-
-export async function openRolesForLead(api, leadId) {
-  const lead = await getLead(api, leadId);
-  if (!lead) return { error: 'no lead' };
-  const c = await resolveLiCompany(api, lead);
-  if (c.error) return { error: c.error };
-  if (!c.company_id) return { error: 'could not resolve a LinkedIn company id' };
-  try {
-    // Same: open roles come from LinkedIn, which is not connected here.
-    throw new Error('LinkedIn lookups are not available on this install');
-    // eslint-disable-next-line no-unreachable
-    const r = { positions: [] };
-    const positions = r.positions || [];
-    await updateLead(api, leadId, { open_positions: JSON.stringify(positions), positions_checked_at: now() });
-    await api.log('open_roles', { id: leadId, count: positions.length });
-    return { positions, company_id: c.company_id, count: positions.length, staff_count: c.staff_count ?? null };
-  } catch (e) {
-    return { error: `jobs fetch: ${String(e.message || e)}`, company_id: c.company_id };
-  }
-}
-
-// Everything we can learn about the COMPANY behind a lead, in one pass: theorg's
-// org chart, LinkedIn's headcount, LinkedIn's open roles. Exists so qualification
-// can be run in bulk against real company facts instead of the model's guess
-// about a brand name — see scoreIcpFit, which reads all three back.
-//
-// PARTIAL BY DESIGN: theorg and LinkedIn fail independently (a namesake company,
-// an expired LI session, a private page). A lead that ends up with an org chart
-// but no headcount is strictly better off than one with neither, so a failed leg
-// is collected and reported, never fatal.
 export async function companyContextForLead(api, leadId, { refresh = false } = {}) {
   const at = now();
   const lead = await getLead(api, leadId);
   if (!lead) return { error: 'no lead' };
   if (!lead.company) return { error: 'no company on the lead yet' };
 
-  const org = await orgChartForLead(api, { id: leadId, refresh });
-  // Re-read: orgChartForLead may have written to the lead (photo, org_status).
-  const company = await resolveLiCompany(api, await getLead(api, leadId), { refresh });
-  // Cheap after the resolve above — openRolesForLead's own resolve is a cache hit.
-  // Skipped without an id: the jobs API is keyed on it, and re-reporting the
-  // resolve failure here would surface one root cause as two separate problems.
-  const roles = company.company_id ? await openRolesForLead(api, leadId) : { skipped: true };
+  let stored = null;
+  try { stored = JSON.parse(lead.company_context || 'null'); } catch { stored = null; }
+  const fresh = lead.company_checked_at && (at - lead.company_checked_at) < COMPANY_MAX_AGE_MS;
+  if (!refresh && fresh && stored && !stored.error) {
+    return {
+      company: lead.company, cached: true, staff_count: lead.company_staff_count ?? null,
+      summary: stored.summary ?? null, industry: stored.industry ?? null,
+      hq: stored.hq ?? null, website: stored.website ?? null, errors: [],
+    };
+  }
 
-  // Report the lead's ACTUAL state, not just what this run resolved. A failed
-  // leg leaves the previously-stored facts in place on purpose, so reporting the
-  // run's own (empty) result would tell every caller — including the sheet that
-  // paints the Size column — that a known headcount is unknown.
-  const after = await getLead(api, leadId);
-  let storedRoles = [];
-  try { storedRoles = JSON.parse(after?.open_positions || '[]') || []; } catch { storedRoles = []; }
+  const errors = [];
+  const res = await serpSearch(api, { q: `"${lead.company}" company official site employees`, num: 8 });
+  if (res.skipped) errors.push(String(res.skipped));
+  const results = res.results || [];
+  // The company's own site: the first result that is not a directory or a
+  // social network. Its text is far better evidence than a snippet.
+  const site = results.map((r) => r.link).find((u) => u && !SOCIAL_HOST.test(u) && !/wikipedia|crunchbase|glassdoor|indeed|bloomberg|zoominfo/i.test(u)) || null;
+  let siteText = '';
+  if (site) {
+    try {
+      const w = await api.gateway('web', 'text', { url: site, max_bytes: 120000 });
+      if (w?.ok) siteText = String(w.text || '').slice(0, 12000);
+      else errors.push(`could not read ${site}`);
+    } catch (e) { errors.push(`could not read ${site}: ${String(e.message || e).slice(0, 120)}`); }
+  }
+  const corpus = [
+    results.map((r) => `${r.title} — ${r.link}\n${r.snippet || ''}`).join('\n\n'),
+    siteText ? `SITE (${site}):\n${siteText}` : '',
+  ].filter(Boolean).join('\n\n');
 
-  const out = {
-    company: org.company || lead.company,
-    org_people: (org.people || []).length,
-    org_status: org.status ?? null,
-    org_note: org.note ?? null,
-    staff_count: after?.company_staff_count ?? null,
-    open_roles: storedRoles.length,
-    // Deduped: the legs share failure modes (one dead LinkedIn session breaks
-    // both the resolve and the jobs fetch) and the operator needs the distinct
-    // causes, not a tally.
-    errors: [...new Set([org.error, company.error, roles.error].filter(Boolean))],
-  };
+  let facts = {};
+  if (corpus.trim()) {
+    try {
+      facts = extractJson(await gtmLLM(api, {
+        system: 'You are given search results and website text about ONE company. Return STRICT JSON only: {"summary": string|null, "industry": string|null, "hq": string|null, "website": string|null, "linkedin": string|null, "staff_count": number|null}. summary is at most 25 words, plain, about what the company does. staff_count is an employee headcount ONLY if the text states one; otherwise null. Never guess a number.',
+        prompt: `COMPANY: ${lead.company}\n\n${corpus}`,
+        model: null,
+        maxTokens: 600,
+      }));
+    } catch (e) { errors.push(`could not read the company: ${String(e.message || e).slice(0, 120)}`); }
+  } else if (!errors.length) {
+    errors.push('nothing found for this company');
+  }
 
-  const found = out.org_people > 0 || out.staff_count !== null || out.open_roles > 0;
-  const summary = [
-    out.staff_count !== null ? `${out.staff_count} employees` : null,
-    out.org_people ? `${out.org_people} org people` : null,
-    out.open_roles ? `${out.open_roles} open roles` : null,
-  ].filter(Boolean).join(' · ');
-  // Same tolerant, merged-per-key step write the ICP match uses.
+  const staffFresh = Number.isFinite(Number(facts?.staff_count)) ? Number(facts.staff_count) : null;
+  // COALESCE, never clobber: a pass that found no headcount must not erase one
+  // we already hold (hand-entered ones especially).
+  const staff = staffFresh ?? (lead.company_staff_count ?? null);
+  const answered = !!(facts?.summary || facts?.industry || staffFresh !== null);
+  const snapshot = answered
+    ? {
+        summary: facts.summary ?? null, industry: facts.industry ?? null, hq: facts.hq ?? null,
+        website: facts.website || site || null, linkedin: facts.linkedin ?? null,
+        staff_count: staff, at,
+      }
+    : { ...(stored && !stored.error ? stored : {}), error: errors[0] || 'nothing found', at };
+
+  let srcs = {};
+  try { srcs = JSON.parse(lead.sources || '{}') || {}; } catch { srcs = {}; }
+  if (staffFresh !== null) srcs.company_staff_count = { tool: 'company_context', at: new Date().toISOString() };
   try {
-    let prior = [];
-    try { prior = JSON.parse(after?.steps) || []; } catch { prior = []; }
+    await updateLead(api, leadId, {
+      company_staff_count: staff,
+      company_context: JSON.stringify(snapshot),
+      company_checked_at: at,
+      ...(staffFresh !== null ? { sources: JSON.stringify(srcs) } : {}),
+    });
+  } catch (e) {
+    console.error('gtm: company context not persisted (are the company_* columns migrated?)', e?.message || e);
+  }
+
+  // Record the pass in the lead's step history, merged over whatever else is
+  // recorded there, so a surface can show WHEN the company was last checked.
+  const summary = [
+    staff !== null ? `${staff} employees` : null,
+    snapshot.industry || null,
+    snapshot.website || null,
+  ].filter(Boolean).join(' · ');
+  try {
+    const after = await getLead(api, leadId);
+    const prior = parseJson(after?.steps, null);
     const steps = (Array.isArray(prior) ? prior : []).filter((s) => s && s.key !== 'company');
-    steps.push({ key: 'company', label: 'Company', status: found ? 'found' : 'empty', reason: found ? summary : (out.errors[0] || 'nothing found'), at });
+    steps.push({ key: 'company', label: 'Company', status: answered ? 'found' : 'empty', reason: answered ? summary : (errors[0] || 'nothing found'), at });
     await updateLead(api, leadId, { steps: JSON.stringify(steps) });
   } catch (e) {
     console.error('gtm: company step verdict not persisted (is the steps column migrated?)', e?.message || e);
   }
 
-  await api.log('company_context', { id: leadId, staff_count: out.staff_count, org_people: out.org_people, open_roles: out.open_roles, errors: out.errors.length });
-  return out;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GRANULAR CONTEXT (v2): orgChartForLead / companyContextForLead / scoreIcpFit
-// each fetch AND persist. Split so a workflow can order the fetches itself:
-// pure fetchers here, one saver, and a scorer that reasons over facts it is
-// handed instead of re-reading the row it is about to be scored against.
-// ─────────────────────────────────────────────────────────────────────────────
-
-// The org chart in theorg's own shape, no DB. `org_fetched` is the load-bearing
-// flag: save_org_chart refuses to replace stored rows unless THIS run actually
-// fetched, so a failed leg can never wipe a chart we already had.
-export async function fetchOrgChartFor(api, { company = null, slug = null } = {}) {
-  // Accept a pasted theorg URL as the slug override.
-  const cleanSlug = slug ? (String(slug).match(/theorg\.com\/org\/([^/?#]+)/) || [null, slug])[1] : null;
-  if (!company && !cleanSlug) return { org_fetched: false, org_error: 'no company on the lead yet', org_people: [] };
-  const r = await fetchTheorg(api, { company, slug: cleanSlug });
-  if (r.error) return { org_fetched: false, org_error: r.error, org_people: [], theorg_slug: cleanSlug };
-  return { org_fetched: true, org_company: r.company, org_people: r.people || [], theorg_slug: cleanSlug };
-}
-
-// Stored org people in the SAME shape fetchOrgChartFor returns, so every
-// downstream consumer (the CEO heuristic, angle drafting) reads one shape
-// whether the chart came from theorg just now or from D1 last week.
-export async function listOrgChart(api, leadId) {
-  const rows = await listOrgPeople(api, leadId);
-  return rows.map((p) => ({
-    nodeId: p.node_id, parentId: p.parent_node_id, name: p.name, role: p.role,
-    photo: p.photo_url, reportCount: p.report_count,
-  }));
-}
-
-// Persist a fetched chart: photos localized into R2 (theorg URLs expire and
-// hotlink-block), rows replaced, org verdict stamped on the lead.
-export async function saveOrgChart(api, { id, org_company = null, org_people = [], org_status = null, org_note = null, theorg_slug = null, org_fetched = false } = {}) {
-  if (!org_fetched) return { saved: false, skipped: 'no chart fetched this run — stored rows kept', people_count: 0, status: org_status };
-  const lead = await getLead(api, id);
-  if (!lead) return { error: 'no lead' };
-  const localized = [];
-  for (const p of org_people) {
-    let photo = p.photo;
-    if (photo && /^https?:/i.test(photo)) {
-      const stored = await storeLeadPhoto(api, photo, `gtm/org/${id}/${p.nodeId}.jpg`);
-      if (stored) photo = stored;
-    }
-    localized.push({ ...p, photo });
-  }
-  await replaceOrgPeople(api, id, org_company, localized);
-  await updateLead(api, id, { org_status: org_status || 'saved', org_note: org_note ?? null, theorg_slug: theorg_slug || lead.theorg_slug });
-  // Give the prospect their own theorg photo when the lead has none.
-  if (!lead.photo) {
-    const self = localized.find((p) => namesMatch(p.name, lead.name));
-    if (self?.photo) await updateLead(api, id, { photo: self.photo });
-  }
-  await api.log('org_chart', { id, company: org_company, people: localized.length, status: org_status || 'saved' });
-  return { saved: true, people_count: localized.length, status: org_status || 'saved' };
-}
-
-// Resolve the company on LinkedIn — the id the jobs API needs and the headcount
-// the ICP is written in. Reads the cache windows from the plugin-gtm-policy doc
-// but WRITES NOTHING: the snapshot (success or failure) rides back in
-// company_profile for save_lead to persist, which is what keeps the retry
-// window honest without giving a fetcher a second job.
-export async function fetchCompanyProfile(api, { lead = null, company = null, company_linkedin_url = null, refresh = false } = {}) {
-  const l = lead || {};
-  const pol = await loadGtmPolicy(api);
-  let prevCtx = null;
-  try { prevCtx = JSON.parse(l.company_context || 'null'); } catch { prevCtx = null; }
-  const lastFailed = !!prevCtx?.error;
-  const ttl = lastFailed
-    ? pol.company_retry_after_hours * 60 * 60 * 1000
-    : pol.company_context_max_age_days * 24 * 60 * 60 * 1000;
-  const checkedRecently = l.company_checked_at && (now() - l.company_checked_at) < ttl;
-  if (!refresh && checkedRecently && (l.company_li_id || lastFailed)) {
-    const cached = lastFailed
-      ? { error: `${prevCtx.error} (cached — retried at most every ${pol.company_retry_after_hours}h)`, cached: true }
-      : { company_id: l.company_li_id, staff_count: l.company_staff_count ?? null, cached: true };
-    return { company_profile: cached, company_id: cached.company_id ?? null, staff_count: cached.staff_count ?? null, company_name: null, company_url: null };
-  }
-  // A /company/ url beats a slugified name (no search here — datacenter IPs get
-  // blocked; the operator or Nyo pastes the company page url instead).
-  let liUrl = company_linkedin_url;
-  if (!liUrl) { try { liUrl = (JSON.parse(l.socials || '[]').find((x) => /linkedin\.com\/company\//i.test(x.url || '')) || {}).url; } catch { /* none */ } }
-  const named = company || l.company;
-  let slug = liUrl ? (liUrl.match(/\/company\/([^/?#]+)/) || [])[1] : null;
-  if (!slug && named) slug = String(named).toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  if (!slug) return { company_profile: { error: 'no company name or LinkedIn /company/ url on the lead' }, company_id: null, staff_count: null };
-
-  let c;
-  try {
-    c = await api.gateway('linkedin', 'company', { universal_name: slug });
-  } catch (e) {
-    const error = `LinkedIn company resolve failed for slug "${slug}": ${String(e.message || e)}. Paste the company's linkedin.com/company/ URL into the lead's socials and retry.`;
-    // Remember the FAILURE, never the values: a dead session must not cost a
-    // headcount we already hold.
-    return { company_profile: { error, company_context: { error, at: now() }, checked_at: now() }, company_id: null, staff_count: null };
-  }
-  const fresh = Number.isFinite(Number(c?.staff_count)) ? Number(c.staff_count) : null;
-  const staff = fresh ?? (l.company_staff_count ?? null);
-  const cid = c?.company_id || l.company_li_id || null;
-  const answered = !!(c?.name || fresh !== null);
-  const snapshot = answered
-    ? { name: c?.name ?? null, universal_name: c?.universal_name ?? null, url: c?.url ?? null, staff_count: staff, at: now() }
-    : { ...(prevCtx && !prevCtx.error ? prevCtx : {}), staff_count: staff, at: now() };
-  await api.log('company_resolved', { id: l.id, ok: true, company_id: cid, staff_count: staff });
+  await api.log('company_context', { id: leadId, staff_count: staff, found: answered, errors: errors.length });
   return {
-    // staff_count_fresh is what tells save_lead to re-stamp provenance: a
-    // coalesced number has not changed, so its existing stamp still describes it.
-    company_profile: { company_id: cid, staff_count: staff, staff_count_fresh: fresh !== null, company_context: snapshot, checked_at: now() },
-    company_id: cid,
+    company: lead.company,
     staff_count: staff,
-    company_name: c?.name || null,
-    company_url: c?.url || null,
+    summary: snapshot.summary ?? null,
+    industry: snapshot.industry ?? null,
+    hq: snapshot.hq ?? null,
+    website: snapshot.website ?? null,
+    errors: [...new Set(errors)],
   };
-}
-
-// Open roles from LinkedIn's guest jobs API. Pure — save_lead persists them.
-export async function fetchOpenRoles(api, { company_id } = {}) {
-  if (!company_id) return { skipped: 'no LinkedIn company id — resolve the company first', positions: [], count: 0 };
-  try {
-    const r = await api.gateway('linkedin', 'company_jobs', { company_id });
-    const positions = r.positions || [];
-    return { positions, count: positions.length };
-  } catch (e) {
-    return { positions_error: `jobs fetch: ${String(e.message || e)}`, positions: [], count: 0 };
-  }
-}
-
-// Score a prospect against the editable brand-icp doc using the company facts it
-// is HANDED (org chart, headcount, open roles) rather than facts it re-reads —
-// in a workflow the reconciled identity is newer than the stored row.
-export async function scoreIcpFromFacts(api, { lead, org_people = [], staff_count = null, positions = null } = {}) {
-  const l = lead || {};
-  // The scorer judges name + title + company; without them the verdict is noise.
-  // One definition for every caller, and no LLM call spent on a meaningless row.
-  if (!String(l.name || '').trim() || !l.company || !l.position) {
-    return { error: 'needs a name, company and title before ICP match' };
-  }
-  // Single source of truth: the brand-baseline ICP. The ICP is the ICP.
-  const icp = await gtmDoc(api, 'brand-icp', 'ICP not written yet — judge loosely by seniority + reachability.');
-  const org = (org_people || []).map((p) => `${p.name} - ${p.role}`).join('\n') || '(no org on file)';
-  const size = Number.isFinite(Number(staff_count ?? l.company_staff_count)) ? Number(staff_count ?? l.company_staff_count) : null;
-  let openRoles = positions;
-  if (!Array.isArray(openRoles)) { try { openRoles = JSON.parse(l.open_positions || '[]') || []; } catch { openRoles = []; } }
-  const rolesLine = openRoles.length
-    ? openRoles.slice(0, 12).map((p) => p.title).filter(Boolean).join(' · ')
-    : (l.positions_checked_at ? '(checked — none open)' : '(not checked)');
-  const system = `Score how well a prospect fits this Ideal Customer Profile.
-
-ICP:
-${icp}
-
-Return STRICT JSON only:
-{"fit":"strong|medium|weak","reasons":["1-2 word tag"],"gaps":["1-2 word tag"]}
-Each reason and gap is a 1 to 2 word tag, ultra glanceable, NOT a sentence and NOT a phrase (e.g. "Israeli founder", "reachable exec", "enterprise", "wrong stage", "no build need"). At most 3 of each. Judge only against the ICP. If a disqualifier applies, fit is weak.
-Company facts come from LinkedIn and theorg. "unknown" or "not checked" means we have not looked it up — treat it as missing evidence, NEVER as a zero and never as a disqualifier on its own.`;
-  const prompt = `PROSPECT: ${l.name} - ${l.position || '?'} at ${l.company || '?'} (${[l.region, l.country].filter(Boolean).join(', ') || 'location unknown'})
-COMPANY: ${l.company || '?'} — ${size !== null ? `${size} employees (LinkedIn)` : 'headcount unknown'}
-OPEN ROLES: ${rolesLine}
-ORG CHART:
-${org}
-
-Produce the JSON.`;
-  try {
-    const out = extractJson(await gtmLLM(api, { system, prompt, model: null }));
-    const fit = ['strong', 'medium', 'weak'].includes(out.fit) ? out.fit : 'weak';
-    await api.log('icp_scored', { id: l.id, fit });
-    return { icp_fit: fit, icp_reasons: out.reasons || [], icp_gaps: out.gaps || [] };
-  } catch (e) {
-    return { error: String(e.message || e) };
-  }
 }

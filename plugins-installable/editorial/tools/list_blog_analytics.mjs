@@ -23,7 +23,6 @@ export async function run(api, input) {
     SELECT
       bp.slug, bp.title, bp.excerpt, bp.tags, bp.body,
       bp.published_at, bp.published, bp.updated_at, bp.updated_by,
-      bp.featured_image_url, bp.featured_image_generated_at, bp.featured_image_model, bp.featured_image_prompt,
       COALESCE(v.views, 0)            AS views,
       COALESCE(v.unique_visitors, 0)  AS unique_visitors,
       v.last_view                     AS last_view,

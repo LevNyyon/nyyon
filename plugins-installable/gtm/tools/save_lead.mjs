@@ -1,11 +1,10 @@
-// GTM plugin — save_lead. Ported verbatim from
-// workers/api/src/tools/prospecting.js; def and result shape unchanged.
+// GTM plugin — save_lead.
 
 import { saveLeadPatch } from './gtm.mjs';
 
 export const def = {
   name: 'save_lead',
-  description: "Persist a reconciled lead patch: fields, provenance, conflicts, tombstones, step verdicts and any ICP verdict, then log the activity event. The only writer for an enriched lead — it writes exactly the keys reconcile_identity decided to write and leaves every other column alone.",
+  description: "Write named fields onto a lead, with their provenance, conflicts, tombstones, step verdicts and any ICP verdict, then log the activity event. Coalesce-never-clobber: a field you do not pass is left alone, and an explicit null is a deliberate clear. Use edit_lead for an operator's hand correction of a single field.",
   input_schema: {
     type: 'object',
     properties: {
@@ -32,7 +31,6 @@ export async function run(api, input) {
     icp_fit: input.icp_fit || null,
     icp_reasons: input.icp_reasons || null,
     icp_gaps: input.icp_gaps || null,
-    rejected_linkedin: input.rejected_linkedin || null,
     actor: input.actor || 'operator',
   });
 }

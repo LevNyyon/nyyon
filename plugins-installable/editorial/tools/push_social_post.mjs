@@ -11,7 +11,7 @@ import { readSocialPost, sendClaimedSocialPost, sendGate } from './social-posts.
 
 export const def = {
   name: 'push_social_post',
-  description: 'Send one CLAIMED post through its channel\'s connection and close the claim. Requires the open claim approve_social_post takes: an unclaimed, already-posted, or image-less post is refused rather than sent. Never call this to "retry" on your own — a repeat send is the operator\'s decision.',
+  description: 'Send one CLAIMED post through its channel\'s connection and close the claim. Requires the open claim approve_social_post takes: an unclaimed or already-posted post is refused rather than sent. Never call this to "retry" on your own — a repeat send is the operator\'s decision.',
   input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
 };
 
@@ -23,12 +23,12 @@ export async function run(api, input) {
   if (gate.gated && !gate.live) {
     await api.log('hottake_dryrun', {
       action: 'push_social_post', id: row.id, channel: row.channel,
-      chars: (row.content || '').length, has_image: !!row.image_url,
+      chars: (row.content || '').length,
       actor: input?.actor || 'operator',
     }).catch(() => {});
     return {
       ok: true, id: row.id, channel: row.channel, outbox_id: null, dry_run: true,
-      would: { action: 'post', channel: row.channel, chars: (row.content || '').length, image_url: row.image_url || null },
+      would: { action: 'post', channel: row.channel, chars: (row.content || '').length },
     };
   }
   return sendClaimedSocialPost(api, row.id, { actor: input?.actor || 'operator' });

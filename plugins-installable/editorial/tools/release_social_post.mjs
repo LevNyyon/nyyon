@@ -10,7 +10,7 @@ import { approveAndPush, readSocialPost, sendGate } from './social-posts.mjs';
 
 export const def = {
   name: 'release_social_post',
-  description: "Release one queued post in a single call: take the atomic outbox send claim, resolve the article's CURRENT cover, send through the channel's connection and close the claim — approve_social_post + push_social_post as one step. This is the operator gate: only run it when the operator approved this exact post. A 'failed' row may be released again; that retry is the operator's decision too. A 'posted' row is refused.",
+  description: "Release one queued post in a single call: take the atomic outbox send claim, send through the channel's connection and close the claim — approve_social_post + push_social_post as one step. This is the operator gate: only run it when the operator approved this exact post. A 'failed' row may be released again; that retry is the operator's decision too. A 'posted' row is refused.",
   input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
 };
 
@@ -24,12 +24,12 @@ export async function run(api, input) {
   if (gate.gated && !gate.live) {
     await api.log('hottake_dryrun', {
       action: 'release_social_post', id: row.id, channel: row.channel,
-      chars: (row.content || '').length, has_image: !!row.image_url,
+      chars: (row.content || '').length,
       actor: input?.actor || 'operator',
     }).catch(() => {});
     return {
       ok: true, id: row.id, channel: row.channel, outbox_id: null, dry_run: true,
-      would: { action: 'post', channel: row.channel, chars: (row.content || '').length, image_url: row.image_url || null },
+      would: { action: 'post', channel: row.channel, chars: (row.content || '').length },
     };
   }
   return approveAndPush(api, row.id, { actor: input?.actor || 'operator' });

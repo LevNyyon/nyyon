@@ -7,7 +7,7 @@ import { enrichBatchStep } from './gtm.mjs';
 
 export const def = {
   name: 'enrich_batch',
-  description: "Enrich the next few still-'new' leads of one batch through the full chain (WhatsApp → LinkedIn → PDL → Twilio → SerpApi → confirm; sources self-skip when unconnected or already answered). Call in a loop while `remaining` > 0 — each call takes at most `limit` (1-5, default 2) leads so a run never outgrows one invocation.",
+  description: "Enrich the next few still-'new' leads of one batch through the full chain (LinkedIn result → PDL → Twilio → SerpApi → confirm; every source self-skips when its key is not connected or its answer is already on file). Call in a loop while `remaining` > 0 — each call takes at most `limit` (1-5, default 2) leads so a run never outgrows one invocation.",
   input_schema: {
     type: 'object',
     properties: {

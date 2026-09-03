@@ -27,7 +27,7 @@ function wallParts(epoch: number, tz?: string) {
 }
 
 // epoch for a wall-clock time in tz (fixed-point iteration handles DST edges)
-// Exported: the cohort sheet edits a send time in the COHORT's zone and needs
+// Exported: the queue viewer edits a send time in the doc's own zone and needs
 // exactly this conversion. A second implementation would drift on a DST edge.
 export function epochForWall(tz: string | undefined, y: number, m: number, d: number, hh: number, mm: number): number {
   if (!tz) return new Date(y, m - 1, d, hh, mm).getTime();

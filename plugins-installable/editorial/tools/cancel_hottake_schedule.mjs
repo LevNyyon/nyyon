@@ -6,7 +6,7 @@ import { readPackage, findPackageBySlug, cancelSchedule } from './hot-takes.mjs'
 
 export const def = {
   name: 'cancel_hottake_schedule',
-  description: 'Cancel a scheduled publication by package id or blog slug: the package returns to ready, queued legs go back to ready or draft with their times cleared, and the calendar entry is marked cancelled. Nothing is deleted.',
+  description: 'Cancel a scheduled publication by package id or blog slug: the package returns to ready and queued legs go back to ready or draft with their times cleared. Nothing is deleted.',
   input_schema: {
     type: 'object',
     properties: { id: { type: 'string' }, slug: { type: 'string' } },

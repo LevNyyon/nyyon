@@ -8,7 +8,7 @@ const slugArg = (input) => input?.blog_slug || input?.slug || null;
 
 export const def = {
   name: 'read_blog_post',
-  description: 'Read one blog post by slug: title, excerpt, body, tags, published state and featured image. Use it before editing, expanding, re-illustrating or sharing a post.',
+  description: 'Read one blog post by slug: title, excerpt, body, tags and published state. Use it before editing, expanding or sharing a post.',
   input_schema: {
     type: 'object',
     properties: { slug: { type: 'string', description: 'the blog post slug' } },

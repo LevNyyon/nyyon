@@ -7,7 +7,7 @@ import { articleView } from './hot-takes.mjs';
 
 export const def = {
   name: 'read_hottake_article',
-  description: 'Read one Hot Takes package as the article view: the package, its social legs, the linked blog article (title/body/tags/cover/published) when one exists, and the next action.',
+  description: 'Read one Hot Takes package as the article view: the package, its social legs, the linked blog article (title/body/tags/published) when one exists, and the next action.',
   input_schema: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
 };
 

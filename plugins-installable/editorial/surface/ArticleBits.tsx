@@ -1,22 +1,14 @@
 // Shared article UI — the pieces of the blog experience used by BOTH the Blog
 // surface and the Hot Takes Publications tab (one implementation, no forks):
-// dev-asset URL rewriting, date/number formatting, the cover thumbnail, tag
-// chips, KV meta rows, sortable column headers, and the in-place article
-// editor. Moved verbatim from the host's components/ArticleBits.tsx; the data
-// calls now ride the pack's own invoke pipe (./blog-data).
+// date/number formatting, tag chips, KV meta rows, sortable column headers, and
+// the in-place article editor. Moved from the host's components/ArticleBits.tsx;
+// the data calls ride the pack's own invoke pipe (./blog-data).
+//
+// This build has no image renderer, so there is no cover thumbnail and no
+// per-chart control bar. Articles are text.
 
 import { useEffect, useRef, useState } from 'react';
 import { api, type BlogPostWithTags } from './blog-data';
-
-// In --local dev the public r2.dev image URLs 404 (figure/cover PNGs live in the
-// local R2 sim). Point them at the local worker's /assets route so drafts preview
-// WITH their images. Prod (import.meta.env.DEV false) keeps the public URLs, and
-// the stored body is never rewritten — this is display-only.
-export const DEV_ASSET_BASE = 'http://localhost:8788/assets';
-export const devUrl = (url: string | null | undefined): string =>
-  !url ? '' : (import.meta.env.DEV ? url.replace(/https?:\/\/[^/]+\.r2\.dev/, DEV_ASSET_BASE) : url);
-export const devHtml = (html: string): string =>
-  import.meta.env.DEV ? html.replace(/https?:\/\/[^/"'\s]+\.r2\.dev/g, DEV_ASSET_BASE) : html;
 
 export function fmtDate(ts: number | null | undefined): string {
   if (!ts) return '—';
@@ -36,19 +28,6 @@ export function timeAgo(ts: number | null | undefined): string {
 export function fmtNum(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(n >= 10000 ? 0 : 1)}k`;
   return String(n);
-}
-
-export function Thumb({ post }: { post: BlogPostWithTags }) {
-  return post.featured_image_url ? (
-    <img
-      src={`${devUrl(post.featured_image_url)}?t=${post.featured_image_generated_at ?? 0}`}
-      alt=""
-      loading="lazy"
-      className="h-10 w-[60px] object-cover rounded-sm hairline bg-paper shrink-0"
-    />
-  ) : (
-    <div className="h-10 w-[60px] rounded-sm hairline bg-paper shrink-0 grid place-items-center mono text-[8px] uppercase tracking-[0.18em] text-mute">no img</div>
-  );
 }
 
 export function TagList({ tags }: { tags: string[] }) {
@@ -95,26 +74,19 @@ export function ColHeader<K extends string>({
 }
 
 // ── Inline article editor ───────────────────────────────────────────
-// Renders the draft the way it goes live (tags, H1, excerpt, cover, body) and
+// Renders the draft the way it goes live (tags, H1, excerpt, body) and
 // lets you edit in place: click any text and type, Enter makes new paragraphs,
 // edits autosave (debounced) preserving the draft's published state. The body is
 // ONE contentEditable region set imperatively once, so React never re-renders it
-// out from under the caret (that was the "stops after one edit" bug). Figures are
-// non-editable islands so they can't be mangled.
+// out from under the caret (that was the "stops after one edit" bug). Media is a
+// non-editable island so it can't be mangled.
 // fullHeight: fill the parent (the full-screen editor popup) instead of the
 // bounded in-page panel the Blog page embeds.
 // flow: natural height, no inner scroll — for a popup that scrolls as ONE
 // column (article + schedule + social) instead of nesting scroll areas.
-// figureControls: decorate each in-article chart with change/delete controls.
-// The controls are injected as [data-figui] non-editable DOM (this component
-// never lets React into the body), and stripped again in currentBody() so no
-// editor furniture ever reaches the stored article.
-export function InlineBodyEditor({ post, fullHeight = false, flow = false, figureControls = false }: {
-  post: BlogPostWithTags; fullHeight?: boolean; flow?: boolean; figureControls?: boolean;
+export function InlineBodyEditor({ post, fullHeight = false, flow = false }: {
+  post: BlogPostWithTags; fullHeight?: boolean; flow?: boolean;
 }) {
-  // Public asset base (e.g. https://pub-xxx.r2.dev) captured from the body, so we
-  // can show images via the local worker in dev and restore public URLs on save.
-  const pubBase    = useRef<string | null>((post.body || '').match(/https?:\/\/[^/"']+\.r2\.dev/)?.[0] || null);
   // Title/excerpt are UNCONTROLLED (defaultValue + ref). A controlled input would
   // let React overwrite the value on every render, which wipes the browser's
   // native undo stack — so Cmd+Z / Cmd+Shift+Z would break. Uncontrolled keeps
@@ -132,62 +104,16 @@ export function InlineBodyEditor({ post, fullHeight = false, flow = false, figur
   const lastHtml   = useRef('');
   const alive      = useRef(true);
   const timer      = useRef<number | null>(null);
-  // Autosave hold while a chart regenerates server-side — without it, a
-  // keystroke's debounced save (still carrying the OLD chart) could land after
-  // the server swapped in the new one and silently revert it.
-  const suspendSave = useRef(false);
   const [status, setStatus]   = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [savedAt, setSavedAt] = useState<number | null>(null);
-  const [figDialog, setFigDialog] = useState<{ mode: 'delete' | 'change'; el: HTMLElement; src: string } | null>(null);
-  const [regenBusy, setRegenBusy] = useState(false);
-  const [figErr, setFigErr] = useState<string | null>(null);
 
-  // Give each in-article chart its control bar (change ⟳ · delete ✕) — plain
-  // DOM, non-editable, marked [data-figui] so currentBody() strips it before
-  // anything is stored. Only blog-figures images get controls; already-decorated
-  // figures are skipped so this is safe to re-run after a swap.
-  function decorateFigures(root: HTMLElement | null) {
-    if (!root || !figureControls) return;
-    root.querySelectorAll('figure').forEach((figNode) => {
-      const fig = figNode as HTMLElement;
-      const src = fig.querySelector('img')?.getAttribute('src') || '';
-      if (!src.includes('blog-figures/')) return;
-      if (fig.querySelector(':scope > [data-figui]')) return;
-      const bar = document.createElement('div');
-      bar.setAttribute('data-figui', '1');
-      bar.setAttribute('contenteditable', 'false');
-      bar.className = 'flex items-center justify-end gap-1.5 mb-1.5';
-      const mk = (label: string, hover: string) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.textContent = label;
-        b.className = 'mono text-[10px] uppercase tracking-[0.14em] px-2.5 h-7 rounded-sm hairline bg-card text-mute transition ' + hover;
-        return b;
-      };
-      const change = mk('⟳ change', 'hover:text-ink');
-      const del = mk('✕ delete', 'hover:text-rose-600');
-      change.addEventListener('click', (e) => {
-        e.preventDefault(); e.stopPropagation();
-        const liveSrc = fig.querySelector('img')?.getAttribute('src') || src;
-        setFigDialog({ mode: 'change', el: fig, src: liveSrc });
-      });
-      del.addEventListener('click', (e) => {
-        e.preventDefault(); e.stopPropagation();
-        setFigDialog({ mode: 'delete', el: fig, src });
-      });
-      bar.append(change, del);
-      fig.insertBefore(bar, fig.firstChild);
-    });
-  }
-
-  // Fill the body ONCE (dev-rewritten so images load), then never let React touch
-  // it again. Mark figures/media as non-editable islands.
+  // Fill the body ONCE, then never let React touch it again. Mark embedded
+  // media as non-editable islands.
   useEffect(() => {
     const el = bodyRef.current;
     if (!el) return;
-    el.innerHTML = devHtml(post.body || '');
+    el.innerHTML = post.body || '';
     el.querySelectorAll('figure, img, script, iframe, table').forEach((n) => n.setAttribute('contenteditable', 'false'));
-    decorateFigures(el);
     lastHtml.current = el.innerHTML;
     const onInput = () => { lastHtml.current = el.innerHTML; schedule(); };
     // Undo/redo inside the body, driven off the browser's own edit history via
@@ -229,11 +155,8 @@ export function InlineBodyEditor({ post, fullHeight = false, flow = false, figur
   function currentBody(): string {
     const tmp = document.createElement('div');
     tmp.innerHTML = bodyRef.current ? bodyRef.current.innerHTML : lastHtml.current;
-    tmp.querySelectorAll('[data-figui]').forEach((n) => n.remove());                                 // strip chart controls — editor furniture, never stored
     tmp.querySelectorAll('[contenteditable]').forEach((n) => n.removeAttribute('contenteditable')); // drop editing islands
-    let html = tmp.innerHTML;
-    if (import.meta.env.DEV && pubBase.current) html = html.split(DEV_ASSET_BASE).join(pubBase.current); // restore public image URLs
-    return html;
+    return tmp.innerHTML;
   }
   async function save() {
     if (timer.current) { window.clearTimeout(timer.current); timer.current = null; }
@@ -251,52 +174,12 @@ export function InlineBodyEditor({ post, fullHeight = false, flow = false, figur
     } catch { if (alive.current) setStatus('error'); }
   }
   function schedule() {
-    if (suspendSave.current) return; // a chart regenerate is in flight — keystrokes stay in the DOM, flushed after
     if (timer.current) window.clearTimeout(timer.current);
     timer.current = window.setTimeout(save, 900);
   }
 
-  // ── chart actions (figureControls) ────────────────────────────────
-  function deleteFigure(d: { el: HTMLElement }) {
-    d.el.remove();
-    if (bodyRef.current) lastHtml.current = bodyRef.current.innerHTML;
-    setFigDialog(null);
-    void save();
-  }
-
-  async function regenerateFigure(d: { el: HTMLElement; src: string }, instructions: string | null) {
-    setFigDialog(null);
-    setFigErr(null);
-    setRegenBusy(true);
-    suspendSave.current = true;
-    d.el.classList.add('opacity-40', 'pointer-events-none');
-    try {
-      await save(); // flush the operator's latest text FIRST, so the server drafts against it
-      const r = await api.regenerateBlogFigure(post.slug, { src: d.src, instructions });
-      if (r.error || !r.figure_html) throw new Error(r.error || 'regenerate failed');
-      const tmp = document.createElement('div');
-      tmp.innerHTML = devHtml(r.figure_html);
-      const fresh = tmp.firstElementChild as HTMLElement | null;
-      if (fresh && d.el.parentNode) {
-        d.el.parentNode.replaceChild(fresh, d.el);
-        fresh.setAttribute('contenteditable', 'false');
-        fresh.querySelectorAll('img').forEach((n) => n.setAttribute('contenteditable', 'false'));
-        decorateFigures(bodyRef.current);
-      }
-      if (bodyRef.current) lastHtml.current = bodyRef.current.innerHTML;
-    } catch (e) {
-      setFigErr(e instanceof Error ? e.message : 'chart regenerate failed');
-      d.el.classList.remove('opacity-40', 'pointer-events-none');
-    } finally {
-      suspendSave.current = false;
-      setRegenBusy(false);
-    }
-    void save(); // persist merged text + the new chart
-  }
-
   const statusLabel =
-    regenBusy ? 'regenerating chart…'
-    : status === 'saving' ? 'saving…'
+    status === 'saving' ? 'saving…'
     : status === 'error' ? 'save failed — keep editing to retry'
     : savedAt ? `saved ${new Date(savedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
     : 'click any text to edit · autosaves';
@@ -306,13 +189,12 @@ export function InlineBodyEditor({ post, fullHeight = false, flow = false, figur
   return (
     <div className={fullHeight ? 'h-full flex flex-col' : ''}>
       <div className={'mb-1.5 mono text-[10px] uppercase tracking-[0.2em] ' + (fullHeight || flow ? 'px-4 sm:px-2 pt-2 shrink-0 ' : '') + (status === 'error' ? 'text-rose-600' : 'text-mute')}>{statusLabel}</div>
-      {figErr && <div className={'mb-1.5 text-xs text-rose-600 ' + (fullHeight || flow ? 'px-4 sm:px-2' : '')}>{figErr}</div>}
       <div className={
         fullHeight ? 'flex-1 min-h-0 bg-paper overflow-y-auto py-6 sm:py-8'
         : flow ? 'bg-paper py-4 sm:py-6'
         : 'hairline rounded-sm bg-paper max-h-[720px] overflow-y-auto py-8'
       }>
-        {/* Reads like the live production article: tags, H1, excerpt, cover, body. */}
+        {/* Reads like the live production article: tags, H1, excerpt, body. */}
         <div className="mx-auto max-w-3xl px-4 sm:px-6">
           {post.tags.length > 0 && (
             <div className="mb-4 flex flex-wrap gap-2">
@@ -339,12 +221,6 @@ export function InlineBodyEditor({ post, fullHeight = false, flow = false, figur
             rows={1}
             className={'w-full mt-4 resize-none overflow-hidden bg-transparent text-lg text-mute leading-relaxed px-1.5 -mx-1.5 placeholder:text-mute/50 ' + editableField}
           />
-          {/* featured image — as it shows live */}
-          {post.featured_image_url && (
-            <figure className="mt-8 hairline rounded-sm overflow-hidden bg-paper aspect-[16/9]">
-              <img src={`${devUrl(post.featured_image_url)}?t=${post.featured_image_generated_at ?? 0}`} alt="" className="w-full h-full object-cover" />
-            </figure>
-          )}
           {/* body — one editable article surface. Enter = new paragraph. Set once,
               never re-rendered by React (keeps the caret; fixes edit-stops-after-one). */}
           <div
@@ -362,85 +238,7 @@ export function InlineBodyEditor({ post, fullHeight = false, flow = false, figur
           />
         </div>
       </div>
-
-      {/* chart safety popups — rendered above the full-screen editor (z-50) */}
-      {figDialog?.mode === 'delete' && (
-        <FigDeleteDialog
-          onConfirm={() => deleteFigure(figDialog)}
-          onCancel={() => setFigDialog(null)}
-        />
-      )}
-      {figDialog?.mode === 'change' && (
-        <FigChangeDialog
-          busy={regenBusy}
-          onRegenerate={(instructions) => regenerateFigure(figDialog, instructions)}
-          onCancel={() => setFigDialog(null)}
-        />
-      )}
     </div>
   );
 }
 
-// ── chart popups ────────────────────────────────────────────────────
-// Top-level ON PURPOSE: the change dialog holds a textarea — defined inside
-// InlineBodyEditor it would remount on every parent render and drop focus
-// after one keystroke.
-function FigDeleteDialog({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
-  return (
-    <div className="fixed inset-0 z-[70] bg-black/30 grid place-items-center p-4" onClick={onCancel}>
-      <div className="w-full max-w-sm rounded-sm hairline bg-paper p-4 space-y-3 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="text-sm font-medium text-ink">Delete this chart?</div>
-        <p className="text-[11px] text-mute leading-relaxed">
-          The chart is removed from the article and the change autosaves. This can't be undone.
-        </p>
-        <div className="flex gap-2">
-          <button onClick={onConfirm} className="flex-1 h-9 rounded-sm bg-rose-600 text-white text-xs font-medium hover:opacity-90 transition">Delete</button>
-          <button onClick={onCancel} className="flex-1 h-9 rounded-sm border border-line text-xs text-mute hover:text-ink transition">Cancel</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function FigChangeDialog({ busy, onRegenerate, onCancel }: {
-  busy: boolean;
-  onRegenerate: (instructions: string | null) => void;
-  onCancel: () => void;
-}) {
-  const [text, setText] = useState('');
-  return (
-    <div className="fixed inset-0 z-[70] bg-black/30 grid place-items-center p-4" onClick={onCancel}>
-      <div className="w-full max-w-sm rounded-sm hairline bg-paper p-4 space-y-3 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="text-sm font-medium text-ink">Change this chart</div>
-        <p className="text-[11px] text-mute leading-relaxed">
-          A new chart is designed from the article text around this spot and replaces the current one.
-        </p>
-        <button
-          onClick={() => onRegenerate(null)}
-          disabled={busy}
-          className="w-full h-9 rounded-sm bg-ink text-paper text-xs font-medium hover:opacity-90 transition disabled:opacity-50"
-        >
-          Regenerate
-        </button>
-        <div className="text-center mono text-[10px] uppercase tracking-[0.18em] text-mute">Or</div>
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="insert specific instructions"
-          rows={3}
-          className="w-full text-xs px-3 py-2 rounded-sm bg-paper border border-line text-ink placeholder:text-mute/60 focus:outline-none focus:border-ink/40 resize-none"
-        />
-        {text.trim() !== '' && (
-          <button
-            onClick={() => onRegenerate(text.trim())}
-            disabled={busy}
-            className="w-full h-9 rounded-sm bg-ink text-paper text-xs font-medium hover:opacity-90 transition disabled:opacity-50"
-          >
-            Regenerate with instructions
-          </button>
-        )}
-        <button onClick={onCancel} disabled={busy} className="w-full h-8 rounded-sm border border-line text-xs text-mute hover:text-ink transition">Cancel</button>
-      </div>
-    </div>
-  );
-}
