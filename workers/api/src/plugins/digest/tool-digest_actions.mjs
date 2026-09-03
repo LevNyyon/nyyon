@@ -1,13 +1,12 @@
-// Digest plugin — digest_actions. cmd fronted this with
-// GET /api/digest/:id/actions: LLM-drafts what the operator can do with an
-// item (reply on WhatsApp with recipients + routed default, mark person as
-// interesting, discuss, dismiss).
+// Digest plugin: digest_actions. The verbs an operator can run on one card
+// (open link, mark read, star, save a draft note, snooze). No drafting, no
+// LLM: the list is mechanical and cheap.
 
 import { draftDigestActions } from './digest.mjs';
 
 export const def = {
   name: 'digest_actions',
-  description: 'Draft the actions an operator can take on one digest item: an LLM-drafted WhatsApp reply with a recipient picker (group vs private, routed with a default and a reason), a mark-person-as-interesting contact save, discuss, dismiss. Slow (LLM drafting) — call on demand, not in bulk.',
+  description: 'List the actions an operator can take on one digest item: open its link, mark it read (or unread), star it, save a draft note on it, or snooze it (a news card snoozes its outlet, a calendar card snoozes that event). Returns the item, its context, and the action list; run one with execute_digest_action.',
   input_schema: {
     type: 'object',
     properties: { id: { type: 'string' } },

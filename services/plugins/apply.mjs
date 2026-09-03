@@ -218,7 +218,10 @@ for (;;) {
         await waitForWorker();
       }
     }
-    if (!cleanedOrphans) await seedBundledPacks(key);
+    // Seed on EVERY tick until it succeeds (the function is idempotent and
+    // marks itself done). Gating it on the orphan pass skipped seeding forever
+    // whenever the worker booted slower than the applier's first tick.
+    await seedBundledPacks(key);
     const pending = work.pending || [];
     const removals = work.remove || [];
     let changed = false;

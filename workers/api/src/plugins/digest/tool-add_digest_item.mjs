@@ -1,14 +1,14 @@
-// Digest plugin — add_digest_item. Ported from cmd's tools/digest.js pool.
+// Digest plugin: add_digest_item. Drops a card into the brief by hand.
 
 import { insertDigestItem } from './digest.mjs';
 
 export const def = {
   name: 'add_digest_item',
-  description: 'Manually drop something into the digest. Use when the operator says "remind me about X tomorrow" or "add this opportunity to the brief". Kind=opportunity for net-new chances; kind=note for free-form items.',
+  description: 'Manually drop something into the digest. Use when the operator says "remind me about X tomorrow" or "add this to the brief". Kind=opportunity for net-new chances; kind=note for free-form items; kind=news for a headline with a link.',
   input_schema: {
     type: 'object',
     properties: {
-      kind:             { type: 'string', enum: ['opportunity', 'note', 'osint_mention', 'wa_message', 'wa_group', 'email'] },
+      kind:             { type: 'string', enum: ['opportunity', 'note', 'news'] },
       title:            { type: 'string' },
       summary:          { type: 'string' },
       source_label:     { type: 'string' },

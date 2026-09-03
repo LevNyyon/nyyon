@@ -28,8 +28,36 @@ A self-owned AI command center. One install per person: the app, its database, i
 - Errors say what is actually wrong. Never invent a cause.
 - Zero setup wherever possible. If a provider needs a key, say so before the user pastes anything.
 
-## Onboarding
-Create account, paste Anthropic key (verified with a real call), short interview writes the voice docs. First open of each module explains what goes in, what comes out, and what is expected of the person.
+## UX / UI
+- One shell: a fixed left rail, a page in the middle, drawers from the right. No top nav on desktop; a hamburger bar on phones.
+- Rail: logo top-left, then three groups with small mono uppercase eyebrows: MODULES (Nyo, installed plugins), PLUGINS, SYSTEM (Knowledge, Plugins, Activity, Expand build, Settings). Bottom-left: a health dot and the version. Active item is ink on paper; the rest is mute text.
+- Nyo is a right-side drawer (460px, full width on phones) opened by a round ink launcher bottom-right with an unread dot. It rides alongside any page. The Daily Planner has its own chat, so the launcher hides there.
+- Item detail (digest cards etc.) is a second right drawer (520px) over a dim blurred backdrop. Drawers slide, never navigate.
+- Palette: paper #FAFAF9, ink #0A0A0A, line #E7E5E4, mute #78716C, card #FFFFFF. Dark mode flips them (paper #09090B, ink #FAFAF9, line #27272A, mute #A1A1AA, card #18181B). Emerald for connected or done, rose for errors, no other accent colors. A faint grid on the ground.
+- Type: Inter for everything; JetBrains Mono for eyebrows, chips, ids, timestamps, always small, uppercase, letter-spaced. Body text 12 to 13px. One weight of hairline border for every edge.
+- Buttons: primary is ink on paper text, secondary is hairline on paper, small radius (rounded-sm), no gradients, no shadows except drawers and the launcher.
+- Empty states teach: a first-open card ("nyo · how this works") with what goes in, what comes out, and what is expected of the person. It disappears once real content exists.
+- Chat: sender label once per run of messages, timestamp under the last one. Tier switch (Low, Mid, High) and voice toggle in the composer footer. Errors are sentences that name the real cause.
+- Every page must work at phone width: cards own the screen, side panels become drawers, tab strips hide.
+
+## Onboarding: how it looks and feels
+Setup is its own surface, not the app shell: paper ground, one centered column, the mono eyebrow "nyyon · setup" above every step. No sidebar, no drawer, nothing to explore until setup is done. Four steps, one screen each, a thin progress line at the top.
+
+1. Account. Heading "Create your account", two fields (email, password), one ink button. No verification mail, no terms wall. The install is yours the moment you press it.
+2. Model. Headline: what the key is for in one sentence. A single field with a placeholder that shows the key's shape, and a link that opens the provider's key page beside the form. The button reads "verify and continue" and verifies with a real call before moving on. A wrong paste gets a sentence saying what was pasted and what to copy instead. "Later" is always visible: it defers, it never nags.
+3. Services. The external connections this build knows (only what is real), each a card with its own steps and a paste field. All skippable with one line, "Skip services for now"; each can be connected later in Settings.
+4. Interview. Nyo, in the same chat look as the app, asks four or five plain questions about who you are and what you do. Each answer writes a knowledge doc live; you can paste a whole post as an answer and line breaks are kept. Short answers are fine; "skip" is fine. It ends by saying what it wrote and where to edit it.
+
+Then the app opens on the Daily Planner with the first-open card showing. Nothing else is pre-filled: no sample data, no demo rows, no other person's history. The Knowledge tree contains only what this install has.
+
+Rules for every setup screen:
+- One action per screen, one sentence of context above it. No feature tours, no marketing copy.
+- Tell the truth before the user acts: a container without persistent storage says so on the first screen instead of taking them through setup that will be lost.
+- Every wait shows what is being verified; every failure names the real cause and what to do next.
+- Back is always possible; nothing is irreversible before the app opens.
+- Copy is second person, present tense, no exclamation marks.
+
+Each module explains itself on first open (see UX / UI). After that the product stays quiet until there is something real to say: the wake-up briefing on the first Nyo open is built from actual state, and is silent when there is nothing.
 
 ## Ops rules
 - Bump a plugin version to redeploy it; same-version seeds are skipped.

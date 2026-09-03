@@ -1,20 +1,15 @@
-// Digest plugin — morning brief page (ported from cmd's pages/Digest.tsx).
-// Pulls actionable items from WA groups, OSINT mentions, content signals,
-// calendar, LinkedIn signals and system attention into one feed.
-// Pack deviations: the outreach KPI strip and its attempts drawer did not
-// travel (outreach-module data, host writes a plugin may not perform), and
-// the OSINT targets panel is read-only (targets belong to the editorial
-// pack).
+// Digest plugin: morning brief page.
+// Pulls search headlines for the operator's topics and the calendar
+// look-ahead into one feed.
 // Layout: hero (date + counts + "generate" button), then three urgency-grouped
 // sections (Action needed / This week / Background). Each card surfaces a
 // clear action, the source, and one-click mark-read / star / open.
 
 import { useEffect, useMemo, useState } from 'react';
-import { api, type DigestItem, type DigestStats, type DigestKind } from './digest-data';
+import { api, parseMeta, type DigestItem, type DigestStats, type DigestKind } from './digest-data';
 import { DigestItemDrawer } from './DigestItemDrawer';
-import { fmtWhen } from './wa-time';
-import { WaSlotPicker } from './WaSlotPicker';
-import { HeatBar } from './HeatBar';
+import { DigestOnboarding } from './DigestOnboarding';
+import { sources as sourcesApi, type DigestSources } from './digest-data';
 import { Coffee, Star, X, Sparkle, Clock } from '../../components/Icons';
 import {
   getDigestGenState,
@@ -23,69 +18,32 @@ import {
   type DigestGenState,
 } from './digestBackground';
 
-
 const KIND_TONE: Record<DigestKind, string> = {
-  wa_message:          'bg-emerald-100 text-emerald-800',
-  wa_group:            'bg-emerald-50  text-emerald-700',
-  osint_mention:       'bg-violet-100  text-violet-800',
-  osint_insight:       'bg-violet-50   text-violet-700',
-  content_opportunity: 'bg-sky-100     text-sky-800',
-  email:               'bg-blue-100    text-blue-800',
-  note:                'bg-stone-100   text-stone-700',
-  opportunity:         'bg-amber-100   text-amber-900',
-  li_signal:           'bg-indigo-100  text-indigo-800',
-  attention:           'bg-rose-100    text-rose-800',
+  news:        'bg-sky-100     text-sky-800',
+  note:        'bg-stone-100   text-stone-700',
+  opportunity: 'bg-amber-100   text-amber-900',
 };
 const KIND_LABEL: Record<DigestKind, string> = {
-  wa_message:          'DM',
-  wa_group:            'group',
-  osint_mention:       'signal',
-  osint_insight:       'insight',
-  content_opportunity: 'content',
-  email:               'email',
-  note:                'note',
-  opportunity:         'opportunity',
-  li_signal:           'linkedin',
-  attention:           'attention',
+  news:        'news',
+  note:        'note',
+  opportunity: 'opportunity',
 };
 
-
-
-
-
-// Category filters for the brief feed. These are CLIENT-SIDE predicates over
-// the loaded items — the API returns everything (it only filters unread/
-// starred server-side), so all category narrowing happens here.
+// Category filters for the brief feed. CLIENT-SIDE predicates over the
+// loaded items: the API returns everything (it only filters unread/starred
+// server-side), so all category narrowing happens here.
 //
-// Most categories key straight off item.kind. The exception is Calendar:
-// calendar events are stored under kind 'opportunity' (see pullCalendar in
-// workers/api/src/lib/digest.js) and are only distinguishable by
-// ref_kind === 'calendar_events'. So Calendar matches on ref_kind, and
-// "Opportunities" explicitly excludes calendar rows to avoid double-counting.
-type CatKey =
-  | 'wa_group' | 'wa_message'
-  | 'osint_mention' | 'osint_insight' | 'content_opportunity'
-  | 'opportunity' | 'calendar' | 'li_signal' | 'attention'
-  | 'src_li' | 'src_prospecting';
-
-// The signal's origin pool, stamped at card creation (meta.origin).
-function metaOrigin(i: DigestItem): string | null {
-  try { return JSON.parse(i.meta_json || '{}').origin ?? null; } catch { return null; }
-}
+// Calendar events are stored under kind 'opportunity' (see pullCalendar in
+// lib/digest.mjs) and are only distinguishable by ref_kind ===
+// 'calendar_events'. So Calendar matches on ref_kind, and "Opportunities"
+// explicitly excludes calendar rows to avoid double-counting.
+type CatKey = 'news' | 'opportunity' | 'calendar' | 'note';
 
 const CATEGORIES: { key: CatKey; label: string; dot: string; match: (it: DigestItem) => boolean }[] = [
-  { key: 'wa_group',            label: 'Groups',        dot: 'bg-emerald-500', match: (i) => i.kind === 'wa_group' },
-  { key: 'wa_message',          label: 'DMs',           dot: 'bg-emerald-400', match: (i) => i.kind === 'wa_message' },
-  { key: 'osint_mention',       label: 'Signals',       dot: 'bg-violet-500',  match: (i) => i.kind === 'osint_mention' },
-  { key: 'osint_insight',       label: 'Insights',      dot: 'bg-violet-400',  match: (i) => i.kind === 'osint_insight' },
-  { key: 'content_opportunity', label: 'Content',       dot: 'bg-sky-500',     match: (i) => i.kind === 'content_opportunity' },
-  { key: 'opportunity',         label: 'Opportunities', dot: 'bg-amber-500',   match: (i) => i.kind === 'opportunity' && i.ref_kind !== 'calendar_events' },
-  { key: 'calendar',            label: 'Calendar',      dot: 'bg-orange-500',  match: (i) => i.ref_kind === 'calendar_events' },
-  { key: 'li_signal',           label: 'LinkedIn',      dot: 'bg-indigo-500',  match: (i) => i.kind === 'li_signal' },
-  { key: 'attention',           label: 'Attention',     dot: 'bg-rose-500',    match: (i) => i.kind === 'attention' },
-  // source-of-signal filters: which pool the person comes from
-  { key: 'src_li',              label: 'LI Outreach',   dot: 'bg-indigo-300',  match: (i) => i.kind === 'li_signal' && metaOrigin(i) !== 'prospecting' },
-  { key: 'src_prospecting',     label: 'Prospecting',   dot: 'bg-teal-500',    match: (i) => i.kind === 'li_signal' && metaOrigin(i) === 'prospecting' },
+  { key: 'news',        label: 'News',          dot: 'bg-sky-500',    match: (i) => i.kind === 'news' },
+  { key: 'opportunity', label: 'Opportunities', dot: 'bg-amber-500',  match: (i) => i.kind === 'opportunity' && i.ref_kind !== 'calendar_events' },
+  { key: 'calendar',    label: 'Calendar',      dot: 'bg-orange-500', match: (i) => i.ref_kind === 'calendar_events' },
+  { key: 'note',        label: 'Notes',         dot: 'bg-stone-400',  match: (i) => i.kind === 'note' },
 ];
 
 function timeAgo(ts: number): string {
@@ -98,8 +56,7 @@ function timeAgo(ts: number): string {
 
 function todayLabel(): string {
   // Day + hour-minute, e.g. "Sunday, May 31 · 4:52 PM". The hour anchors
-  // the brief to the operator's current moment so a quick glance answers
-  // "is this fresh enough?" without checking the wall clock.
+  // the brief to the operator's current moment.
   const d = new Date();
   const day  = d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
   const time = d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
@@ -107,9 +64,9 @@ function todayLabel(): string {
 }
 
 export default function Digest() {
-  // The digest IS the brief. There is no channels tab: what feeds the brief is
-  // whatever this install actually has (probed at generate time), and the
-  // knobs that matter live in Knowledge (topics, policy), not in a toggle grid.
+  // The digest IS the brief. What feeds it is whatever this install has
+  // (probed at generate time); the knobs that matter live in Knowledge
+  // (topics, policy), not in a toggle grid.
   return (
     <div className="h-full flex flex-col">
       <BriefPane />
@@ -117,24 +74,22 @@ export default function Digest() {
   );
 }
 
-// (cmd's KPI top bar + outreach-log drawer lived here — dropped in the
-// pack port: outreachKpi reads and WRITES outreach-module host tables,
-// which a plugin may not do. The outreach pack owns that surface.)
-
 function BriefPane() {
   const [items, setItems]   = useState<DigestItem[] | null>(null);
   const [stats, setStats]   = useState<DigestStats | null>(null);
   const [hideRead, setHideRead] = useState(true);
-  // Generation state lives in lib/digestBackground.ts — the in-flight
-  // Promise survives sidebar nav so the user can leave and come back to a
-  // still-running (or just-finished) run. We just mirror it into local
-  // state via subscribe().
+  // Generation state lives in digestBackground.ts: the in-flight Promise
+  // survives sidebar nav so the user can leave and come back to a
+  // still-running (or just-finished) run.
   const [gen, setGen] = useState<DigestGenState>(() => getDigestGenState());
   const [activeItem, setActiveItem] = useState<DigestItem | null>(null);
+  // A new digest opens on Nyo: until topics exist and a search source is
+  // installed, the onboarding screen IS the page.
+  const [src, setSrc] = useState<DigestSources | null>(null);
+  const [skipOnboarding, setSkipOnboarding] = useState(false);
+  useEffect(() => { sourcesApi.read().then(setSrc).catch(() => setSrc(null)); }, []);
   // Active category filters (multi-select). Empty set = show everything.
-  // Deliberately NOT persisted: a category filter is a transient view, so every
-  // load starts fresh at "all / unread" rather than resurrecting a stale filter
-  // (with an inert read-toggle) the operator has long forgotten setting.
+  // Deliberately NOT persisted: a category filter is a transient view.
   const [cats, setCats] = useState<Set<CatKey>>(new Set());
   function toggleCat(k: CatKey) {
     setCats((prev) => {
@@ -143,20 +98,17 @@ function BriefPane() {
       return next;
     });
   }
-  // Time window: 'all' (default) or the last 24h. Orthogonal to the category
-  // chips — it composes with them (AND). Like a category, an active window shows
-  // read + unread within it ("everything that happened"), so the unread toggle
-  // only governs the plain, unfiltered default view.
+  // Time window: 'all' (default) or the last 24h. Composes with the
+  // category chips (AND). Like a category, an active window shows read +
+  // unread within it, so the unread toggle only governs the plain view.
   const [timeWin, setTimeWin] = useState<'all' | '24h'>('all');
   function clearFilters() { setCats(new Set()); setTimeWin('all'); }
 
   async function refresh() {
     // Load the FULL set (read + unread) and do the unread narrowing on the
-    // client. This lets category filters (Calendar, Content, …) reach items
-    // the operator has already read — those never appear in an unread-only
-    // fetch, which is why picking Calendar used to show nothing. The backend
-    // hard-deletes rows older than 14 days (see pruneStaleDigestItems), so the
-    // table stays well under this cap — the feed never silently truncates.
+    // client, so category filters can reach items the operator has already
+    // read. The backend hard-deletes rows older than delete_after_days, so
+    // the table stays well under this cap.
     const [it, st] = await Promise.all([
       api.listDigest({ limit: 1500 }),
       api.digestStats(),
@@ -165,8 +117,8 @@ function BriefPane() {
     setStats(st);
   }
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
-  // Ongoing feed: cron-inserted cards (LI signals and the rest) appear on
-  // their own, no Generate click, no navigation needed.
+  // Ongoing feed: cron-inserted cards appear on their own, no Generate
+  // click, no navigation needed.
   useEffect(() => {
     const t = setInterval(() => { refresh(); }, 60 * 1000);
     return () => clearInterval(t);
@@ -174,16 +126,11 @@ function BriefPane() {
   }, []);
 
   // Track the background-generation singleton. When a run settles we just
-  // refresh the list — newly-pulled items are unread, so they appear at the top
-  // of the default "showing unread" feed on their own. We deliberately do NOT
-  // flip to "showing all" here: with the full read+unread fetch that would bury
-  // the N new items in the entire read backlog. Subscribing on mount also picks
-  // up runs already in flight from earlier sidebar navigations.
+  // refresh the list: newly-pulled items are unread, so they appear at the
+  // top of the default "showing unread" feed on their own.
   useEffect(() => {
     const unsub = subscribeDigestGen((s) => {
       setGen(s);
-      // Any settled run refreshes the list + stats (new items appear, the
-      // "last updated" timestamp ticks forward, any failure surfaces).
       if (!s.running && s.result) refresh();
     });
     return unsub;
@@ -191,7 +138,7 @@ function BriefPane() {
   }, []);
 
   function generate() {
-    // Fire-and-forget — the singleton handles the lifecycle. Click during
+    // Fire-and-forget: the singleton handles the lifecycle. A click during
     // an in-flight run is a no-op (returns the same Promise).
     startDigestGeneration();
   }
@@ -200,9 +147,8 @@ function BriefPane() {
   const genStartedAt = gen.running ? gen.started_at : null;
   const lastGen      = gen.result;
 
-  // Force a re-render once a second so the "Updated 3m ago" line keeps
-  // ticking and the in-flight elapsed counter advances without a full
-  // refetch. Cheap — single setState every 1s.
+  // Re-render once a second so "updated 3m ago" keeps ticking and the
+  // in-flight elapsed counter advances without a refetch.
   const [, setTick] = useState(0);
   useEffect(() => {
     const t = setInterval(() => setTick((n) => n + 1), 1000);
@@ -218,35 +164,21 @@ function BriefPane() {
     refresh();
   }
 
-  // "Discuss with Nyo" used to be a card-level action; it now lives inside
-  // DigestItemDrawer (opened by clicking a card).
-
-  // Per-category TOTALS (read + unread) over the loaded set. The badge on a
-  // chip is "how many cards a click surfaces" — clicking a category shows all of
-  // it, read or unread — so the count is the category total, not the unread-only
-  // subset the default feed shows. KIND categories are mutually exclusive
-  // (break after the first match); the SOURCE chips are a second axis — a
-  // LinkedIn signal also belongs to its origin pool — so they count
-  // independently, never inside the exclusive walk.
+  // Per-category TOTALS (read + unread) over the loaded set: the badge on a
+  // chip is "how many cards a click surfaces". Categories are mutually
+  // exclusive (break after the first match).
   const catCounts = useMemo(() => {
     const c = Object.fromEntries(CATEGORIES.map((cat) => [cat.key, 0])) as Record<CatKey, number>;
-    const sourceKeys: CatKey[] = ['src_li', 'src_prospecting'];
     for (const it of items || []) {
       for (const cat of CATEGORIES) {
-        if (sourceKeys.includes(cat.key)) continue;
         if (cat.match(it)) { c[cat.key]++; break; }
-      }
-      for (const key of sourceKeys) {
-        const cat = CATEGORIES.find((x) => x.key === key)!;
-        if (cat.match(it)) c[key]++;
       }
     }
     return c;
   }, [items]);
 
   // Build the visible list. The unread toggle governs ONLY the plain default
-  // view; any explicit filter — a category, or the 24h window — is a "show me
-  // these" that surfaces read + unread within it.
+  // view; any explicit filter surfaces read + unread within it.
   const filtered = useMemo(() => {
     if (!items) return [] as DigestItem[];
     let list: DigestItem[] = items;
@@ -270,27 +202,22 @@ function BriefPane() {
     const done: DigestItem[] = [];
     for (const it of filtered) {
       // Dismissed (read) cards sink to the bottom section instead of holding
-      // their spot in the urgency groups — hitting ✕ visibly moves the card
-      // down, so what's left to review always sits together at the top.
+      // their spot in the urgency groups.
       if (it.read_at !== null) done.push(it);
       else if (it.urgency === 1) high.push(it);
       else if (it.urgency === 2) mid.push(it);
       else low.push(it);
     }
-    // Most recently dismissed first, so the card you just ✕'d is findable.
+    // Most recently dismissed first, so the card you just dismissed is findable.
     done.sort((a, b) => (b.read_at || 0) - (a.read_at || 0));
-    // Within each urgency group, scored signals order by relevance: the
-    // reasoning tool's priority (meta.priority) wins, unscored items keep
-    // their natural (recency) order below the scored ones.
-    const pr = (it: DigestItem) => {
-      try { return Number(JSON.parse(it.meta_json || '{}').priority ?? -1); } catch { return -1; }
-    };
+    // Within each urgency group, scored cards order by relevance
+    // (meta.priority); unscored items keep their recency order below.
+    const pr = (it: DigestItem) => Number(parseMeta(it).priority ?? -1);
     for (const g of [high, mid, low]) g.sort((a, b) => pr(b) - pr(a));
     return { high, mid, low, done };
   }, [filtered]);
 
-  // Count of items that landed in the brief in the last 24h (read + unread) —
-  // the badge on the 24h chip = how many cards it surfaces.
+  // Count of items that landed in the brief in the last 24h (read + unread).
   const last24hCount = useMemo(() => {
     if (!items) return 0;
     const cutoff = Date.now() - 24 * 60 * 60 * 1000;
@@ -299,10 +226,20 @@ function BriefPane() {
     return n;
   }, [items]);
 
-  // Any explicit filter (a category or the time window) is active — the unread
-  // toggle doesn't apply and its control goes inert.
+  // Any explicit filter (a category or the time window) is active: the
+  // unread toggle does not apply and its control goes inert.
   const hasExplicit = cats.size > 0 || timeWin === '24h';
 
+  if (src && !src.ready && !skipOnboarding && (items?.length ?? 0) === 0) {
+    return (
+      <div className="flex-1 min-h-0 flex flex-col">
+        <DigestOnboarding onDone={() => { sourcesApi.read().then(setSrc).catch(() => {}); refresh(); }} />
+        <div className="px-4 py-1.5 border-t border-line text-[11px] text-mute shrink-0">
+          <button className="underline underline-offset-2 hover:text-ink" onClick={() => setSkipOnboarding(true)}>Skip to the brief</button>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex-1 flex flex-col min-h-0">
       <header className="px-4 sm:px-6 py-3 sm:py-5 border-b border-line bg-paper/60 shrink-0">
@@ -311,13 +248,8 @@ function BriefPane() {
             <div className="hidden sm:flex items-center gap-2 mono text-[10px] uppercase tracking-[0.2em] text-mute mb-1">
               <Coffee size={12} />
               <span>{todayLabel()}</span>
-              {/* "Updated Nm ago" — pulled from /api/digest/stats. Stays
-                  visible whether or not a run is in flight; the elapsed
-                  counter ticks every second via setTick. */}
               {stats?.last_generated_at && (() => {
                 const ago = timeAgo(stats.last_generated_at);
-                // timeAgo returns "just now" for < 60s — read it as a full
-                // phrase instead of "updated just now ago".
                 const label = ago === 'just now' ? 'updated just now' : `updated ${ago} ago`;
                 return (
                   <>
@@ -343,7 +275,7 @@ function BriefPane() {
             <button
               onClick={() => setHideRead(!hideRead)}
               disabled={hasExplicit}
-              title={hasExplicit ? 'A category or time filter shows all its items — clear it to filter by unread' : undefined}
+              title={hasExplicit ? 'A category or time filter shows all its items. Clear it to filter by unread' : undefined}
               className={
                 'h-9 px-3 rounded-sm hairline mono text-[10px] uppercase tracking-[0.18em] transition ' +
                 (hasExplicit
@@ -364,17 +296,13 @@ function BriefPane() {
               }
             >
               <Sparkle size={12} className={generating ? 'animate-spin' : ''} />
-              {generating ? 'scanning…' : 'generate'}
+              {generating ? 'scanning...' : 'generate'}
             </button>
           </div>
         </div>
-        {/* Filter bar. Two orthogonal axes:
-             · a TIME window ("24h" = everything that landed in the brief in the
-               last 24 hours, read + unread), set apart by a divider; and
-             · CATEGORY chips (Groups / Signals / Opportunities / Calendar / …),
-               multi-select, "all" clears them.
-            Both compose (AND). Every category is always shown; empty ones render
-            dimmed + disabled. A badge = how many cards that filter surfaces. */}
+        {/* Filter bar: a TIME window (24h) set apart by a divider, then
+            CATEGORY chips (multi-select, "all" clears them). Both compose
+            (AND). Empty categories render dimmed + disabled. */}
         {items && items.length > 0 && (
           <div className="mt-3 flex items-center gap-1.5 flex-nowrap overflow-x-auto pb-1 -mx-4 px-4 sm:mx-0 sm:px-0 sm:pb-0 sm:flex-wrap sm:overflow-visible">
             <button
@@ -424,8 +352,8 @@ function BriefPane() {
             })}
           </div>
         )}
-        {/* Live progress strip — visible while a run is in flight + sticks
-            around after for one cycle so the operator can read the result. */}
+        {/* Live progress strip: visible while a run is in flight and sticks
+            around after so the operator can read the result. */}
         {(generating || lastGen) && (
           <div className="mt-3 flex items-baseline gap-3 flex-wrap text-[11px]">
             {generating ? (
@@ -435,21 +363,21 @@ function BriefPane() {
               </span>
             ) : lastGen?.onboarding_needed ? (
               <span className="text-ink">
-                Nothing to digest yet — this install isn't onboarded. {' '}
+                Nothing to digest yet: this install is not onboarded. {' '}
                 <button
                   className="underline underline-offset-2 hover:opacity-80"
                   onClick={() => window.dispatchEvent(new CustomEvent('nyyon:nav-to', { detail: { target: 'nyo' } }))}
                 >Talk to Nyo to onboard</button>
-                {' '}— connect WhatsApp, pick your sources, and the brief fills on its own.
+                {' '}(add a search provider and your topics, or connect the calendar) and the brief fills on its own.
               </span>
             ) : lastGen ? (
               <>
                 <span className={lastGen.error ? 'text-rose-700' : lastGen.generated > 0 ? 'text-emerald-700' : 'text-mute'}>
                   {lastGen.error
-                    ? '✗ Generate failed'
+                    ? 'Generate failed'
                     : lastGen.generated > 0
-                      ? `✓ Pulled ${lastGen.generated} new item${lastGen.generated === 1 ? '' : 's'}`
-                      : '· No new activity (everything already in the brief)'}
+                      ? `Pulled ${lastGen.generated} new item${lastGen.generated === 1 ? '' : 's'}`
+                      : 'No new activity (everything already in the brief)'}
                   {typeof lastGen.pruned === 'number' && lastGen.pruned > 0 && (
                     <span className="text-mute"> · archived {lastGen.pruned} stale</span>
                   )}
@@ -459,7 +387,7 @@ function BriefPane() {
                   <span className="flex items-center gap-2 mono text-mute">
                     {Object.entries(lastGen.per_source).map(([src, info]) => (
                       <span key={src} className={info.error ? 'text-rose-700' : info.count > 0 ? 'text-emerald-700' : ''}>
-                        {src}{info.error ? '✗' : ''} +{info.count}
+                        {src}{info.error ? ' !' : ''} +{info.count}
                         {info.skipped && <span className="text-mute/70"> ({info.skipped})</span>}
                       </span>
                     ))}
@@ -476,10 +404,9 @@ function BriefPane() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 py-6 space-y-8 overflow-x-hidden">
-          {!items && <div className="text-sm text-mute">Loading…</div>}
+          {!items && <div className="text-sm text-mute">Loading...</div>}
           {items && filtered.length === 0 && (
             hasExplicit ? (
-              // A category and/or time filter is active but nothing matches it.
               <div className="text-center py-16 space-y-3">
                 <div className="text-4xl">🔍</div>
                 <div className="text-sm text-mute">
@@ -488,30 +415,27 @@ function BriefPane() {
                 </div>
               </div>
             ) : hideRead && items.length > 0 ? (
-              // Rows exist but they're all read — the operator has cleared the
-              // brief. This is the "all caught up" reward, not a filter miss, so
-              // offer to reveal the read items rather than a dead Clear-filters.
+              // Rows exist but they are all read: the "all caught up" reward.
               <div className="text-center py-16 space-y-3">
                 <div className="text-4xl">☕</div>
                 <div className="text-sm text-mute">
-                  You're all caught up — nothing unread.{' '}
+                  You are all caught up, nothing unread.{' '}
                   <button className="text-ink underline underline-offset-2" onClick={() => setHideRead(false)}>Show {items.length} read item{items.length === 1 ? '' : 's'}</button>
                 </div>
               </div>
             ) : (
               // Genuinely empty brief (fresh install / everything cleared).
               // First open explains itself: what feeds it, what comes out.
-              // Static copy, no model call, gone once the brief has items.
               <div className="max-w-xl mx-auto py-12 space-y-3">
                 <div className="hairline rounded-lg bg-card/50 px-4 py-3.5 text-left space-y-2.5">
                   <p className="mono text-[9px] uppercase tracking-[0.16em] text-mute">nyo · how this works</p>
                   <p className="text-[12.5px] leading-relaxed text-mute">
                     The Digest is your morning brief: everything that piled up across your
-                    sources, already read and sorted so you don't have to do it yourself.
+                    sources, already read and sorted so you do not have to do it yourself.
                   </p>
                   <ul className="text-[12.5px] leading-relaxed text-mute space-y-1 pl-4 list-disc">
-                    <li>It reads what this install has: news for your topics, your calendar, and any source you connect later.</li>
-                    <li>It sorts everything into three piles: <span className="text-ink">Action needed</span>, <span className="text-ink">Worth knowing</span>, <span className="text-ink">Can wait</span>.</li>
+                    <li>It reads what this install has: news for your topics and your calendar.</li>
+                    <li>It sorts everything into three piles: <span className="text-ink">Action needed</span>, <span className="text-ink">This week</span>, <span className="text-ink">Background</span>.</li>
                     <li>It fills on its own every morning, or right now with <span className="text-ink">Generate</span>.</li>
                     <li>Everything stays on this install; nothing is sent anywhere.</li>
                   </ul>
@@ -530,38 +454,10 @@ function BriefPane() {
             )
           )}
 
-          <Section
-            title="Action needed"
-            tone="high"
-            items={grouped.high}
-            onRead={markRead}
-            onStar={toggleStar}
-            onOpen={setActiveItem}
-          />
-          <Section
-            title="This week"
-            tone="mid"
-            items={grouped.mid}
-            onRead={markRead}
-            onStar={toggleStar}
-            onOpen={setActiveItem}
-          />
-          <Section
-            title="Background"
-            tone="low"
-            items={grouped.low}
-            onRead={markRead}
-            onStar={toggleStar}
-            onOpen={setActiveItem}
-          />
-          <Section
-            title="Dismissed"
-            tone="low"
-            items={grouped.done}
-            onRead={markRead}
-            onStar={toggleStar}
-            onOpen={setActiveItem}
-          />
+          <Section title="Action needed" tone="high" items={grouped.high} onRead={markRead} onStar={toggleStar} onOpen={setActiveItem} />
+          <Section title="This week"     tone="mid"  items={grouped.mid}  onRead={markRead} onStar={toggleStar} onOpen={setActiveItem} />
+          <Section title="Background"    tone="low"  items={grouped.low}  onRead={markRead} onStar={toggleStar} onOpen={setActiveItem} />
+          <Section title="Dismissed"     tone="low"  items={grouped.done} onRead={markRead} onStar={toggleStar} onOpen={setActiveItem} />
         </div>
       </div>
       {activeItem && (
@@ -611,89 +507,25 @@ function Card({
 }) {
   const starred = item.starred === 1;
   const isRead  = item.read_at !== null;
-  // External = outside-world news/signal cards (OSINT + content ideas). They
-  // render differently from internal WhatsApp/opportunity cards: the primary
-  // action is READ the source, not open a reply panel.
-  const isExternal = item.kind === 'osint_mention' || item.kind === 'osint_insight' || item.kind === 'content_opportunity' || item.kind === 'li_signal';
-  // LI signal cards carry their action payload (prepared draft, WhatsApp
-  // match from the CRM/GTM pool) in meta_json — parsed defensively.
-  const liMeta = (() => {
-    if (item.kind !== 'li_signal' || !item.meta_json) return null;
-    try {
-      return JSON.parse(item.meta_json) as {
-        draft?: string | null; wa_url?: string | null; phone?: string | null;
-        prospect_id?: string | null; profile_url?: string | null;
-        name?: string | null; role?: string | null; company?: string | null; detail?: unknown;
-        wa_queued_at?: number; wa_scheduled_for?: number | null;
-        priority?: number; priority_reason?: string; origin?: string | null;
-        heat?: number; heat_band?: 'hot' | 'warm' | 'cold'; heat_factors?: string[];
-        contacted?: { why?: string; at?: number } | null;
-      };
-    } catch { return null; }
-  })();
+  // A news card's primary act is READ the source; internal cards (calendar,
+  // opportunities, notes) open the drawer.
+  const isExternal = item.kind === 'news';
+  const meta = parseMeta(item);
   // Stops icon-button clicks from bubbling to the card-level open handler.
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
-  // ── WA composer: editable auto-saving draft + ASAP / slot picker ──
-  // The draft persists server-side (meta_json.draft); the first edit
-  // snapshots the AI original so the send can teach the voice doc.
-  const [waOpen, setWaOpen] = useState(false);
-  const [waText, setWaText] = useState<string | null>(null);
-  const [waBusy, setWaBusy] = useState(false);
-  const [waPitches, setWaPitches] = useState<{ key: string; label: string; text: string }[] | null>(null);
-  const [waDone, setWaDone] = useState<string | null>(
-    liMeta?.wa_queued_at ? (liMeta.wa_scheduled_for ? `scheduled ${fmtWhen(liMeta.wa_scheduled_for)}` : 'queued ✓') : null,
-  );
-  const [waErr, setWaErr] = useState<string | null>(null);
-  const waDraft = waText ?? liMeta?.draft ?? '';
-  useEffect(() => {
-    if (!waOpen || waPitches) return;
-    api.digestWaPitches().then((r) => setWaPitches(r.pitches)).catch(() => {});
-  }, [waOpen, waPitches]);
-  // A pitch fills the textarea (and rides the same auto-save + learning
-  // path); placeholders substitute from the card's person, and an empty
-  // {company}/{role} drops cleanly.
-  function applyPitch(t: string) {
-    const firstName = (liMeta?.name || '').trim().split(/\s+/)[0] || '';
-    let out = t.replace('{first_name}', firstName).replace('{name}', firstName).replace('{company}', liMeta?.company || '').replace('{role}', liMeta?.role || '');
-    out = out.replace(/ ב\.\s*$/u, '.').replace(/\s{2,}/g, ' ').trim();
-    setWaText(out);
-  }
-  // Auto-save 800ms after the operator stops typing.
-  useEffect(() => {
-    if (waText === null) return;
-    const t = window.setTimeout(() => {
-      api.patchDigestItem(item.id, { draft: waText }).catch(() => {});
-    }, 800);
-    return () => window.clearTimeout(t);
-  }, [waText, item.id]);
-  async function waSend(sendAt?: number) {
-    const body = waDraft.trim();
-    if (!body || waBusy) return;
-    setWaBusy(true); setWaErr(null);
-    try {
-      const r = await api.digestWaSend(item.id, { text: body, ...(sendAt ? { send_at: sendAt } : {}) });
-      if (r.error) { setWaErr(r.error); return; }
-      setWaDone(sendAt ? `scheduled ${fmtWhen(sendAt)}` : 'queued ✓');
-    } catch (e) {
-      setWaErr(e instanceof Error ? e.message : String(e));
-    } finally {
-      setWaBusy(false);
-    }
-  }
-
-  // Scraped headlines arrive as "Claude: 20 Pros & Cons … - DigitalDefynd" — the
-  // "Target: " prefix is redundant with the badge/host, so strip it for a clean read.
+  // Headlines can arrive as "Outlet: headline"; the outlet already shows on
+  // the badge/host, so strip the prefix for a clean read.
   const title = isExternal ? item.title.replace(/^[^:]{1,24}:\s+/, '') : item.title;
-  // The reasoning tool's verdict: score chip + its one-line reason. A local
-  // override reflects a feedback-triggered rescore without a full reload.
+  // The scorer's verdict: score chip + its one-line reason. A local override
+  // reflects a feedback-triggered rescore without a full reload.
   const [prioLocal, setPrioLocal] = useState<{ score: number; reason: string } | null>(null);
   const [prioOpen, setPrioOpen] = useState(false);
   const [prioComment, setPrioComment] = useState('');
   const [prioBusy, setPrioBusy] = useState(false);
   const [prioNote, setPrioNote] = useState<string | null>(null);
-  const prio = prioLocal ? prioLocal.score : (typeof liMeta?.priority === 'number' ? liMeta.priority : null);
-  const prioReason = prioLocal ? prioLocal.reason : (liMeta?.priority_reason || '');
+  const prio = prioLocal ? prioLocal.score : (typeof meta.priority === 'number' ? meta.priority : null);
+  const prioReason = prioLocal ? prioLocal.reason : (meta.priority_reason || '');
   async function sendPrioFeedback() {
     const c = prioComment.trim();
     if (!c || prioBusy) return;
@@ -714,8 +546,7 @@ function Card({
     try { return new URL(item.source_url).host.replace(/^www\./, ''); } catch { return null; }
   })();
   // Calendar events are stored kind='opportunity' but are their own category
-  // (matched on ref_kind). Give them a distinct label/tone so a Calendar-filtered
-  // card doesn't wear the amber "opportunity" badge and read like a data error.
+  // (matched on ref_kind). Give them a distinct label/tone.
   const isCal = item.ref_kind === 'calendar_events';
   const tone  = isCal ? 'bg-orange-100 text-orange-900' : (KIND_TONE[item.kind]  || 'bg-stone-100 text-stone-700');
   const label = isCal ? 'calendar' : (KIND_LABEL[item.kind] || String(item.kind));
@@ -729,48 +560,24 @@ function Card({
       }
     >
       <div className="flex items-baseline gap-2 mb-2 flex-wrap">
-        {liMeta ? (
-          <>
-            {/* top-left: priority first, then ONE source chip (kind + host +
-                origin said the same thing three ways; the origin pool is the
-                one that matters) */}
-            {prio !== null && (
-              <button
-                type="button"
-                onClick={(e) => { stop(e); setPrioOpen((v) => !v); }}
-                title={prioReason}
-                className={'mono text-[9px] px-1.5 py-0.5 rounded-sm hairline hover:bg-card transition cursor-pointer shrink-0 ' + (item.urgency === 1 ? 'text-rose-700' : item.urgency === 2 ? 'text-amber-700' : 'text-mute')}
-              >
-                P{prio}
-              </button>
-            )}
-            <span className={'mono text-[9px] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded-sm shrink-0 ' + tone}>
-              {liMeta.origin === 'prospecting' ? 'prospecting' : 'li outreach'}
-            </span>
-            {typeof liMeta.heat === 'number' && (
-              <HeatBar score={liMeta.heat} band={liMeta.heat_band} factors={liMeta.heat_factors} />
-            )}
-            {liMeta.contacted ? (
-              <span
-                className="mono text-[9px] uppercase tracking-[0.14em] px-1.5 py-0.5 rounded-sm bg-emerald-500/10 text-emerald-700 shrink-0"
-                title={liMeta.contacted.why || 'already contacted'}
-              >
-                ✓ contacted
-              </span>
-            ) : null}
-          </>
-        ) : (
-          <>
-            <span className={'mono text-[9px] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded-sm shrink-0 ' + tone}>
-              {label}
-            </span>
-            <span className="text-[11px] text-mute truncate">{isExternal ? (host || item.source_label) : item.source_label}</span>
-          </>
+        {prio !== null && (
+          <button
+            type="button"
+            onClick={(e) => { stop(e); setPrioOpen((v) => !v); }}
+            title={prioReason}
+            className={'mono text-[9px] px-1.5 py-0.5 rounded-sm hairline hover:bg-card transition cursor-pointer shrink-0 ' + (item.urgency === 1 ? 'text-rose-700' : item.urgency === 2 ? 'text-amber-700' : 'text-mute')}
+          >
+            P{prio}
+          </button>
         )}
+        <span className={'mono text-[9px] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded-sm shrink-0 ' + tone}>
+          {label}
+        </span>
+        <span className="text-[11px] text-mute truncate">{isExternal ? (host || item.source_label) : item.source_label}</span>
         <span className="text-[10px] text-mute mono">· {timeAgo(item.created_at)}</span>
 
         <span className="ml-auto flex items-center gap-1" onClick={stop}>
-          {/* Star stays subtle (reveals on hover) — it's the rarer action. */}
+          {/* Star stays subtle (reveals on hover): it is the rarer action. */}
           <button
             onClick={(e) => { stop(e); onStar(item.id, starred); }}
             aria-label={starred ? 'Unstar' : 'Star'}
@@ -779,33 +586,13 @@ function Card({
           >
             <Star size={14} className={starred ? 'fill-current' : ''} />
           </button>
-          {/* Dismiss is ALWAYS visible so "close out a post I don't care about"
-              is one obvious click. With the brief's default unread filter on,
-              dismissing removes the card from view immediately. */}
-          {/* ✓ = I engaged with them on LinkedIn: counts toward their heat
-              and clears this card. Their other signals keep flowing —
-              muting is the drawer's explicit snooze button. */}
-          {!isRead && liMeta && (
-            <button
-              onClick={async (e) => {
-                stop(e);
-                try {
-                  const r = await api.digestActed(item.id);
-                  if (!r.error) onRead(item.id); // it leaves the brief like a dismiss
-                } catch { /* leave the card in place */ }
-              }}
-              aria-label="I engaged with them — count it toward their heat"
-              title="I engaged with them (liked/commented on LinkedIn myself) — counts toward their heat; their signals keep flowing"
-              className="h-7 w-7 grid place-items-center rounded-sm text-mute/70 hover:text-emerald-600 hover:bg-emerald-50 transition"
-            >
-              <span className="text-[13px] leading-none">✓</span>
-            </button>
-          )}
+          {/* Dismiss is ALWAYS visible so "close out a card I do not care
+              about" is one obvious click. */}
           {!isRead && (
             <button
               onClick={(e) => { stop(e); onRead(item.id); }}
-              aria-label="Dismiss — not interesting"
-              title="Dismiss — not interesting"
+              aria-label="Dismiss, not interesting"
+              title="Dismiss, not interesting"
               className="h-7 w-7 grid place-items-center rounded-sm text-mute/70 hover:text-rose-600 hover:bg-rose-50 transition"
             >
               <X size={14} />
@@ -813,35 +600,9 @@ function Card({
           )}
         </span>
       </div>
-      {/* An LI signal is somebody's POST: name it, so the feed never shows a
-          wall of post text with no idea whose it is. Other kinds keep the
-          plain title. */}
-      {liMeta?.name ? (
-        <>
-          <div className="flex items-center gap-2 min-w-0">
-            <span aria-hidden
-              className="shrink-0 h-6 w-6 rounded-full bg-ink/10 text-ink grid place-items-center mono text-[9px] tracking-wide">
-              {String(liMeta.name).trim().split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0]?.toUpperCase() || '').join('') || '·'}
-            </span>
-            <span dir="auto" className="text-[13px] font-semibold text-ink truncate">{liMeta.name}</span>
-            {(liMeta.role || liMeta.company) && (
-              <span dir="auto" className="text-[11px] text-mute truncate min-w-0">
-                {[liMeta.role, liMeta.company].filter(Boolean).join(' · ')}
-              </span>
-            )}
-          </div>
-          {item.summary && (
-            <p dir="auto" style={{ unicodeBidi: 'plaintext', textAlign: 'start' }}
-              className="text-[12px] text-mute mt-1.5 leading-relaxed line-clamp-3 break-words">{item.summary}</p>
-          )}
-        </>
-      ) : (
-        <>
-          <div dir="auto" className="text-[14px] text-ink font-medium leading-snug break-words">{title}</div>
-          {item.summary && (
-            <p dir="auto" className="text-[12px] text-mute mt-1.5 leading-relaxed line-clamp-3 break-words">{item.summary}</p>
-          )}
-        </>
+      <div dir="auto" className="text-[14px] text-ink font-medium leading-snug break-words">{title}</div>
+      {item.summary && (
+        <p dir="auto" className="text-[12px] text-mute mt-1.5 leading-relaxed line-clamp-3 break-words">{item.summary}</p>
       )}
       <div className="mt-3 flex items-center gap-3 flex-wrap" onClick={stop}>
         {prio !== null && prioReason ? (
@@ -863,7 +624,7 @@ function Card({
                 className="mono text-[9px] uppercase tracking-[0.16em] text-mute hover:text-ink transition"
                 title="the plugin-digest-signal-priority knowledge doc: rubric, thresholds, and your learned taste rules"
               >
-                rules →
+                rules
               </button>
             </div>
             <div dir="auto" className="text-[12px] leading-snug">{prioReason || 'no reason recorded'}</div>
@@ -872,7 +633,7 @@ function Card({
               value={prioComment}
               onChange={(e) => setPrioComment(e.target.value)}
               rows={2}
-              placeholder="disagree? say why — the scorer learns your taste"
+              placeholder="disagree? say why, the scorer learns your taste"
               className="w-full resize-y rounded-sm hairline bg-card/40 px-2 py-1.5 text-[12px] leading-snug focus:border-ink focus:outline-none transition"
             />
             <div className="flex items-center justify-between gap-2">
@@ -883,131 +644,36 @@ function Card({
                 onClick={sendPrioFeedback}
                 className="mono text-[10px] uppercase tracking-[0.18em] bg-ink text-paper rounded-sm px-2.5 py-1 hover:opacity-90 disabled:opacity-40 transition"
               >
-                {prioBusy ? 'learning…' : 'teach →'}
+                {prioBusy ? 'learning...' : 'teach'}
               </button>
             </div>
-          </div>
-        ) : null}
-        {waOpen && liMeta ? (
-          <div onClick={stop} className="mt-2 rounded-sm hairline bg-paper p-2 space-y-2">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => setWaText(liMeta.draft || '')}
-                className="mono text-[9px] uppercase tracking-[0.14em] px-2 py-0.5 rounded-sm hairline text-mute hover:text-ink hover:bg-card transition"
-              >
-                AI draft
-              </button>
-              {(waPitches || []).map((pz) => (
-                <button
-                  key={pz.key}
-                  type="button"
-                  dir="auto"
-                  onClick={() => applyPitch(pz.text)}
-                  className="text-[10px] px-2 py-0.5 rounded-sm hairline text-mute hover:text-ink hover:bg-card transition"
-                >
-                  {pz.label}
-                </button>
-              ))}
-            </div>
-            <textarea
-              dir="auto"
-              value={waDraft}
-              onChange={(e) => setWaText(e.target.value)}
-              rows={4}
-              className="w-full resize-y rounded-sm hairline bg-card/40 px-2.5 py-2 text-[12px] leading-relaxed focus:border-ink focus:outline-none transition"
-              placeholder="draft…"
-            />
-            <div className="flex items-center gap-2 min-w-0 mono text-[9px] uppercase tracking-[0.18em] text-mute">
-              <span className="min-w-0 break-words">{waErr ? <span className="text-red-600 normal-case break-words">{waErr}</span> : waDone || 'auto-saves · learns from your edits'}</span>
-              {waDone ? (
-                <button
-                  type="button"
-                  disabled={waBusy}
-                  onClick={async () => {
-                    setWaBusy(true);
-                    try {
-                      const r = await api.digestWaUnschedule(item.id);
-                      if (r.error) setWaErr(r.error);
-                      else { setWaDone(null); setWaErr(null); }
-                    } catch (e) { setWaErr(e instanceof Error ? e.message : String(e)); }
-                    finally { setWaBusy(false); }
-                  }}
-                  className="px-1.5 py-0.5 rounded-sm hairline text-mute hover:text-red-600 disabled:opacity-40 transition"
-                  title="cancel the queued send"
-                >
-                  ✕ unschedule
-                </button>
-              ) : null}
-            </div>
-            <WaSlotPicker
-              disabled={!waDraft.trim() || !!waDone}
-              busy={waBusy}
-              phone={liMeta.phone}
-              onSend={waSend}
-              onOpenWa={() => {
-                const digits = String(liMeta.phone || '').replace(/\D/g, '');
-                if (!digits) return;
-                window.open(`https://wa.me/${digits}?text=${encodeURIComponent(waDraft)}`, '_blank');
-                // the click IS the outreach act in hold mode: count it
-                api.digestWaManual(item.id, waDraft)
-                  .then(() => setWaDone('sent by hand ✓'))
-                  .catch(() => {});
-              }}
-            />
           </div>
         ) : null}
         {isExternal ? (
-          <>
-            {/* News/signal: reading the source is the primary act; the panel is
-                for turning it into a blog/social take. */}
-            {(liMeta?.phone || liMeta?.wa_url) ? (
-              <button
-                type="button"
-                onClick={(e) => { stop(e); setWaOpen((v) => !v); }}
-                className="inline-flex items-center gap-1.5 mono text-[10px] uppercase tracking-[0.18em] bg-emerald-600 text-white rounded-sm px-2.5 py-1 hover:opacity-90 transition"
-                title={'WhatsApp ' + (liMeta.phone || '') + ' — edit the draft, then ASAP or pick a slot'}
-              >
-                {waDone ? `WhatsApp ${waDone}` : waOpen ? 'WhatsApp ▴' : 'WhatsApp →'}
-              </button>
-            ) : null}
-            {liMeta?.profile_url && (
-              <a
-                href={liMeta.profile_url}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => { stop(e); if (liMeta.draft) navigator.clipboard.writeText(liMeta.draft).catch(() => {}); }}
-                className="inline-flex items-center gap-1.5 mono text-[10px] uppercase tracking-[0.18em] text-ink bg-paper hairline rounded-sm px-2.5 py-1 hover:bg-card transition"
-                title="Message on LinkedIn — the draft is copied on click, their profile opens"
-              >
-                in message
-              </a>
-            )}
-            {item.source_url && (
-              <a
-                href={item.source_url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1.5 mono text-[10px] uppercase tracking-[0.18em] bg-ink text-paper rounded-sm px-2.5 py-1 hover:opacity-90 transition"
-                title="Open the source"
-              >
-                {item.kind === 'li_signal' ? 'View post ↗' : 'Read ↗'}
-              </a>
-            )}
-          </>
+          item.source_url && (
+            <a
+              href={item.source_url}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 mono text-[10px] uppercase tracking-[0.18em] bg-ink text-paper rounded-sm px-2.5 py-1 hover:opacity-90 transition"
+              title="Open the source"
+            >
+              Read ↗
+            </a>
+          )
         ) : (
           <>
             <button
               onClick={(e) => { stop(e); onOpen(item); }}
               className="inline-flex items-center gap-1.5 mono text-[10px] uppercase tracking-[0.18em] bg-ink text-paper rounded-sm px-2.5 py-1 hover:opacity-90 transition"
-              title="Open the action panel for this item"
+              title="Open the panel for this item"
             >
               <Sparkle size={12} />
               Open
             </button>
             {item.suggested_action && (
               <span className="inline-flex items-center mono text-[10px] uppercase tracking-[0.18em] text-ink bg-paper hairline rounded-sm px-2 py-1">
-                → {item.suggested_action}
+                {item.suggested_action}
               </span>
             )}
             {item.source_url && (
@@ -1017,7 +683,7 @@ function Card({
                 rel="noreferrer"
                 className="mono text-[10px] uppercase tracking-[0.18em] text-mute hover:text-ink"
               >
-                open source ↗
+                open link ↗
               </a>
             )}
           </>
@@ -1026,5 +692,3 @@ function Card({
     </li>
   );
 }
-
-// Prelude construction moved to DigestItemDrawer.buildPreludeFromContext.

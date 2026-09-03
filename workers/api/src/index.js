@@ -393,44 +393,19 @@ app.get('/api/system/health', async (c) => {
   }
   if (dbOk) checks.push({ name: 'D1 database', status: 'green', severity: 'critical', note: null });
 
-  // 2. LLM provider — needed for digest/Nyo/anything reasoning. Critical.
-  // Beyond "is the key set?", read the circuit-breaker's health row: when the
-  // primary (Anthropic) runs out of credit or rejects the key, the breaker
-  // opens, chat + light jobs fall back to the local model, and heavy writers
-  // pause. Surface that as a distinct degraded state so the operator sees the
+  // 2. LLM — needed for Nyo/anything reasoning. Critical. Beyond "is the key
+  // set?", read the circuit-breaker's health row: when Anthropic runs out of
+  // credit or rejects the key, the breaker opens and every model call pauses.
+  // Surface that as a distinct degraded state so the operator sees the
   // outage here (not just via the one-time Nyo message).
-  const provider = (env.LLM_PROVIDER || 'anthropic').toLowerCase();
-  const keySet =
-    provider === 'anthropic' ? !!env.ANTHROPIC_API_KEY :
-    provider === 'openai'    ? !!env.OPENAI_API_KEY    :
-    false;
-  // A connected free backup brain is a working model — an install running on
-  // it is degraded-by-choice, not down.
-  const freeBrain = await (async () => {
-    try {
-      const { pickBackupLlm, callGateway } = await import('./gateways/index.js');
-      const slug = await pickBackupLlm(env);
-      if (!slug) return null;
-      const st = await callGateway(env, slug, 'status', {});
-      return st?.connected ? { provider: st.label || slug, model: st.model } : null;
-    } catch { return null; }
-  })();
-  if (!keySet && freeBrain) {
+  const keySet = !!env.ANTHROPIC_API_KEY;
+  if (!keySet) {
     checks.push({
-      name: `LLM · free backup (${freeBrain.model || freeBrain.provider})`,
-      status: 'green',
-      severity: 'critical',
-      note: 'Running on the connected free model. Add an Anthropic key in Settings whenever you want the full-strength brain.',
-    });
-  } else if (!keySet) {
-    checks.push({
-      name: `LLM provider · ${provider}`,
+      name: 'LLM provider · anthropic',
       status: 'red',
       severity: 'critical',
-      // Remediation an operator of THIS product can actually act on. The old
-      // text said "run: wrangler secret put …", which is how the deployed
-      // cloud worker was configured and is meaningless in an installed app —
-      // the key goes in through setup or Settings, and is stored in D1.
+      // The key goes in through setup or Settings, and is stored in D1 —
+      // never "run: wrangler secret put …", which is meaningless here.
       note: 'No model key yet — add one in Settings, under Nyo brain. Nothing that needs a model can run until you do.',
     });
   } else {
@@ -569,8 +544,8 @@ app.get('/api/system/health', async (c) => {
 // once-per-day AEO autofire cap, outbox auto-retry) live in lib/wake-up.js,
 // and the tunable thresholds live in the `wake-up-policy` knowledge doc.
 //
-// Body: { autofire?: boolean } — if true (default), missed AEO publish
-// gets actually fired. If false, just reports what would be done.
+// Body: { autofire?: boolean } — if true (default), any auto-fireable pack
+// cron catchup actually runs. If false, just reports what would be done.
 app.post('/api/system/wake-up', async (c) => {
   const body = await c.req.json().catch(() => ({}));
   const autofire = body.autofire !== false; // default true
@@ -579,9 +554,9 @@ app.post('/api/system/wake-up', async (c) => {
 });
 
 // ─── Nyo pending messages (queue → chat injection) ───────────
-// The Chat component polls /pending every 30s. Background workers
-// (AEO writer, image generator, future cron tasks) queue assistant turns
-// here via queueNyoMessage; the chat injects them + POSTs /deliver to clear.
+// The Chat component polls /pending every 30s. Background workers (wake-up,
+// pack crons) queue assistant turns here via queueNyoMessage; the chat
+// injects them + POSTs /deliver to clear.
 app.get('/api/nyo/pending', async (c) => {
   const limit = parseInt(c.req.query('limit') || '20', 10);
   // Piggyback: this 30s poll is the only steady local heartbeat, so it also
@@ -610,15 +585,11 @@ app.post('/api/nyo/pending', async (c) => {
 
 // ─── Nyo brain config (which LLM provider + model is wired) ─
 app.get('/api/nyo/brain', async (c) => {
-  const provider = (c.env.LLM_PROVIDER || 'anthropic').toLowerCase();
   const { loadModelConfig, modelDefaults } = await import('./lib/model-config.js');
   const models = await loadModelConfig(c.env);
-  const keySet =
-    provider === 'anthropic' ? !!c.env.ANTHROPIC_API_KEY :
-    provider === 'openai'    ? !!c.env.OPENAI_API_KEY    :
-    false;
+  const keySet = !!c.env.ANTHROPIC_API_KEY;
   return c.json({
-    provider,
+    provider: 'anthropic',
     model: models.writer,           // the background-writer brain (legacy field)
     key_set: keySet,
     models,                          // full per-surface map incl. source

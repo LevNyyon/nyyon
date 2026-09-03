@@ -1,24 +1,21 @@
-// Digest plugin — execute_digest_action. cmd fronted this with
-// POST /api/digest/:id/execute. Sends the reply (quote-reply in-thread when
-// possible; a picked slot rides the pack's own send queue), saves the
-// wishlist contact through the crm gateway, dismisses, or logs a discuss.
+// Digest plugin: execute_digest_action. Runs one card verb. Snooze rides
+// the signal-priority lib (lib files may not import each other, so the tool
+// wires it in as deps).
 
 import { executeDigestAction } from './digest.mjs';
-import { enqueueWaSend } from './wa-queue.mjs';
+import { snoozeItem } from './signal-priority.mjs';
 
 export const def = {
   name: 'execute_digest_action',
-  description: 'Execute one drafted digest action on an item. type=reply_wa sends the text to the chosen recipient (send_at schedules it through the digest queue instead); type=add_to_wishlist upserts the person into Contacts (crm gateway) with the digest context as notes; type=dismiss marks the item read; type=discuss logs the handoff. draft_blog/draft_social/draft_take belong to the editorial pack and return a pointer.',
+  description: 'Execute one action on a digest item. type=open_link logs the open and returns the url; type=mark_read sets read (pass read:false to un-read); type=star sets starred (pass starred:false to unstar; omitted toggles); type=save_draft stores draft text as the card\'s note; type=snooze keeps the card\'s key (its outlet for news, the event for calendar) out of the brief for snooze_days and archives its unread siblings.',
   input_schema: {
     type: 'object',
     properties: {
-      id:     { type: 'string', description: 'the digest item id' },
-      type:   { type: 'string', enum: ['reply_wa', 'add_to_wishlist', 'dismiss', 'discuss', 'draft_blog', 'draft_social', 'draft_take'] },
-      text:   { type: 'string', description: 'reply_wa: the final message text' },
-      send_at: { type: 'number', description: 'reply_wa: ms epoch to schedule instead of sending now' },
-      recipient: { type: 'object', description: 'reply_wa: the chosen recipient {kind, mode, id, name, quotedMessageId?}' },
-      metadata:  { type: 'object', description: 'add_to_wishlist: the drafted person metadata' },
-      note:      { type: 'string', description: 'add_to_wishlist: extra operator note' },
+      id:      { type: 'string', description: 'the digest item id' },
+      type:    { type: 'string', enum: ['open_link', 'mark_read', 'star', 'save_draft', 'snooze'] },
+      read:    { type: 'boolean', description: 'mark_read: default true' },
+      starred: { type: 'boolean', description: 'star: default toggles' },
+      draft:   { type: 'string',  description: 'save_draft: the note text (max 2000 chars kept)' },
     },
     required: ['id', 'type'],
   },
@@ -26,5 +23,5 @@ export const def = {
 
 export async function run(api, input) {
   const { id, ...action } = input;
-  return executeDigestAction(api, id, action, { enqueueWaSend });
+  return executeDigestAction(api, id, action, { snoozeItem });
 }

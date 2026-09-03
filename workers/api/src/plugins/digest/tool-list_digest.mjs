@@ -1,11 +1,10 @@
-// Digest plugin — list_digest. Ported from cmd's tools/digest.js pool;
-// env → api, shared code in the pack's parallel lib (same names, api first).
+// Digest plugin: list_digest. The brief, urgency-sorted.
 
 import { listDigestItems } from './digest.mjs';
 
 export const def = {
   name: 'list_digest',
-  description: 'Read today\'s digest items — the actionable morning brief. Sources: WA groups + DMs, OSINT mentions, content signals, calendar, LinkedIn signals, system attention. Default returns UNREAD items, urgency-sorted (high first). Set unread_only=false to see everything.',
+  description: 'Read today\'s digest items, the morning brief. Sources: search headlines for the operator\'s topics and the calendar look-ahead. Default returns UNREAD items, urgency-sorted (high first). Set unread_only=false to see everything.',
   input_schema: {
     type: 'object',
     properties: {
