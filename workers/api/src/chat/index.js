@@ -7,6 +7,7 @@ import { classifyLlmError, noteLlmDown, noteLlmOk } from '../lib/llm.js';
 import { llmTransportAnthropic, llmTransportOpenAICompat } from '../lib/openai.js';
 import { loadModelConfig } from '../lib/model-config.js';
 import { loadPlannerPersona } from '../lib/planner-persona.js';
+import { loadDontSoundAi } from '../lib/dont-sound-ai.js';
 import { deriveTitle } from '../lib/conversations.js';
 
 // Tools the Daily Planner agent is cut off from — the plan is self-contained
@@ -188,7 +189,15 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
   // Daily Planner is Nyo's planning-desk persona — same tools + loop, a
   // different system prompt sourced from the editable `daily-planner-persona`
   // knowledge note. Any other agent (or none) keeps the default Nyo persona.
-  const personaSystem = agent === 'daily-planner' ? await loadPlannerPersona(env) : null;
+  let personaSystem = agent === 'daily-planner' ? await loadPlannerPersona(env) : null;
+  // Every composition carries the don't-sound-AI rules — welded into the
+  // system prompt here, the one choke point all personas pass through, so no
+  // persona doc's wording can drop them. The doc itself is editable knowledge.
+  const styleRules = await loadDontSoundAi(env);
+  const styleWeld = styleRules
+    ? `\n\n## Don't sound AI (hard rules — override any conflicting style above)\n\n${styleRules}`
+    : '';
+  if (personaSystem && styleWeld) personaSystem = personaSystem + styleWeld;
 
   const { readable, writable } = new TransformStream();
   const writer = writable.getWriter();
@@ -228,7 +237,7 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
       let throttleWaits = 0;   // free-tier TPM absorbed silently, at most twice a turn
       let flubRetries = 0;     // free-model mangled tool calls resampled, at most twice a turn
       for (let hop = 0; hop < 8; hop++) {
-        const res = await callLLM(env, convo, tools, activeCfg, speech, personaSystem);
+        const res = await callLLM(env, convo, tools, activeCfg, speech, personaSystem, styleWeld);
         if (!res.ok) {
           let errText = await res.text();
           // Error bodies arrive as JSON envelopes; surface the MESSAGE, not
@@ -409,9 +418,9 @@ function resolveTier(env, tier, mc = null, backupSlug = null) {
   return { tier: 'mid', provider: 'anthropic', model: mc?.nyo_mid || env.NYO_MODEL_MID || 'claude-sonnet-5' };
 }
 
-async function callLLM(env, messages, tools, cfg, speech = false, personaSystem = null) {
-  if (cfg.provider === 'anthropic') return callAnthropic(env, messages, tools, cfg, speech, personaSystem);
-  if (cfg.provider === 'openai')    return callOpenAI(env, messages, tools, cfg, speech, personaSystem);
+async function callLLM(env, messages, tools, cfg, speech = false, personaSystem = null, styleWeld = '') {
+  if (cfg.provider === 'anthropic') return callAnthropic(env, messages, tools, cfg, speech, personaSystem, styleWeld);
+  if (cfg.provider === 'openai')    return callOpenAI(env, messages, tools, cfg, speech, personaSystem, styleWeld);
   return new Response(`Unknown provider: ${cfg.provider}`, { status: 500 });
 }
 
@@ -448,7 +457,7 @@ const LOW_TOOLS = new Set([
 
 const TOOL_SEARCH = { type: 'tool_search_tool_regex_20251119', name: 'tool_search_tool_regex' };
 
-async function callAnthropic(env, messages, tools, cfg, speech = false, personaSystem = null) {
+async function callAnthropic(env, messages, tools, cfg, speech = false, personaSystem = null, styleWeld = '') {
   // Model comes from the Low/Mid/High switch (mid → Sonnet, high → Opus). Chat is
   // multi-hop and bursty; Sonnet's higher per-tier ITPM absorbs the hop loop, so
   // it's the default (mid) tier. Both are env-overridable (NYO_MODEL_MID/HIGH).
@@ -470,8 +479,8 @@ async function callAnthropic(env, messages, tools, cfg, speech = false, personaS
     model,
     max_tokens: 4096,
     system: speech
-      ? [{ type: 'text', text: personaSystem || SYSTEM, cache_control: { type: 'ephemeral' } }, { type: 'text', text: SPEECH_SYSTEM }]
-      : [{ type: 'text', text: personaSystem || SYSTEM, cache_control: { type: 'ephemeral' } }],
+      ? [{ type: 'text', text: personaSystem || (SYSTEM + (styleWeld || '')), cache_control: { type: 'ephemeral' } }, { type: 'text', text: SPEECH_SYSTEM }]
+      : [{ type: 'text', text: personaSystem || (SYSTEM + (styleWeld || '')), cache_control: { type: 'ephemeral' } }],
     tools: toolPayload,
     messages,
   }, { timeoutMs: LLM_TIMEOUT_MS });
@@ -501,7 +510,7 @@ async function callOpenAI(env, messages, tools, cfg = {}, speech = false, person
 
   // 2. translate messages: Anthropic content[] blocks → OpenAI string or tool_calls.
   // Low tier (local 3B) gets the lean LOW_SYSTEM; a real OpenAI-provider call gets the full SYSTEM.
-  let baseSys = personaSystem || (cfg.tier === 'low' ? LOW_SYSTEM : SYSTEM);
+  let baseSys = personaSystem || ((cfg.tier === 'low' ? LOW_SYSTEM : SYSTEM) + (styleWeld || ''));
   // The model must know what it is running on. Without this, a free model
   // asked "which model is this?" INVENTS an answer — one install confidently
   // explained it was "wired to an Anthropic model that requires an active
