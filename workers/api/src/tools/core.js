@@ -23,7 +23,6 @@ import { fetchArticleText } from '../lib/article-text.js';
 import { fetchText as webGatewayFetchText } from '../lib/web-gateway.js';
 import { listDueMeetings, claimDueMeetings, composeReminderDigest } from '../lib/reminders.js';
 import { checkWaHealth, probeWaGateway } from '../lib/whatsapp.js';
-import { probeTheorg } from '../lib/enrich-gateways.js';
 import { buildRegistry } from '../lib/registry.js';
 
 export const tools = {
@@ -471,18 +470,11 @@ export const tools = {
     run: async (env) => {
       const wa = await checkWaHealth(env);
       const gw = await probeWaGateway(env);
-      const theorg = await probeTheorg(env);
       return {
         nyyon_worker: { ok: true, note: 'this tool ran, so the worker is up' },
         whatsapp_gateway: { ok: gw.reachable, url: gw.url, http: gw.http, error: gw.error },
         wa_session: { ok: wa.ok, status: wa.status, error: wa.error },
-        gtm_theorg: theorg,
-        gtm_enrichment_keys: {
-          pdl:     !!env.PDL_API_KEY,
-          serpapi: !!env.SERPAPI_KEY,
-          twilio:  !!(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN),
-          note:    'optional — unset legs skip gracefully during enrichment',
-        },
+
       };
     },
   },

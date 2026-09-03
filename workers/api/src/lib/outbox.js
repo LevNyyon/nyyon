@@ -150,61 +150,8 @@ export async function retryOutboxRow(env, id) {
     }
     throw new Error(`outbox retry: unsupported wa kind ${row.kind}`);
   }
-  if (row.channel === 'li') {
-    const li = await import('./unipile.js');
-    if (li.sendLinkedInMessage) {
-      return li.sendLinkedInMessage(env, {
-        profile_urn_id: payload.profile_urn_id || row.to_id,
-        body: row.body,
-      }, { source: 'retry', source_ref: row.id, parent_id: row.id, attempt: (row.attempt || 1) + 1 });
-    }
-    throw new Error('outbox retry: linkedin sender not exposed');
-  }
-  if (row.channel === 'blog') {
-    // The blog engine ships as the editorial plugin now, so both blog kinds
-    // re-fire through its retry_blog_publish tool by name. The outbound_log
-    // bookkeeping (repair + retry marker) STAYS here — outbound_log is a host
-    // table the pack never writes. Two `kind` values flow through:
-    //   - kind='post' → re-publish from D1 to prod (tool, via `slug`);
-    //   - kind='aeo'  → AEO-cron drafted a post that failed; the tool re-queues
-    //     the plugin's question row and re-runs the writer (`question_slug`).
-    const { runTool } = await import('../tools/index.js');
-    if (row.kind === 'post' || !row.kind) {
-      const slug = row.to_id || row.source_ref;
-      const res = await runTool(env, 'retry_blog_publish', {
-        slug,
-        deploy: payload.deploy !== false,
-      });
-      // If the post is ALREADY LIVE, the failed row is stale bookkeeping, not
-      // an undelivered send — the tool reports {skipped:'already live'} and we
-      // repair the record instead of re-publishing. (Root cause of the
-      // 2026-07-11 outbox flood: publish's outbox rows carry no parent_id, so
-      // the wake-up's once-per-original dedup — which joins on parent_id —
-      // never matched for blog, and the same failed originals re-published
-      // every tick, forever.)
-      if (res?.skipped === 'already live') {
-        await env.DB.prepare(
-          `UPDATE outbound_log SET status='sent', error='superseded: post verified live at retry time', updated_at=? WHERE id=?`,
-        ).bind(Date.now(), row.id).run();
-        return { ok: true, skipped: 'already live', slug, repaired: row.id };
-      }
-      // Stamp the once-only marker the dedup query joins on (the publish
-      // path's own outbox row can't carry parent_id) so a still-failing post
-      // is retried at most once by the wake-up, like every other channel.
-      await env.DB.prepare(
-        `INSERT INTO outbound_log (id, channel, kind, to_id, to_name, body, status, parent_id, source, source_ref, attempt, created_at, updated_at)
-         VALUES (?, 'blog', 'retry-marker', ?, ?, NULL, ?, ?, 'retry', ?, ?, ?, ?)`,
-      ).bind('ob_' + crypto.randomUUID().slice(0, 8), slug, row.to_name || slug,
-        res?.live ? 'sent' : 'failed', row.id, slug, (row.attempt || 1) + 1, Date.now(), Date.now()).run();
-      return res;
-    }
-    if (row.kind === 'aeo') {
-      const questionSlug = payload.question_slug || row.source_ref;
-      if (!questionSlug) throw new Error('outbox retry: blog row missing question_slug');
-      return runTool(env, 'retry_blog_publish', { question_slug: questionSlug });
-    }
-    throw new Error(`outbox retry: unsupported blog kind ${row.kind}`);
-  }
+
+
   throw new Error(`outbox retry: unknown channel ${row.channel}`);
 }
 

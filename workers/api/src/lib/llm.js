@@ -69,8 +69,7 @@ export async function noteLlmDown(env, reason, lastError) {
         content: `⚠️ **The main model (Anthropic) is ${reason === 'credit' ? 'out of credit' : 'rejecting the API key'}.**\n\n`
           + `I've switched **chat + light jobs** (digest, OSINT / ICP scoring, company lookups) to the **local model** so you can keep working — replies will be simpler and a bit slower.\n\n`
           + (env.HF_TOKEN
-              ? `The **heavy writer jobs** from installed modules are running on the **Hugging Face fallback writer** — prose quality stays close, tool-heavy work does not run there.\n\n`
-              : `The **heavy writer jobs are paused** until it's back (a small local model would write poorly there).\n\n`)
+              ? `` : `Background writer jobs are paused until it's back.\n\n`)
           + (reason === 'credit' ? `Top up the Anthropic credit` : `Fix the ANTHROPIC_API_KEY`) + ` and I'll switch back automatically — I'll tell you when.`,
         payload: { reason },
       });
@@ -102,87 +101,26 @@ export async function skipPrimary(env) {
   return (Date.now() - (h.last_check || 0)) < PROBE_AFTER_MS;
 }
 
-// The local model — Ollama's OpenAI-compatible endpoint (Nyo's "Low" tier).
-export async function localComplete(env, { system, prompt, maxTokens = 2000 }) {
-  const base = (env.OLLAMA_BASE_URL || '').replace(/\/+$/, '');
-  if (!base) {
-    // No self-hosted endpoint. An installed backup-brain plugin is the other
-    // way a keyless install still has a model, and it covers the non-chat jobs
-    // (light tools, classification) just as much as the chat loop.
-    const { pickBackupLlm, callGateway } = await import('../gateways/index.js');
-    const slug = await pickBackupLlm(env);
-    if (!slug) throw new Error('no backup model available — install the Free LLM plugin, or add a model key in Settings');
-    const msgs = [];
-    if (system) msgs.push({ role: 'system', content: system });
-    msgs.push({ role: 'user', content: prompt });
-    const g = await callGateway(env, slug, 'chat', { messages: msgs, max_tokens: maxTokens });
-    const out = g?.body?.choices?.[0]?.message?.content;
-    if (!g?.ok || !out) throw new Error(g?.error || 'the backup model returned nothing');
-    return String(out).trim();
-  }
-  const messages = [];
-  if (system) messages.push({ role: 'system', content: system });
-  messages.push({ role: 'user', content: prompt });
-  const r = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    signal: AbortSignal.timeout(60000),
-    headers: { 'Content-Type': 'application/json', ...(env.OLLAMA_API_KEY ? { Authorization: `Bearer ${env.OLLAMA_API_KEY}` } : {}) },
-    body: JSON.stringify({ model: (await import('./model-config.js').then((m) => m.loadModelConfig(env)).catch(() => null))?.nyo_low || env.NYO_MODEL_LOW || 'claude-haiku-4-5', messages, max_tokens: maxTokens }),
-  });
-  if (!r.ok) throw new Error(`local model ${r.status}: ${(await r.text().catch(() => '')).slice(0, 200)}`);
-  const j = await r.json();
-  const text = j.choices?.[0]?.message?.content;
-  if (!text) throw new Error('local model returned no content');
-  return String(text).trim();
-}
-
-// Preamble guard for a non-streaming Anthropic text caller. Returns
-// { skip:true, text } to short-circuit to the local model (light jobs), throws
-// LlmDownError for heavy jobs when the circuit is down / no key, else
-// { skip:false } to proceed with the real Anthropic call.
-export async function guardLlm(env, { heavy = false, system, prompt, maxTokens = 2000 } = {}) {
+// Preamble guard for a non-streaming Anthropic text caller. Anthropic is the
+// only provider: with no key, or while the credit breaker is open, the job
+// pauses (LlmDownError) instead of running somewhere worse.
+export async function guardLlm(env) {
   const noKey = !env.ANTHROPIC_API_KEY;
   if (noKey || (await skipPrimary(env))) {
-    if (heavy) {
-      // Heavy prose: try the HF writing fallback before pausing — an open
-      // model picked for writing quality beats no article at all. Falls back
-      // to the pause (LlmDownError) if HF is unconfigured or fails.
-      const hf = await tryHfWriter(env, { system, prompt, maxTokens });
-      if (hf != null) return { skip: true, text: hf };
-      throw new LlmDownError(noKey ? 'ANTHROPIC_API_KEY not set' : 'The main model is out of credit.');
-    }
-    return { skip: true, text: await localComplete(env, { system, prompt, maxTokens }) };
+    throw new LlmDownError(noKey ? 'ANTHROPIC_API_KEY not set' : 'The main model is out of credit.');
   }
   return { skip: false };
 }
 
-// The HF writing fallback for HEAVY jobs while the circuit is open. Returns
-// text, or null when unconfigured/failed (callers then pause as before).
-async function tryHfWriter(env, { system, prompt, maxTokens }) {
-  try {
-    const { hfConfigured, hfComplete } = await import('./hf-gateway.js');
-    if (!hfConfigured(env)) return null;
-    return await hfComplete(env, { system, prompt, maxTokens: Math.max(maxTokens, 4000) });
-  } catch (e) {
-    console.error('HF writing fallback failed:', String(e?.message || e).slice(0, 200));
-    return null;
-  }
-}
-
 // Handle a non-ok Anthropic response for a non-streaming text caller. On a
-// credit/auth error: opens the circuit, then RETURNS the local model's text
-// (light) or THROWS LlmDownError (heavy). On a transient/other error: throws a
-// plain Error (no circuit change) so the existing retry/surfacing still applies.
-export async function handleLlmFailure(env, status, bodyText, { heavy = false, system, prompt, maxTokens = 2000 } = {}) {
+// credit/auth error: opens the circuit and throws LlmDownError. On a
+// transient/other error: throws a plain Error (no circuit change) so the
+// existing retry/surfacing still applies.
+export async function handleLlmFailure(env, status, bodyText) {
   const cls = classifyLlmError(status, bodyText);
   if (cls) {
     await noteLlmDown(env, cls, `${status}: ${String(bodyText).slice(0, 200)}`);
-    if (heavy) {
-      const hf = await tryHfWriter(env, { system, prompt, maxTokens });
-      if (hf != null) return hf;
-      throw new LlmDownError(`The main model is ${cls === 'credit' ? 'out of credit' : 'rejecting the key'}.`);
-    }
-    return localComplete(env, { system, prompt, maxTokens });
+    throw new LlmDownError(`The main model is ${cls === 'credit' ? 'out of credit' : 'rejecting the key'}.`);
   }
-  throw new Error(`Anthropic ${status}: ${String(bodyText).slice(0, 400)}`);
+  throw new Error(`LLM error ${status}: ${String(bodyText).slice(0, 300)}`);
 }

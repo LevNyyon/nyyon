@@ -58,8 +58,6 @@ import { now } from './util.js';
 export const CREDENTIALS = {
   llm: [
     { key: 'ANTHROPIC_API_KEY', label: 'Anthropic API key', required: true,  secret: true,  help: 'console.anthropic.com → API keys. Everything that writes runs on this.' },
-    { key: 'OPENAI_API_KEY',    label: 'OpenAI API key',    required: false, secret: true,  help: 'Optional. Only vision (image judging) and gpt-image-1 need it.' },
-    { key: 'LLM_PROVIDER',      label: 'Provider',          required: false, secret: false, help: 'anthropic (default) or openai.' },
   ],
   whatsapp: [
     { key: 'WA_BASE_URL',   label: 'wa-gateway URL', required: true,  secret: false, help: 'e.g. https://wa.example.com/api or http://127.0.0.1:2785/api' },
@@ -81,7 +79,6 @@ export const CREDENTIALS = {
     { key: 'NYYON_GW_FACEBOOK_COMPANY_URL',  label: 'Facebook company webhook',  required: false, secret: true },
   ],
   image: [
-    { key: 'OPENAI_API_KEY', label: 'OpenAI API key', required: true, secret: true, help: 'For gpt-image-1 — image generation is off until this is set.' },
   ],
   assets: [
     { key: 'ASSETS_BASE_URL', label: 'Public asset base URL', required: false, secret: false, help: 'Public origin in front of the R2 bucket. The bucket itself is a binding.' },

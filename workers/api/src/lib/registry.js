@@ -33,22 +33,10 @@ import { listGatewayStatus } from './gateway-config.js';
 // resolver the gateways themselves read through.
 const GATEWAY_META = {
   llm:      { kind: 'saas',       knowledge: [] },
-  social:   { kind: 'saas',       knowledge: [] },
-  linkedin: { kind: 'tunnel',     knowledge: [] },
-  image:    { kind: 'saas',       knowledge: [] },
-  assets:   { kind: 'binding',    knowledge: [] },
-  // prompt-wa-reply moved into the editorial plugin (it steers the pack's
-  // digest extraction, not any host WA tool), so the host WA entry cites no
-  // knowledge doc any more.
   whatsapp: { kind: 'tunnel',     knowledge: [] },
   tts:      { kind: 'tunnel',     knowledge: ['nyo-voice'] },
   telegram: { kind: 'saas',       knowledge: ['nyo-telegram'] },
   web:      { kind: 'public-api', knowledge: [] },
-  pdl:      { kind: 'saas',       knowledge: [] },
-  twilio:   { kind: 'saas',       knowledge: [] },
-  serp:     { kind: 'saas',       knowledge: [] },
-  theorg:   { kind: 'public-api', knowledge: [] },
-  hf:       { kind: 'saas',       knowledge: ['llm-models'] },
 };
 
 // ── Workflows — the real orchestrations, grounded in code (handleScheduled in
@@ -108,7 +96,6 @@ const MODULES = [
 const TOOL_GROUPS = [
   // Pack tools land in "Other", honestly labeled as pool tools a pack provides.
   { group: 'WhatsApp',            re: /whatsapp|wa_chat|wa_group|wa_session|backfill_wa_messages|backfill_lid_map|read_group_participants|set_chat_listening/, knowledge: [] },
-  { group: 'LinkedIn',            re: /linkedin/,                                          knowledge: [] },
   { group: 'Calendar & Reminders', re: /calendar|meeting|reminder/,                        knowledge: ['meeting-reminders'] },
   { group: 'Conversations',       re: /conversation/,                                      knowledge: [] },
   { group: 'Workflows',           re: /workflow/,                                          knowledge: [] },

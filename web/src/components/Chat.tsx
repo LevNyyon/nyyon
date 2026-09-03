@@ -17,14 +17,14 @@ type Props = {
   backLabel?: string;
 };
 
-// Model tier switch. Low = local Qwen (fast/cheap, core tools only), Mid = Sonnet,
+// Model tier switch. Low = Haiku (fast/cheap), Mid = Sonnet,
 // High = Opus. Sent per message so it can be flipped mid-conversation. Default Mid
 // matches Nyo's prior behavior. The backend maps these to concrete models.
 type Tier = 'low' | 'mid' | 'high';
 const TIER_KEY = 'nyyon.nyo.tier.v1';
 const SPEECH_KEY = 'nyyon.nyo.speech.v1';
 const TIERS: { id: Tier; label: string; sub: string }[] = [
-  { id: 'low',  label: 'Low',  sub: 'Qwen · local' },
+  { id: 'low',  label: 'Low',  sub: 'Haiku' },
   { id: 'mid',  label: 'Mid',  sub: 'Sonnet' },
   { id: 'high', label: 'High', sub: 'Opus' },
 ];

@@ -4,7 +4,7 @@
 import { visibleToolDefs, runTool } from '../tools/index.js';
 import { uid, now } from '../lib/util.js';
 import { classifyLlmError, noteLlmDown, noteLlmOk } from '../lib/llm.js';
-import { llmTransportAnthropic, llmTransportOpenAICompat } from '../lib/openai.js';
+import { llmTransportAnthropic } from '../lib/openai.js';
 import { loadModelConfig } from '../lib/model-config.js';
 import { loadPlannerPersona } from '../lib/planner-persona.js';
 import { loadDontSoundAi } from '../lib/dont-sound-ai.js';
@@ -60,18 +60,6 @@ Tone: terse, direct, plain. No marketing voice. No emoji. No filler ("Sure!", "O
 // second system block (after the cached SYSTEM prefix) only when speech is on.
 const SPEECH_SYSTEM = `SPEECH MODE IS ON — the operator is LISTENING, not reading, and every reply is spoken aloud. Answer in the FEWEST words possible: all signal, no noise. One or two short sentences, aim for under 25 words. No preamble, no lists, no markdown, no headings, no emoji, no restating the question. Lead with the answer / the number / the status, then stop. Add detail ONLY if the operator explicitly asks for it. This is a quick operational back-and-forth, not an essay.`;
 
-// Lean system prompt for the LOW tier (a fast small API model). The full SYSTEM above
-// (~thousands of tokens, written for Claude + ~130 tools) overwhelms a 3B: prompt
-// eval alone can blow the 60s hop budget, and the model gets lost. This is scoped
-// to exactly the LOW_TOOLS set and keeps the model fast + on-task.
-const LOW_SYSTEM = `You are Nyo, the operator's assistant in the Nyyon Command Center, running on the install's small fast model. Be terse and direct — plain answers, no filler, no marketing voice, no emoji.
-
-You have a SMALL tool set. Use a tool ONLY when the question needs live data or an action; otherwise just answer from what you know.
-- Knowledge / awareness: list_knowledge, read_knowledge, read_knowledge_path (the operator's docs); list_events (what changed recently).
-- WhatsApp: list_wa_chats (recent chats + last message), find_wa_chat (find a person by name), list_wa_groups, read_group_participants, send_whatsapp / send_whatsapp_image / send_whatsapp_document, react_whatsapp.
-- Diagnostics: check_health, probe_linkedin, restart_wa_session.
-
-Discipline: never repeat a tool call within a turn. After at most one or two tool calls, STOP and answer with what you have. If the request needs a capability NOT in the list above (a module's tools, deploys, anything heavier), don't guess and don't call knowledge tools hunting for it — say it's not available on Low and suggest switching to Mid or High. Answer exactly what was asked, nothing more.`;
 
 // Bounded wait so a wedged tool or provider call can never hang the SSE stream
 // (and thus Nyo) forever — it rejects, the loop records the error, and the turn
@@ -113,7 +101,6 @@ const READONLY_PREFIX = /^(list_|read_|get_|find_|search_|fetch_|probe_|check_|a
 const isMutatingTool = (name) => !READONLY_PREFIX.test(String(name || ''));
 
 const LLM_TIMEOUT_MS  = 60_000;   // any single provider hop
-const LOCAL_LLM_TIMEOUT_MS = 120_000; // local model (Low) — allow for a cold model load
 
 export async function handleChat(env, { messages, conversation_id, tier, speech = false, agent = null }) {
   // Credentials are DB-first (Settings stores them in gateway_config; env is
@@ -125,29 +112,11 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
   // Low / Mid / High model switch (sent per message; changeable mid-conversation).
   // Models resolve doc > env > default (the llm-models knowledge doc / Settings).
   const mc = await loadModelConfig(env).catch(() => null);
-  const { pickBackupLlm } = await import('../gateways/index.js');
-  const backupSlug = await pickBackupLlm(env);
-  let cfg = resolveTier(env, tier, mc, backupSlug);
-  // Low tier with nothing to run it (no backup plugin, no self-hosted
-  // endpoint) is a preference, not a fatal state — a stale 'low' in one
-  // browser was answering a bare 500 on an install with a perfectly good
-  // Anthropic key. Upgrade the turn transparently.
-  if (cfg.tier === 'low' && !cfg.gatewaySlug && !cfg.baseUrl && env.ANTHROPIC_API_KEY) {
-    cfg = resolveTier(env, 'mid', mc, backupSlug);
-  }
-  const keyMissing =
-    (cfg.provider === 'anthropic' && !env.ANTHROPIC_API_KEY) ||
-    (cfg.provider === 'openai'    && !cfg.apiKey && !cfg.gatewaySlug);
-  if (keyMissing) {
-    // No main model key. If a backup-brain plugin is installed, an install
-    // with no key is still a working install — that is the entire point of it.
-    const backup = backupSlug ? resolveTier(env, 'low', mc, backupSlug) : null;
-    if (!backup) {
-      return new Response(JSON.stringify({ error: 'No model is connected. Add an Anthropic key in Settings — nothing that needs a model can run without one.' }), {
-        status: 400, headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    cfg = backup;
+  const cfg = resolveTier(env, tier, mc);
+  if (!env.ANTHROPIC_API_KEY) {
+    return new Response(JSON.stringify({ error: 'No model is connected. Add an Anthropic key in Settings — nothing that needs a model can run without one.' }), {
+      status: 400, headers: { 'Content-Type': 'application/json' },
+    });
   }
 
   const convId = conversation_id || uid();
@@ -185,21 +154,12 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
       // Low (local Qwen) gets a curated allow-list (WhatsApp + diagnostics +
       // knowledge): a 3B picks badly from 121, and the tool-search deferral trick
       // is Claude-only. Mid/High get the full deferred set.
-      let activeCfg = cfg;
-      let tools = cfg.toolAllow ? allTools.filter((t) => cfg.toolAllow.has(t.name)) : allTools;
+      const activeCfg = cfg;
+      let tools = allTools;
       // Daily Planner is disconnected from the calendar + task list for now.
       if (agent === 'daily-planner') tools = tools.filter((t) => !PLANNER_DENY_TOOLS.has(t.name));
-      // On the free tier every hop resends everything and the budget is
-      // ~8K tokens/minute — WhatsApp and diagnostics defs are dead weight in a
-      // planning conversation and their absence halves the burn per hop.
-      if (cfg.gatewaySlug && agent === 'daily-planner') {
-        const essentials = new Set(['read_daily_plan', 'save_daily_plan', 'update_daily_plan', 'search_daily_plans',
-          'list_recent_plans', 'read_weekly_objectives', 'set_weekly_objectives', 'list_knowledge', 'read_knowledge']);
-        tools = tools.filter((t) => essentials.has(t.name));
-      }
-      let fellBack = false;   // true once we've swapped mid/high → local this turn
       let notedOk  = false;   // close the credit circuit at most once per turn
-      send('start', { conversation_id: convId, tier: cfg.tier, model: cfg.model || 'free backup model', tools: tools.map((t) => t.name) });
+      send('start', { conversation_id: convId, tier: cfg.tier, model: cfg.model, tools: tools.map((t) => t.name) });
 
       // Per-turn dedup: an identical tool call (same name + inputs) returns the
       // cached result instead of re-running. Kills the "read the same doc / run
@@ -208,8 +168,6 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
       let mutationSucceeded = false;   // any mutating tool returned OK this turn
       let claimGuardFired = false;     // the claim-vs-action guard runs at most once
 
-      let throttleWaits = 0;   // free-tier TPM absorbed silently, at most twice a turn
-      let flubRetries = 0;     // free-model mangled tool calls resampled, at most twice a turn
       for (let hop = 0; hop < 8; hop++) {
         const res = await callLLM(env, convo, tools, activeCfg, speech, personaSystem, styleWeld);
         if (!res.ok) {
@@ -218,45 +176,14 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
           // the wrapper — the envelope hid the 'free model:' label from every
           // downstream match and the operator got a raw blob.
           try { const j = JSON.parse(errText); errText = String(j?.error?.message || j?.message || errText); } catch { /* already plain */ }
-          // Small models sometimes emit a tool call that fails validation
-          // (dropped underscores, wrong arg shape). That is a dice roll, not a
-          // condition — roll again instead of reporting it.
-          if (activeCfg.gatewaySlug && /tool.?call validation|tool_use_failed|did not match schema/i.test(errText) && flubRetries < 2) {
-            flubRetries++;
-            hop--;
-            continue;
-          }
-          // The free tier throttles per minute, and a multi-hop turn is exactly
-          // what trips it. A short "try again in Ns" is absorbed here — the
-          // operator sees a pause, not an error about a working model.
-          if (activeCfg.gatewaySlug && res.status === 429 && throttleWaits < 2) {
-            const m = errText.match(/try again in ([0-9.]+)\s*(ms|s)/i);
-            const waitS = m ? (m[2].toLowerCase() === 'ms' ? Number(m[1]) / 1000 : Number(m[1])) : NaN;
-            if (Number.isFinite(waitS) && waitS <= 12) {
-              throttleWaits++;
-              await new Promise((r) => setTimeout(r, Math.ceil(waitS * 1000) + 500));
-              hop--;
-              continue;
-            }
-          }
-          const cls = activeCfg.provider === 'anthropic' ? classifyLlmError(res.status, errText) : null;
-          // Main model out of credit / key rejected → open the circuit + fall
-          // back to the local model ONCE for the rest of this turn.
-          if (cls && !fellBack) {
-            await noteLlmDown(env, cls, errText);
-            const low = resolveTier(env, 'low', mc, backupSlug);
-            if (low.gatewaySlug || (low.baseUrl && low.apiKey)) {
-              fellBack = true;
-              activeCfg = low;
-              tools = allTools.filter((t) => low.toolAllow.has(t.name));
-              await send('delta', { text: `\n\n_(The main model is unavailable, so this is running on the free backup model. Replies will be simpler until the main model is back.)_\n\n` });
-              continue;
-            }
-          }
+          const cls = classifyLlmError(res.status, errText);
+          // Out of credit / key rejected → open the circuit (one Nyo alert,
+          // health dot) and report plainly. There is no second brain to fall to.
+          if (cls) await noteLlmDown(env, cls, errText);
           await send('error', { message: errText.slice(0, 800) });
           break;
         }
-        if (activeCfg.provider === 'anthropic' && !notedOk) { notedOk = true; await noteLlmOk(env); }
+        if (!notedOk) { notedOk = true; await noteLlmOk(env); }
         const data = await res.json();
 
         for (const block of (data.content || [])) {
@@ -357,45 +284,17 @@ export async function handleChat(env, { messages, conversation_id, tier, speech 
 // Tiny abstraction so we can swap Anthropic out later. Every provider must
 // return a Response whose JSON body matches the Anthropic Messages shape
 // (stop_reason, content[]) — that way the tool-use loop above doesn't care.
-// The operator's Low / Mid / High switch. Each tier resolves to a provider +
-// model; the tier is sent per message so it can change mid-conversation. Because
-// the loop keeps history in Anthropic shape and callOpenAI adapts both ways,
-// switching tiers between turns is seamless. Models are env-overridable.
-//   low  → a fast small API model (Haiku), curated tool
-//          set (LOW_TOOLS: WhatsApp + diagnostics + knowledge).
-//   mid  → Claude Sonnet.    high → Claude Opus.
-function resolveTier(env, tier, mc = null, backupSlug = null) {
+// The operator's Low / Mid / High switch: three Anthropic models, sent per
+// message so it can change mid-conversation. Models resolve doc > env > default.
+function resolveTier(env, tier, mc = null) {
   const t = String(tier || 'mid').toLowerCase();
-  if (t === 'low') {
-    // An installed backup-brain plugin wins: it carries its own key and its own
-    // model choice, so the host neither stores nor names either. A self-hosted
-    // OpenAI-compatible endpoint stays supported for anyone who has one.
-    if (backupSlug) {
-      return {
-        tier: 'low', provider: 'openai',
-        gatewaySlug: backupSlug,
-        model: null,                // the plugin picks: it knows what it connected to
-        tokenParam: 'max_tokens',
-        toolAllow: LOW_TOOLS,
-      };
-    }
-    return {
-      tier: 'low', provider: 'openai',
-      model:   mc?.nyo_low || env.NYO_MODEL_LOW || 'claude-haiku-4-5',
-      baseUrl: (env.OLLAMA_BASE_URL || '').replace(/\/+$/, ''),
-      apiKey:  env.OLLAMA_API_KEY,
-      tokenParam: 'max_tokens',   // an OpenAI shim wants max_tokens, not max_completion_tokens
-      toolAllow: LOW_TOOLS,
-    };
-  }
+  if (t === 'low')  return { tier: 'low',  provider: 'anthropic', model: mc?.nyo_low  || env.NYO_MODEL_LOW  || 'claude-haiku-4-5' };
   if (t === 'high') return { tier: 'high', provider: 'anthropic', model: mc?.nyo_high || env.NYO_MODEL_HIGH || 'claude-opus-4-8' };
   return { tier: 'mid', provider: 'anthropic', model: mc?.nyo_mid || env.NYO_MODEL_MID || 'claude-sonnet-5' };
 }
 
 async function callLLM(env, messages, tools, cfg, speech = false, personaSystem = null, styleWeld = '') {
-  if (cfg.provider === 'anthropic') return callAnthropic(env, messages, tools, cfg, speech, personaSystem, styleWeld);
-  if (cfg.provider === 'openai')    return callOpenAI(env, messages, tools, cfg, speech, personaSystem, styleWeld);
-  return new Response(`Unknown provider: ${cfg.provider}`, { status: 500 });
+  return callAnthropic(env, messages, tools, cfg, speech, personaSystem, styleWeld);
 }
 
 // Tools that load up front (Nyo's bread-and-butter — used on almost every turn).
@@ -407,27 +306,6 @@ const HOT_TOOLS = new Set([
   'list_knowledge', 'read_knowledge', 'read_knowledge_path', 'list_events',
 ]);
 
-// Low (local Qwen) can't use Claude's deferred tool-search, so it gets a fixed,
-// hand-picked set sized for a 3B: the everyday operator basics — WhatsApp
-// (read + reply) and diagnostics (is-everything-up) — plus knowledge lookups.
-// Everything heavier (module writes, long compositions) is Mid/High territory.
-const LOW_TOOLS = new Set([
-  // knowledge / awareness
-  'list_knowledge', 'read_knowledge', 'read_knowledge_path', 'list_events',
-  // WhatsApp — the basic day-to-day: read chats (list_wa_chats returns each
-  // chat's last message snippet — the "latest messages" view), find a person, reply.
-  // Deliberately NO backfill_wa_messages here: it's a slow wa-gateway history sync a
-  // 3B kept mis-picking for simple "show me messages" reads. It's a Mid/High recovery op.
-  'list_wa_chats', 'find_wa_chat', 'list_wa_groups', 'read_group_participants',
-  'send_whatsapp', 'send_whatsapp_image', 'send_whatsapp_document', 'react_whatsapp',
-  // diagnostics — "is everything up?" + recovery
-  'check_health', 'probe_linkedin', 'restart_wa_session',
-  // Daily Planner — the whole pack. When the main model is down, planning is
-  // exactly the daily work an install must not lose, and these tools are
-  // small, schema'd CRUD a local model handles fine.
-  'read_daily_plan', 'save_daily_plan', 'update_daily_plan', 'search_daily_plans',
-  'list_recent_plans', 'read_weekly_objectives', 'set_weekly_objectives',
-]);
 
 const TOOL_SEARCH = { type: 'tool_search_tool_regex_20251119', name: 'tool_search_tool_regex' };
 
@@ -460,123 +338,6 @@ async function callAnthropic(env, messages, tools, cfg, speech = false, personaS
   }, { timeoutMs: LLM_TIMEOUT_MS });
 }
 
-// OpenAI chat-completions wrapper. Translates request shape on the way in
-// (tools[] format differs) and response shape on the way out (tool_calls →
-// tool_use blocks, finish_reason → stop_reason) so the loop sees Anthropic
-// shape no matter which provider answered.
-async function callOpenAI(env, messages, tools, cfg = {}, speech = false, personaSystem = null) {
-  // Works for any OpenAI-compatible endpoint. For tier 'low' the cfg points at the
-  // an optional self-hosted OpenAI-compatible base URL; with no cfg it falls
-  // back to OpenAI proper.
-  // When a backup-brain plugin is the transport it decides its own model
-  // (it knows which provider it connected to), so send null rather than a
-  // host default the provider would reject.
-  const model  = cfg.gatewaySlug ? (cfg.model || null) : (cfg.model || env.LLM_MODEL || env.OPENAI_MODEL || 'gpt-4o');
-  const base   = cfg.baseUrl || 'https://api.openai.com/v1';
-  const apiKey = cfg.apiKey || env.OPENAI_API_KEY;
-  const tokenField = cfg.tokenParam || 'max_completion_tokens';
-
-  // 1. translate tools: {name, description, input_schema} → {type:'function', function:{...}}
-  const openaiTools = (tools || []).map((t) => ({
-    type: 'function',
-    function: { name: t.name, description: t.description, parameters: t.input_schema },
-  }));
-
-  // 2. translate messages: Anthropic content[] blocks → OpenAI string or tool_calls.
-  // Low tier (local 3B) gets the lean LOW_SYSTEM; a real OpenAI-provider call gets the full SYSTEM.
-  let baseSys = personaSystem || ((cfg.tier === 'low' ? LOW_SYSTEM : SYSTEM) + (styleWeld || ''));
-  // The model must know what it is running on. Without this, a free model
-  // asked "which model is this?" INVENTS an answer — one install confidently
-  // explained it was "wired to an Anthropic model that requires an active
-  // credit balance" on a system with no Anthropic anything. Ground truth in
-  // the system prompt is the only cure for confabulated infrastructure.
-  if (cfg.gatewaySlug) {
-    baseSys += `\n\nMODEL GROUND TRUTH: You are running on this install's connected FREE model — a deliberate, fully working configuration. There is no Anthropic account here, no credit problem, and nothing to switch or fix. Never tell the operator a model is down, unconfigured, or needs payment. If asked which model is answering: the install's free model, working normally.`;
-  }
-  const openaiMessages = [{ role: 'system', content: speech ? baseSys + '\n\n' + SPEECH_SYSTEM : baseSys }];
-  for (const m of messages) {
-    if (typeof m.content === 'string') {
-      openaiMessages.push({ role: m.role, content: m.content });
-      continue;
-    }
-    // Array content — could be text + tool_use (assistant) or tool_result (user).
-    if (m.role === 'assistant') {
-      const text  = m.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
-      const calls = m.content.filter((b) => b.type === 'tool_use').map((b) => ({
-        id: b.id, type: 'function', function: { name: b.name, arguments: JSON.stringify(b.input || {}) },
-      }));
-      openaiMessages.push({ role: 'assistant', content: text || null, ...(calls.length ? { tool_calls: calls } : {}) });
-    } else if (m.role === 'user') {
-      // User content with tool_result blocks → individual tool messages in OpenAI.
-      const results = m.content.filter((b) => b.type === 'tool_result');
-      if (results.length) {
-        for (const r of results) openaiMessages.push({ role: 'tool', tool_call_id: r.tool_use_id, content: typeof r.content === 'string' ? r.content : JSON.stringify(r.content) });
-      } else {
-        const text = m.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
-        openaiMessages.push({ role: 'user', content: text });
-      }
-    }
-  }
-
-  // Token cap field varies: OpenAI gpt-5.x wants max_completion_tokens; Ollama's
-  // OpenAI shim wants max_tokens. cfg.tokenParam selects the right one per tier.
-  const reqBody = { model, messages: openaiMessages, tools: openaiTools.length ? openaiTools : undefined };
-  reqBody[tokenField] = 4096;
-  const upstream = cfg.gatewaySlug
-    ? await backupBrainTransport(env, cfg.gatewaySlug, reqBody)
-    : await llmTransportOpenAICompat(env, {
-        base, apiKey, body: reqBody,
-        timeoutMs: cfg.tier === 'low' ? LOCAL_LLM_TIMEOUT_MS : LLM_TIMEOUT_MS,
-      });
-  if (!upstream.ok) return upstream;
-  const data = await upstream.json();
-  const choice = data.choices?.[0];
-  const msg = choice?.message || {};
-
-  // 3. translate response back to Anthropic shape.
-  const content = [];
-  if (msg.content) content.push({ type: 'text', text: msg.content });
-  for (const c of (msg.tool_calls || [])) {
-    let input = {};
-    try { input = JSON.parse(c.function?.arguments || '{}'); } catch { /* leave empty */ }
-    content.push({ type: 'tool_use', id: c.id, name: c.function?.name, input });
-  }
-  const stop_reason = choice?.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn';
-
-  return new Response(JSON.stringify({ stop_reason, content }), {
-    status: 200, headers: { 'Content-Type': 'application/json' },
-  });
-}
-
-// Send an OpenAI-shaped request through an installed backup-brain plugin and
-// hand back a Response, so callOpenAI's translation is identical either way.
-// The plugin owns the key, the provider and the payload quirks; the host only
-// knows it asked something for a completion.
-async function backupBrainTransport(env, slug, reqBody) {
-  const { callGateway } = await import('../gateways/index.js');
-  const hdr = { 'Content-Type': 'application/json' };
-  let g;
-  try {
-    g = await callGateway(env, slug, 'chat', {
-      messages: reqBody.messages,
-      tools: reqBody.tools,
-      model: reqBody.model || null,
-      max_tokens: reqBody.max_tokens || reqBody.max_completion_tokens || 4096,
-    });
-  } catch (e) {
-    return new Response(JSON.stringify({ error: { message: `free model: ${String(e?.message || e)}` } }), { status: 502, headers: hdr });
-  }
-  if (!g?.ok || !g?.body) {
-    // Name the origin. An unlabelled provider error gets pattern-matched
-    // downstream — a Groq rate-limit message containing a billing link was
-    // confidently presented to an operator as an ANTHROPIC credit problem on
-    // an install with no Anthropic anything.
-    return new Response(JSON.stringify({ error: { message: `free model: ${g?.error || 'no answer'}` } }), {
-      status: g?.status || 502, headers: hdr,
-    });
-  }
-  return new Response(JSON.stringify(g.body), { status: 200, headers: hdr });
-}
 
 // `firstUserText` titles the row on creation so the history list is readable.
 // Without it every conversation persisted with title=NULL and the operator's

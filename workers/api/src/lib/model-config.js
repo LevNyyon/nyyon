@@ -23,10 +23,8 @@ export function modelDefaults(env) {
     nyo_high:     env.NYO_MODEL_HIGH || 'claude-opus-4-8',
     writer:       env.ANTHROPIC_MODEL || 'claude-opus-4-8',
     writer_small: env.ANTHROPIC_SMALL_MODEL || 'claude-haiku-4-5-20251001',
-    vision:       env.OPENAI_VISION_MODEL || 'gpt-4o-mini',
     // HF Inference Providers model the heavy writers fall back to when the
     // Anthropic credit breaker is open. Picked for prose quality, not code.
-    writer_fallback: env.HF_WRITER_MODEL || '',
   };
 }
 
@@ -88,8 +86,6 @@ function seedBody(models) {
 - \`nyo_low\` / \`nyo_mid\` / \`nyo_high\` — the chat tier switch (Low = fast + cheap, High = deep reasoning)
 - \`writer\` — heavy background writers from installed modules (digest synthesis, article writers)
 - \`writer_small\` — the cheap utility model "mini/haiku" call sites map to
-- \`vision\` — image judging (featured-image picker)
-- \`writer_fallback\` — the Hugging Face model heavy writers use while Anthropic credit is out (empty = writers pause instead)
 
 \`\`\`json
 ${JSON.stringify(models, null, 2)}

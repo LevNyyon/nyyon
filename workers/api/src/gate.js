@@ -211,7 +211,7 @@ export function gate() {
     const ok = await verifyToken(c.env.GATE_SECRET, readCookie(c, COOKIE)).catch(() => false);
     if (ok) return next();
 
-    if (path.startsWith('/api') || path === '/health') {
+    if (path.startsWith('/api')) {
       return c.json({ ok: false, error: 'unauthorized' }, 401);
     }
 

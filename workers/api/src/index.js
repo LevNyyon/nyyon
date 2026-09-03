@@ -9,8 +9,7 @@ import {
   queueNyoMessage, listPendingNyoMessages, markNyoMessageDelivered, recentNyoMessages,
   logEvent,
   listCalendarEvents, readCalendarEvent, upsertCalendarEvent, deleteCalendarEvent,
-  CALENDAR_KINDS, CALENDAR_STATUSES,
-  listWorkflows, readWorkflow, writeWorkflow, deleteWorkflow, listWorkflowRuns, logWorkflowRun,
+    logWorkflowRun,
   listSections, patchSection, upsertSection, reorderSections, deleteSection,
   listFlags, setFlag,
 } from './lib/db.js';
@@ -28,14 +27,12 @@ import {
 } from './lib/whatsapp.js';
 import { handleChat } from './chat/index.js';
 // GTM (Prospecting + Outreach) ships as a plugin now; the theorg probe stays
-// host because the theorg gateway is host infrastructure (lib/enrich-gateways.js).
-import { probeTheorg } from './lib/enrich-gateways.js';
 import { runTool } from './tools/index.js';
 import { callGateway } from './gateways/index.js';
 import { runWorkflow } from './workflows/runner.js';
 import { getLlmHealth } from './lib/llm.js';
 import { listConversations, readConversation, renameConversation, deleteConversation } from './lib/conversations.js';
-import { gate, handleGateLogin, handleGateLogout, issueGateSession, hasGateSession } from './gate.js';
+import { gate, handleGateLogin, issueGateSession, hasGateSession } from './gate.js';
 // First-run setup. The install store is the security boundary (how far has this
 // copy been claimed?); lib/onboarding.js is the conversation engine and the
 // only thing the routes below talk to.
@@ -108,9 +105,7 @@ app.use('*', async (c, next) => {
 
 app.use('*', gate());
 app.post('/__gate/login', handleGateLogin);
-app.post('/__gate/logout', handleGateLogout);
 
-app.get('/health', (c) => c.json({ ok: true, ts: Date.now() }));
 
 // ─── first-run setup ──────────────────────────────────────────
 // The sequence a new operator walks: their account (a form — it creates the
@@ -563,51 +558,6 @@ app.get('/api/system/health', async (c) => {
   // 8. GTM gateways — but ONLY on installs that HAVE the GTM plugin. A
   //    health panel probing a module that is not installed is how a fresh
   //    scoped install ends up warning about things it does not contain.
-  const hasGtm = await env.DB.prepare(
-    "SELECT 1 AS x FROM plugins WHERE name = 'gtm' AND status IN ('active','bound')",
-  ).first().then((r) => !!r?.x).catch(() => false);
-  if (hasGtm) {
-  // GTM gateways — the module's own external dependencies. WhatsApp +
-  //    LinkedIn ride the shared gateway checks above (same servers — the GTM
-  //    contact-lookup and company/jobs endpoints live on them). What's GTM-
-  //    specific: theorg (org charts, public GraphQL, the Enrich tab's hard
-  //    dependency) and the three OPTIONAL paid enrichment keys.
-  try {
-    // Through the theorg gateway probe — reachability only, never burns quota.
-    const r = await probeTheorg(env);
-    if (!r.ok) throw new Error(r.error || 'probe failed');
-    checks.push({
-      name: `GTM · theorg (org charts) · HTTP ${r.http}`,
-      status: 'green', severity: 'degraded', note: null,
-    });
-  } catch (e) {
-    checks.push({
-      name: 'GTM · theorg (org charts)',
-      status: 'yellow', severity: 'degraded',
-      note: `unreachable (${String(e?.message || e).slice(0, 100)}) — Enrich-tab org charts + outreach org verification will fail`,
-    });
-  }
-  {
-    // Optional paid legs: configured-or-not only (a health check must never
-    // burn paid API credits). Unset keys don't degrade the overall status —
-    // the enrichment chain skips those legs gracefully — but they're listed
-    // so the operator can see at a glance what's off.
-    const gtmKeys = [
-      ['PDL',     !!env.PDL_API_KEY,                                    'PDL_API_KEY'],
-      ['SerpApi', !!env.SERPAPI_KEY,                                    'SERPAPI_KEY'],
-      ['Twilio',  !!(env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN),  'TWILIO_ACCOUNT_SID + TWILIO_AUTH_TOKEN'],
-    ];
-    const unset = gtmKeys.filter(([, ok]) => !ok);
-    checks.push({
-      name: `GTM · enrichment keys (${gtmKeys.length - unset.length}/${gtmKeys.length} configured)`,
-      status: 'green',
-      severity: 'degraded',
-      note: unset.length
-        ? `optional — these legs skip until set: ${unset.map(([n, , s]) => `${n} (wrangler secret put ${s.split(' ')[0]})`).join(' · ')}`
-        : null,
-    });
-  }
-  } // hasGtm
 
   // Roll up: red beats yellow beats green. 'off' is invisible to the roll-up
   // — not connected is a state, not a problem.
@@ -653,11 +603,6 @@ app.get('/api/nyo/pending', async (c) => {
 app.post('/api/nyo/pending/:id/deliver', async (c) => {
   await markNyoMessageDelivered(c.env, c.req.param('id'));
   return c.json({ ok: true });
-});
-app.get('/api/nyo/messages', async (c) => {
-  // Full history surface (for an inbox-style view if we want one later).
-  const limit = parseInt(c.req.query('limit') || '50', 10);
-  return c.json({ messages: await recentNyoMessages(c.env, { limit }) });
 });
 app.post('/api/nyo/pending', async (c) => {
   // Manual queueing — handy for the scheduler.sh hook or for Nyo itself to
@@ -737,156 +682,9 @@ app.delete('/api/knowledge/:slug', async (c) => {
 // One-year immutable cache — the slug is in the path, regenerate overwrites
 // the same key, browsers must hard-reload to see the new image (the ops
 // "regenerate" button busts cache by appending ?t=<ts>).
-app.get('/assets/blog/:filename', async (c) => {
-  const key = `blog/${c.req.param('filename')}`;
-  if (!c.env.ASSETS) return c.json({ error: 'ASSETS R2 binding missing' }, 500);
-  const obj = await c.env.ASSETS.get(key);
-  if (!obj) return c.json({ error: 'not found' }, 404);
-  return new Response(obj.body, {
-    headers: {
-      'Content-Type':  obj.httpMetadata?.contentType || 'image/png',
-      'Cache-Control': 'public, max-age=31536000, immutable',
-      'ETag':          obj.httpEtag || '',
-    },
-  });
-});
-
-// Article figures + covers live under blog-figures/ in the same bucket. In
-// --local dev the public r2.dev URLs 404 (objects are in the local R2 sim), so
-// the ops app rewrites figure URLs to this same-origin route to preview them.
-app.get('/assets/blog-figures/:filename', async (c) => {
-  const key = `blog-figures/${c.req.param('filename')}`;
-  if (!c.env.ASSETS) return c.json({ error: 'ASSETS R2 binding missing' }, 500);
-  const obj = await c.env.ASSETS.get(key);
-  if (!obj) return c.json({ error: 'not found' }, 404);
-  return new Response(obj.body, {
-    headers: {
-      'Content-Type':  obj.httpMetadata?.contentType || 'image/png',
-      'Cache-Control': 'public, max-age=31536000, immutable',
-      'ETag':          obj.httpEtag || '',
-      'Access-Control-Allow-Origin': '*',
-    },
-  });
-});
-
-// Social cards live under social/ in the same bucket — same serving rules.
-app.get('/assets/social/:filename', async (c) => {
-  const key = `social/${c.req.param('filename')}`;
-  if (!c.env.ASSETS) return c.json({ error: 'ASSETS R2 binding missing' }, 500);
-  const obj = await c.env.ASSETS.get(key);
-  if (!obj) return c.json({ error: 'not found' }, 404);
-  return new Response(obj.body, {
-    headers: {
-      'Content-Type':  obj.httpMetadata?.contentType || 'image/png',
-      'Cache-Control': 'public, max-age=31536000, immutable',
-      'ETag':          obj.httpEtag || '',
-    },
-  });
-});
-
 // ─── workflows (visibility into stitched pipelines + their runs) ──
-app.get('/api/workflows', async (c) => {
-  const source = c.req.query('source') || null;
-  const status = c.req.query('status') || null;
-  // Seed the code-logged system slugs before listing so their run history is
-  // never orphaned on a fresh DB (idempotent INSERT OR IGNORE).
-  const { seedSystemWorkflows } = await import('./workflows/runner.js');
-  await seedSystemWorkflows(c.env).catch(() => {});
-  return c.json({ workflows: await listWorkflows(c.env, { source, status }) });
-});
-app.get('/api/workflows/runs', async (c) => {
-  const limit = parseInt(c.req.query('limit') || '50', 10);
-  return c.json({ runs: await listWorkflowRuns(c.env, { limit }) });
-});
-app.get('/api/workflows/:slug', async (c) => {
-  const w = await readWorkflow(c.env, c.req.param('slug'));
-  if (!w) return c.json({ error: 'not found' }, 404);
-  return c.json({ workflow: w });
-});
-app.get('/api/workflows/:slug/runs', async (c) => {
-  const limit = parseInt(c.req.query('limit') || '50', 10);
-  return c.json({ runs: await listWorkflowRuns(c.env, { workflow_slug: c.req.param('slug'), limit }) });
-});
-app.put('/api/workflows/:slug', async (c) => {
-  const body = await c.req.json();
-  try {
-    // Same gate as the write_workflow tool: steps must reference live tools,
-    // or the workflow only fails later at run time.
-    const { validateWorkflowSteps } = await import('./workflows/runner.js');
-    const problems = await validateWorkflowSteps(c.env, body.steps);
-    if (problems.length) return c.json({ error: 'invalid steps', problems }, 400);
-    return c.json({ workflow: await writeWorkflow(c.env, { ...body, slug: c.req.param('slug') }) });
-  }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.delete('/api/workflows/:slug', async (c) => {
-  await deleteWorkflow(c.env, c.req.param('slug'));
-  return c.json({ ok: true });
-});
-
 // ─── calendar (central event store, any module writes here) ─
-app.get('/api/calendar', async (c) => {
-  const from   = c.req.query('from');
-  const to     = c.req.query('to');
-  const kind   = c.req.query('kind');
-  const source = c.req.query('source');
-  const limit  = parseInt(c.req.query('limit') || '1000', 10);
-  const events = await listCalendarEvents(c.env, {
-    from:   from ? parseInt(from, 10) : null,
-    to:     to   ? parseInt(to,   10) : null,
-    kind:   kind   || null,
-    source: source || null,
-    limit,
-  });
-  return c.json({ events });
-});
-app.get('/api/calendar/taxonomy', (c) => c.json({ kinds: CALENDAR_KINDS, statuses: CALENDAR_STATUSES }));
-app.get('/api/calendar/events/:id', async (c) => {
-  const e = await readCalendarEvent(c.env, c.req.param('id'));
-  if (!e) return c.json({ error: 'not found' }, 404);
-  return c.json({ event: e });
-});
-app.post('/api/calendar/events', async (c) => {
-  const body = await c.req.json();
-  try { return c.json({ event: await upsertCalendarEvent(c.env, body) }, 201); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.put('/api/calendar/events/:id', async (c) => {
-  const body = await c.req.json();
-  try { return c.json({ event: await upsertCalendarEvent(c.env, { ...body, id: c.req.param('id') }) }); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.delete('/api/calendar/events/:id', async (c) => {
-  await deleteCalendarEvent(c.env, c.req.param('id'));
-  return c.json({ ok: true });
-});
-
 // ─── meeting reminders (WhatsApp self-message before meetings) ─
-app.get('/api/reminders', async (c) => {
-  const { upcomingReminders } = await import('./lib/reminders.js');
-  const { settings, events } = await upcomingReminders(c.env);
-  const recent = await c.env.DB.prepare(
-    "SELECT kind, payload, created_at FROM events WHERE kind IN ('meeting_reminder_sent','meeting_reminder_failed') ORDER BY created_at DESC LIMIT 20",
-  ).all();
-  return c.json({
-    settings,
-    upcoming: events,
-    recent: (recent.results || []).map((e) => ({ ...e, payload: JSON.parse(e.payload || '{}') })),
-  });
-});
-app.put('/api/reminders', async (c) => {
-  const { updateReminderSettings } = await import('./lib/reminders.js');
-  try { return c.json({ settings: await updateReminderSettings(c.env, await c.req.json()) }); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.post('/api/reminders/check', async (c) => {
-  // Same gate as the poll: the workflow's mandatory send step would fail on
-  // "text required" with nothing due, so an empty tick answers without a run.
-  const due = await runTool(c.env, 'list_due_meetings', {});
-  if (!due.due_meetings?.length) return c.json({ ...due, ran: false });
-  return c.json(await runWorkflow(c.env, 'meeting-reminders', {}, { trigger_kind: 'manual' }));
-});
-
 // ─── Sunday Brain + AEO + article-figures routes removed — the whole
 // editorial engine (brain, feedback/taste, question queue, suggestions,
 // figures/covers) ships in the editorial plugin.
@@ -904,9 +702,6 @@ app.post('/api/reminders/check', async (c) => {
 // /api/plugins/editorial/invoke/*.
 
 // ─── LinkedIn (via Unipile — hosted sessions, hosted auth) ─
-app.get('/api/li/probe', async (c) => c.json(await runTool(c.env, 'probe_linkedin', {})));
-// Connecting an account is Unipile's hosted auth page: this returns the URL
-// the operator opens. Cookie pasting is gone with the daemon it belonged to.
 // ─── Plugins (trade capabilities between nyyon systems) ─────────────────
 // Operator surface (gated): list / import / export / remove.
 // Applier surface (bearer NYYON_APPLIER_KEY, exempted in gate.js):
@@ -1043,51 +838,6 @@ app.post('/api/telegram/inbound', async (c) => {
   return c.json({ ok: true });
 });
 
-app.post('/api/li/connect-link', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  try { return c.json(await callGateway(c.env, 'linkedin', 'connect_link', body)); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 400); }
-});
-app.get('/api/li/me',    async (c) => safeLi(c, () => runTool(c.env, 'read_my_linkedin_profile', {})));
-app.get('/api/li/profile/:public_id', async (c) => safeLi(c, () => runTool(c.env, 'read_linkedin_profile', { public_id: c.req.param('public_id') })));
-app.get('/api/li/feed',  async (c) => safeLi(c, () => runTool(c.env, 'get_linkedin_feed', { count: parseInt(c.req.query('count') || '20', 10) })));
-app.get('/api/li/conversations', async (c) => safeLi(c, () => runTool(c.env, 'list_linkedin_dms', { limit: parseInt(c.req.query('limit') || '25', 10) })));
-app.get('/api/li/conversations/:urn/messages', async (c) =>
-  safeLi(c, () => runTool(c.env, 'read_linkedin_dm', { conversation_urn: c.req.param('urn'), limit: parseInt(c.req.query('limit') || '25', 10) })),
-);
-app.post('/api/li/search/people', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  return safeLi(c, () => runTool(c.env, 'search_linkedin_people', { keywords: body?.keywords, limit: body?.limit }));
-});
-app.post('/api/li/messages/send', async (c) => {
-  // NOTE the collision: `body` here is the parsed REQUEST, body.body is the
-  // message text. Failures still throw (safeLi → 500) — that is the
-  // no-false-sent guardrail; never soften it to ok:false.
-  const body = await c.req.json().catch(() => ({}));
-  return safeLi(c, () => runTool(c.env, 'send_linkedin_dm', { profile_urn_id: body?.profile_urn_id, body: body?.body, actor: 'operator' }));
-});
-app.post('/api/li/connections/request', async (c) => {
-  // profile_urn must keep being forwarded: it is what lets the gateway skip the
-  // dead (HTTP 410) profile lookup.
-  const body = await c.req.json().catch(() => ({}));
-  return safeLi(c, () => runTool(c.env, 'send_linkedin_connection', { profile_urn_id: body?.profile_urn_id, note: body?.note, profile_urn: body?.profile_urn, actor: 'operator' }));
-});
-app.post('/api/li/posts/text', async (c) => {
-  // Pass-through of postText's full verdict {ok, posted, verified, post_url,
-  // outbox_id, note|error}. This route must NEVER be made to throw on
-  // posted:false — "gateway errored but the post is live" is a real outcome.
-  const body = await c.req.json().catch(() => ({}));
-  return safeLi(c, () => runTool(c.env, 'post_linkedin_text', { body: body?.body, visibility: body?.visibility, actor: 'operator' }));
-});
-app.post('/api/li/posts/react', async (c) => {
-  const body = await c.req.json().catch(() => ({}));
-  return safeLi(c, () => runTool(c.env, 'react_linkedin_post', { post_url: body?.post_url, reaction: body?.reaction, actor: 'operator' }));
-});
-
-async function safeLi(c, fn) {
-  try { return c.json(await fn()); }
-  catch (e) { return c.json({ error: String(e?.message || e) }, 500); }
-}
 
 // ─── Heartbeat/OSINT routes removed — the awareness layer ships in the
 // editorial plugin.
@@ -1358,6 +1108,7 @@ async function handleScheduled(event, env, ctx) {
   // Two cron slots (wrangler.jsonc triggers.crons):
   //   "0 * * * *" (hourly) → pack cron legs (each guarded: a leg whose pack
   //                          is not installed skips silently) + host jobs.
+  const cron = event.cron || '';
   const isDaily = cron.startsWith('0 6 ');
   if (isDaily) return;   // the daily slot belongs to packs that register for it; none bundled do
 
