@@ -1888,7 +1888,9 @@ async function resolveLiCompany(api, lead, { refresh = false } = {}) {
 
   let c;
   try {
-    c = await api.gateway('linkedin', 'company', { universal_name: slug });
+    // LinkedIn lookups need a signed-in session running as its own service.
+    // This install has none, so the lead keeps whatever it already holds.
+    throw new Error('LinkedIn lookups are not available on this install');
   } catch (e) {
     const error = `LinkedIn company resolve failed for slug "${slug}": ${String(e.message || e)}. Paste the company's linkedin.com/company/ URL into the lead's socials and retry.`;
     // Remember the FAILURE (not the values) so the retry window applies. The
@@ -1946,7 +1948,10 @@ export async function openRolesForLead(api, leadId) {
   if (c.error) return { error: c.error };
   if (!c.company_id) return { error: 'could not resolve a LinkedIn company id' };
   try {
-    const r = await api.gateway('linkedin', 'company_jobs', { company_id: c.company_id });
+    // Same: open roles come from LinkedIn, which is not connected here.
+    throw new Error('LinkedIn lookups are not available on this install');
+    // eslint-disable-next-line no-unreachable
+    const r = { positions: [] };
     const positions = r.positions || [];
     await updateLead(api, leadId, { open_positions: JSON.stringify(positions), positions_checked_at: now() });
     await api.log('open_roles', { id: leadId, count: positions.length });

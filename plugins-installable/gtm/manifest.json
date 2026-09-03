@@ -2,8 +2,8 @@
   "nyyon_plugin": 2,
   "name": "gtm",
   "title": "GTM",
-  "version": "2.0.0",
-  "description": "Prospecting and Outreach: find and enrich companies and people, score fit, and run a paced outreach sequence with reply handling. Search, person enrichment and phone validation connect with your own keys; LinkedIn and org charts are reported as unavailable on this install.",
+  "version": "2.1.0",
+  "description": "Prospecting and Outreach: find and enrich companies and people, score fit, and run a paced outreach sequence with reply handling. Search, person enrichment and phone validation connect with your own keys. Outreach sends over WhatsApp, so it needs a WhatsApp connection to deliver.",
   "origin": {
     "system": "nyyon-app"
   },
@@ -70,14 +70,6 @@
         "purpose": "promote leads to the pipeline, contact upserts"
       },
       {
-        "slug": "linkedin",
-        "modes": [
-          "company",
-          "company_jobs"
-        ],
-        "purpose": "LI outreach"
-      },
-      {
         "slug": "llm",
         "modes": [
           "text"
@@ -99,14 +91,6 @@
           "status"
         ],
         "purpose": "company research"
-      },
-      {
-        "slug": "theorg",
-        "modes": [
-          "org_chart",
-          "probe"
-        ],
-        "purpose": "org charts"
       },
       {
         "slug": "twilio",
@@ -185,10 +169,6 @@
       {
         "name": "plugin_gtm_leads",
         "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_leads (id TEXT PRIMARY KEY, phone TEXT NOT NULL, normalized_phone TEXT, status TEXT NOT NULL DEFAULT 'new', source TEXT, batch_id TEXT, country TEXT, region TEXT, name TEXT, photo TEXT, socials TEXT NOT NULL DEFAULT '[]', linkedin TEXT, email TEXT, company TEXT, position TEXT, line_type TEXT, carrier TEXT, sources TEXT NOT NULL DEFAULT '{}', conflicts TEXT NOT NULL DEFAULT '[]', dismissed TEXT NOT NULL DEFAULT '[]', active_tool TEXT, org_status TEXT, org_note TEXT, theorg_slug TEXT, icp_fit TEXT, icp_reasons TEXT, company_li_id TEXT, open_positions TEXT, positions_checked_at INTEGER, outreach_lang TEXT, client_id TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, steps TEXT, company_staff_count INTEGER, company_context TEXT, company_checked_at INTEGER)"
-      },
-      {
-        "name": "plugin_gtm_li_prospects",
-        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_li_prospects (id TEXT PRIMARY KEY, urn_id TEXT, public_id TEXT, name TEXT NOT NULL, role TEXT, company TEXT, circle INTEGER, location TEXT, status TEXT NOT NULL DEFAULT 'active', step_index INTEGER NOT NULL DEFAULT 0, next_action_at INTEGER, fail_count INTEGER NOT NULL DEFAULT 0, source_search TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, sequence_json TEXT, accepted_at INTEGER, replied_at INTEGER)"
       },
       {
         "name": "plugin_gtm_org_people",
@@ -721,68 +701,6 @@
         }
       },
       {
-        "name": "fetch_company_profile",
-        "code_file": "tools/fetch_company_profile.mjs",
-        "def": {
-          "name": "fetch_company_profile",
-          "description": "Resolve a company on LinkedIn: its company id (what the jobs API needs) and its headcount (the size band the ICP is written in). Cached per lead behind the gtm-policy windows, so running it over a whole list only pays for rows never checked or gone stale. Saves nothing.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "company": {
-                "type": "string"
-              },
-              "company_linkedin_url": {
-                "type": "string",
-                "description": "a linkedin.com/company/ page — beats the guessed slug"
-              },
-              "refresh": {
-                "type": "boolean",
-                "description": "ignore the cache window and re-resolve"
-              }
-            },
-            "required": []
-          }
-        }
-      },
-      {
-        "name": "fetch_open_roles",
-        "code_file": "tools/fetch_open_roles.mjs",
-        "def": {
-          "name": "fetch_open_roles",
-          "description": "Fetch a company's currently open roles. NOT available through the current LinkedIn provider (Unipile) — the call fails cleanly and enrichment treats it as an optional, skipped step. Kept for providers that support it.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "company_id": {
-                "type": "string"
-              }
-            },
-            "required": []
-          }
-        }
-      },
-      {
-        "name": "fetch_org_chart",
-        "code_file": "tools/fetch_org_chart.mjs",
-        "def": {
-          "name": "fetch_org_chart",
-          "description": "Fetch a company's real org chart (names, titles, reporting lines) from theorg.com. Pass theorg_slug to override the company match for namesake companies — a pasted theorg.com/org/… URL works too. Saves nothing; save_org_chart persists it.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "company": {
-                "type": "string"
-              },
-              "theorg_slug": {
-                "type": "string"
-              }
-            },
-            "required": []
-          }
-        }
-      },
-      {
         "name": "gate_member_approvals",
         "code_file": "tools/gate_member_approvals.mjs",
         "def": {
@@ -1033,27 +951,6 @@
         }
       },
       {
-        "name": "lookup_company_from_linkedin",
-        "code_file": "tools/lookup_company_from_linkedin.mjs",
-        "def": {
-          "name": "lookup_company_from_linkedin",
-          "description": "Read a person's current company and job title off their own name-verified LinkedIn result. Self-skips when there is no LinkedIn profile on file, or when company AND title are both already known. Saves nothing.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "name": {
-                "type": "string"
-              },
-              "linkedin": {
-                "type": "string",
-                "description": "the PERSON's linkedin.com/in/ url"
-              }
-            },
-            "required": []
-          }
-        }
-      },
-      {
         "name": "lookup_line_twilio",
         "code_file": "tools/lookup_line_twilio.mjs",
         "def": {
@@ -1209,25 +1106,6 @@
               }
             },
             "required": []
-          }
-        }
-      },
-      {
-        "name": "promote_lead",
-        "code_file": "tools/promote_lead.mjs",
-        "def": {
-          "name": "promote_lead",
-          "description": "Promote a prospect into a CRM deal. Not available on this install: the host CRM here writes contacts but has no deal pipeline, so this reports that plainly.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "id"
-            ]
           }
         }
       },
@@ -1713,45 +1591,6 @@
                   "medium",
                   "weak"
                 ]
-              }
-            },
-            "required": [
-              "id"
-            ]
-          }
-        }
-      },
-      {
-        "name": "save_org_chart",
-        "code_file": "tools/save_org_chart.mjs",
-        "def": {
-          "name": "save_org_chart",
-          "description": "Persist a freshly fetched org chart for a lead: replaces the stored people, copies their photos into permanent storage (theorg's expire), and stamps the org verdict on the lead. Skips itself when this run did not actually fetch a chart, so a failed lookup can never wipe a chart already on file.",
-          "input_schema": {
-            "type": "object",
-            "properties": {
-              "id": {
-                "type": "string"
-              },
-              "org_company": {
-                "type": "string"
-              },
-              "org_people": {
-                "type": "array",
-                "items": {
-                  "type": "object"
-                }
-              },
-              "org_status": {
-                "type": "string",
-                "enum": [
-                  "saved",
-                  "warn",
-                  "none"
-                ]
-              },
-              "org_note": {
-                "type": "string"
               }
             },
             "required": [
@@ -2440,22 +2279,6 @@
           "status"
         ],
         "code_file": "gateway-twilio.mjs"
-      },
-      {
-        "slug": "linkedin",
-        "modes": [
-          "company",
-          "company_jobs"
-        ],
-        "code_file": "gateway-linkedin.mjs"
-      },
-      {
-        "slug": "theorg",
-        "modes": [
-          "org_chart",
-          "probe"
-        ],
-        "code_file": "gateway-theorg.mjs"
       },
       {
         "slug": "assets",

@@ -23,8 +23,8 @@
     {
       "name": "gtm",
       "title": "GTM",
-      "version": "2.0.0",
-      "description": "Prospecting and Outreach: find and enrich companies and people, score fit, and run a paced outreach sequence with reply handling. Search, person enrichment and phone validation connect with your own keys; LinkedIn and org charts are reported as unavailable on this install.",
+      "version": "2.1.0",
+      "description": "Prospecting and Outreach: find and enrich companies and people, score fit, and run a paced outreach sequence with reply handling. Search, person enrichment and phone validation connect with your own keys. Outreach sends over WhatsApp, so it needs a WhatsApp connection to deliver.",
       "capabilities": [],
       "needs_key": true,
       "file": "/plugin-catalog/gtm.json"

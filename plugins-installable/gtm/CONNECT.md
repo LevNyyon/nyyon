@@ -40,14 +40,18 @@ To see what is connected, ask Nyo *which prospecting services are connected*. To
 
 ## What is off on this install, and why
 
-- **LinkedIn company and job lookups.** These need a signed-in LinkedIn session running as its own service beside the app. This install has none, so those lookups report that in one sentence. Everything else keeps working.
-- **Org charts.** Same reason: they came from a separate scraping service.
+- **LinkedIn company and job lookups.** Removed. They need a signed-in LinkedIn session running as its own service, which this install does not have. Paste a company's details by hand, or install a LinkedIn plugin later and they come back.
+- **Org charts.** Removed for the same reason. The lead pages still show whatever org data you enter yourself.
 - **File storage.** Plugins do not get object storage here, so anything that would save a file reports it.
 - **CRM deal stages.** The CRM on this install writes contacts but has no deal pipeline, so promoting a lead to a deal says so. Contacts are still written and the outreach thread continues.
 
-## Sending messages
+## Sending messages: read this before you rely on Outreach
 
-Outreach drafts and paces messages. Actually sending over WhatsApp works only if WhatsApp is connected on this install; if it is not, Nyo will say so rather than pretend a message went out. Every attempt is recorded, so a failed send is visible.
+Outreach sends over **WhatsApp only**. Everything up to the send works without it: build a list, enrich it, score fit, draft the first message, pace a sequence, and review what is queued. The moment a message is due, it needs a WhatsApp connection on this install.
+
+If WhatsApp is not connected, Nyo says so rather than pretending a message went out, and the queue simply waits. Every attempt is recorded, so a failed send is visible.
+
+If you want Outreach to actually deliver, connect WhatsApp first. If you would rather send another way, that is a new channel plugin; ask Nyo for the plugin-building prompt.
 
 ## Check status any time
 

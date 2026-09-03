@@ -1,105 +1,172 @@
 [
   {
     "slug": "enrich-lead",
-    "name": "Prospecting · enrich a lead",
+    "name": "Prospecting \u00b7 enrich a lead",
     "goal": "One lead fully identified in accuracy order with provenance, conflicts, per-source step verdicts, a cached org chart and an ICP verdict. Sources self-skip (PDL once the identity is known, SERP without a sourced name, ICP without name+company+title), so the chain is linear with no branching. Run with {id}; the batch drain is the module looping this workflow while leads remain.",
     "steps": [
-      { "tool": "read_lead" },
-      { "tool": "lookup_wa_identity", "optional": true },
-      { "tool": "lookup_company_from_linkedin", "optional": true },
-      { "tool": "enrich_person_pdl", "optional": true },
-      { "tool": "lookup_line_twilio", "optional": true },
-      { "tool": "search_socials_serp", "optional": true },
-      { "tool": "fetch_org_chart", "optional": true },
-      { "tool": "reconcile_identity" },
-      { "tool": "score_icp", "optional": true },
-      { "tool": "save_lead" },
-      { "tool": "save_org_chart" }
+      {
+        "tool": "read_lead"
+      },
+      {
+        "tool": "lookup_wa_identity",
+        "optional": true
+      },
+      {
+        "tool": "enrich_person_pdl",
+        "optional": true
+      },
+      {
+        "tool": "lookup_line_twilio",
+        "optional": true
+      },
+      {
+        "tool": "search_socials_serp",
+        "optional": true
+      },
+      {
+        "tool": "reconcile_identity"
+      },
+      {
+        "tool": "score_icp",
+        "optional": true
+      },
+      {
+        "tool": "save_lead"
+      }
     ]
   },
   {
     "slug": "company-context",
-    "name": "Prospecting · company context",
-    "goal": "Everything about the company behind a lead, cached on the lead: theorg org chart, LinkedIn headcount (the ICP's size band) and open roles. Partial by design — a failed leg is reported by its step verdict, never fatal, and save_lead's coalesce-never-clobber keeps the facts already on file. Run with {id}.",
+    "name": "Prospecting \u00b7 company context",
+    "goal": "Everything about the company behind a lead, cached on the lead: theorg org chart, LinkedIn headcount (the ICP's size band) and open roles. Partial by design \u2014 a failed leg is reported by its step verdict, never fatal, and save_lead's coalesce-never-clobber keeps the facts already on file. Run with {id}.",
     "steps": [
-      { "tool": "read_lead" },
-      { "tool": "fetch_org_chart", "optional": true },
-      { "tool": "fetch_company_profile", "optional": true },
-      { "tool": "fetch_open_roles", "optional": true },
-      { "tool": "reconcile_identity" },
-      { "tool": "save_org_chart" },
-      { "tool": "save_lead" }
+      {
+        "tool": "read_lead"
+      },
+      {
+        "tool": "reconcile_identity"
+      },
+      {
+        "tool": "save_lead"
+      }
     ]
   },
   {
     "slug": "qualify-lead",
-    "name": "Prospecting · qualify a lead",
+    "name": "Prospecting \u00b7 qualify a lead",
     "goal": "An ICP verdict (strong/medium/weak plus reason and gap tags) grounded in the company facts already stored on the lead, persisted with a step verdict. Run company-context first for a verdict grounded in real company data instead of an inference from the brand name. Run with {id}.",
     "steps": [
-      { "tool": "read_lead" },
-      { "tool": "score_icp" },
-      { "tool": "save_lead" }
+      {
+        "tool": "read_lead"
+      },
+      {
+        "tool": "score_icp"
+      },
+      {
+        "tool": "save_lead"
+      }
     ]
   },
   {
     "slug": "draft-outreach-angles",
-    "name": "Prospecting · draft outreach angles",
-    "goal": "Ranked outreach angles plus draft WhatsApp bubbles persisted for a fully identified lead, blocked while the company is unverified (org_status 'warn'). DRAFTS ONLY — sending stays behind the operator-approved send tools and is never chained here. Run with {id}.",
+    "name": "Prospecting \u00b7 draft outreach angles",
+    "goal": "Ranked outreach angles plus draft WhatsApp bubbles persisted for a fully identified lead, blocked while the company is unverified (org_status 'warn'). DRAFTS ONLY \u2014 sending stays behind the operator-approved send tools and is never chained here. Run with {id}.",
     "steps": [
-      { "tool": "read_lead" },
-      { "tool": "draft_angles" },
-      { "tool": "save_angles" }
+      {
+        "tool": "read_lead"
+      },
+      {
+        "tool": "draft_angles"
+      },
+      {
+        "tool": "save_angles"
+      }
     ]
   },
   {
     "slug": "clean-identity",
-    "name": "Prospecting · clean a mismatched identity",
+    "name": "Prospecting \u00b7 clean a mismatched identity",
     "goal": "One mismatched lead cleaned: the wrong-person LinkedIn cleared, the URL tombstoned so no future search can re-attach it, a visible conflict recorded, and the company/position that were derived from the wrong profile dropped. Pure reuse of the enrichment reconcile+save pair. Run once per mismatch reported by audit_identities, with {id}.",
     "steps": [
-      { "tool": "read_lead" },
-      { "tool": "reconcile_identity", "input": { "clean_identity": true } },
-      { "tool": "save_lead" }
+      {
+        "tool": "read_lead"
+      },
+      {
+        "tool": "reconcile_identity",
+        "input": {
+          "clean_identity": true
+        }
+      },
+      {
+        "tool": "save_lead"
+      }
     ]
   },
   {
     "slug": "draft-prospect-reply",
-    "name": "Outreach · draft the next message",
-    "goal": "A suggested next message lands in context as {draft, source}: a verbatim approved angle bubble, the default first-touch template, or one composed reply when the prospect has actually said something. NEVER sends — sending is a separate operator action via send_whatsapp. Run with {chat_id} or {lead_id}.",
+    "name": "Outreach \u00b7 draft the next message",
+    "goal": "A suggested next message lands in context as {draft, source}: a verbatim approved angle bubble, the default first-touch template, or one composed reply when the prospect has actually said something. NEVER sends \u2014 sending is a separate operator action via send_whatsapp. Run with {chat_id} or {lead_id}.",
     "steps": [
-      { "tool": "read_prospect_thread" },
-      { "tool": "read_lead_angles" },
-      { "tool": "read_drafting_rules" },
-      { "tool": "pick_next_bubble" },
-      { "tool": "compose_reply" }
+      {
+        "tool": "read_prospect_thread"
+      },
+      {
+        "tool": "read_lead_angles"
+      },
+      {
+        "tool": "read_drafting_rules"
+      },
+      {
+        "tool": "pick_next_bubble"
+      },
+      {
+        "tool": "compose_reply"
+      }
     ]
   },
   {
     "slug": "outreach-cohort-tick",
-    "name": "Outreach · cohort tick",
-    "goal": "Every due, approved, cleanly-rendering cohort message is sent within the window and the daily cap. Anyone who replied is retired from the automation first, anything that cannot render is stopped fail-closed, and anything the operator has not approved stays visibly due rather than going out. Honors the outreach.live flag — until it is on, the run reports what it WOULD have sent. Accepts {dry_run, force, limit}.",
+    "name": "Outreach \u00b7 cohort tick",
+    "goal": "Every due, approved, cleanly-rendering cohort message is sent within the window and the daily cap. Anyone who replied is retired from the automation first, anything that cannot render is stopped fail-closed, and anything the operator has not approved stays visibly due rather than going out. Honors the outreach.live flag \u2014 until it is on, the run reports what it WOULD have sent. Accepts {dry_run, force, limit}.",
     "steps": [
-      { "tool": "list_due_members" },
-      { "tool": "retire_answered_members" },
-      { "tool": "render_member_messages" },
-      { "tool": "gate_member_approvals" },
-      { "tool": "send_due_messages" }
+      {
+        "tool": "list_due_members"
+      },
+      {
+        "tool": "retire_answered_members"
+      },
+      {
+        "tool": "render_member_messages"
+      },
+      {
+        "tool": "gate_member_approvals"
+      },
+      {
+        "tool": "send_due_messages"
+      }
     ]
   },
   {
     "slug": "outreach-replies-to-pipeline",
-    "name": "Outreach · replies → pipeline",
-    "goal": "Everyone who answered our LinkedIn or WhatsApp outreach lands on the sales board — created as a fresh prospect at the replied stage, or advanced forward if already there (never backward, never duplicated). Rules live in the outreach-promotion knowledge doc.",
+    "name": "Outreach \u00b7 replies \u2192 pipeline",
+    "goal": "Everyone who answered our LinkedIn or WhatsApp outreach lands on the sales board \u2014 created as a fresh prospect at the replied stage, or advanced forward if already there (never backward, never duplicated). Rules live in the outreach-promotion knowledge doc.",
     "steps": [
-      { "tool": "collect_replies" },
-      { "tool": "promote_replies" }
+      {
+        "tool": "collect_replies"
+      },
+      {
+        "tool": "promote_replies"
+      }
     ]
   },
   {
     "slug": "scheduled-send-tick",
-    "name": "Outreach · scheduled sends",
-    "goal": "Due scheduled sends are claimed atomically and delivered exactly once. The claim is one-shot and fail-closed, so a second run — or a crash mid-send — can never produce a duplicate; a claimed or failed row is an operator decision, not a retry queue.",
+    "name": "Outreach \u00b7 scheduled sends",
+    "goal": "Due scheduled sends are claimed atomically and delivered exactly once. The claim is one-shot and fail-closed, so a second run \u2014 or a crash mid-send \u2014 can never produce a duplicate; a claimed or failed row is an operator decision, not a retry queue.",
     "steps": [
-      { "tool": "run_due_sends" }
+      {
+        "tool": "run_due_sends"
+      }
     ]
   }
 ]
