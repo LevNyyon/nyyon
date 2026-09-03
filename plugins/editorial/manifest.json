@@ -1,0 +1,3249 @@
+{
+  "nyyon_plugin": 2,
+  "name": "editorial",
+  "title": "Editorial",
+  "version": "3.0.1",
+  "description": "Editorial: the Blog with its AEO writer, Hot Takes, and Social drafting and posting. This build writes and publishes text; it produces no images.",
+  "origin": {
+    "system": "nyyon-app"
+  },
+  "lib": [
+    {
+      "path": "aeo-interview.mjs",
+      "code_file": "lib/aeo-interview.mjs"
+    },
+    {
+      "path": "aeo-suggestions.mjs",
+      "code_file": "lib/aeo-suggestions.mjs"
+    },
+    {
+      "path": "aeo-taste.mjs",
+      "code_file": "lib/aeo-taste.mjs"
+    },
+    {
+      "path": "aeo-writer.mjs",
+      "code_file": "lib/aeo-writer.mjs"
+    },
+    {
+      "path": "blog-db.mjs",
+      "code_file": "lib/blog-db.mjs"
+    },
+    {
+      "path": "brain.mjs",
+      "code_file": "lib/brain.mjs"
+    },
+    {
+      "path": "heartbeat.mjs",
+      "code_file": "lib/heartbeat.mjs"
+    },
+    {
+      "path": "hot-takes.mjs",
+      "code_file": "lib/hot-takes.mjs"
+    },
+    {
+      "path": "hottakes-setup.mjs",
+      "code_file": "lib/hottakes-setup.mjs"
+    },
+    {
+      "path": "osint.mjs",
+      "code_file": "lib/osint.mjs"
+    },
+    {
+      "path": "publish.mjs",
+      "code_file": "lib/publish.mjs"
+    },
+    {
+      "path": "social-posts.mjs",
+      "code_file": "lib/social-posts.mjs"
+    }
+  ],
+  "requires": {
+    "gateways": [
+      {
+        "slug": "llm",
+        "modes": [
+          "json",
+          "text"
+        ],
+        "purpose": "drafting, scoring, and synthesis"
+      },
+      {
+        "slug": "outbox",
+        "modes": [
+          "begin",
+          "failed",
+          "sent"
+        ],
+        "purpose": "audited send claims for every social/blog release"
+      },
+      {
+        "slug": "setup",
+        "modes": [
+          "read",
+          "write"
+        ],
+        "purpose": "hottakes first-run receipt (module:'hottakes')"
+      },
+      {
+        "slug": "social",
+        "modes": [
+          "connections",
+          "post"
+        ],
+        "purpose": "connection registry + posting to social profiles"
+      },
+      {
+        "slug": "web",
+        "modes": [
+          "head",
+          "post_json",
+          "text"
+        ],
+        "purpose": "feed pulls, article text, scrapers, edge publish verify + IndexNow ping"
+      }
+    ],
+    "host_reads": [
+      {
+        "table": "feature_flags",
+        "purpose": "the hottakes.live flag that gates real distribution (dry-run default)"
+      },
+      {
+        "table": "web_events",
+        "purpose": "blog analytics: pageviews per post from the public site ingest"
+      },
+      {
+        "table": "plugin_digest_items",
+        "purpose": "the topic feed merges the digest pack's actionable items (SELECT-only; digest is the sole writer)"
+      }
+    ],
+    "knowledge": [
+      "llm-models"
+    ],
+    "tables": [
+      {
+        "name": "plugin_editorial_osint_sources",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_osint_sources (id TEXT PRIMARY KEY, kind TEXT NOT NULL, name TEXT NOT NULL, url TEXT NOT NULL, theme TEXT, enabled INTEGER NOT NULL DEFAULT 1, last_fetched_at INTEGER, last_status TEXT, last_error TEXT, created_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_osint_sources_enabled ON plugin_editorial_osint_sources (enabled)"
+      },
+      {
+        "name": "plugin_editorial_osint_signals",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_osint_signals (id TEXT PRIMARY KEY, source_id TEXT REFERENCES plugin_editorial_osint_sources(id) ON DELETE SET NULL, source_name TEXT, theme TEXT, title TEXT NOT NULL, url TEXT NOT NULL UNIQUE, summary TEXT, published_at INTEGER, relevance INTEGER, why TEXT, content_score INTEGER, formats TEXT, suggested_angle TEXT, status TEXT NOT NULL DEFAULT 'new', created_at INTEGER NOT NULL, full_text TEXT, content_fetched_at INTEGER); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_osint_signals_status ON plugin_editorial_osint_signals (status); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_osint_signals_published_at ON plugin_editorial_osint_signals (published_at DESC)"
+      },
+      {
+        "name": "plugin_editorial_osint_topics",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_osint_topics (id TEXT PRIMARY KEY, title TEXT NOT NULL, thesis TEXT, why_now TEXT, angle TEXT, format TEXT, heat INTEGER, sources_json TEXT, status TEXT NOT NULL DEFAULT 'new', created_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_osint_topics_heat ON plugin_editorial_osint_topics (heat DESC)"
+      },
+      {
+        "name": "plugin_editorial_osint_targets",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_osint_targets (id TEXT PRIMARY KEY, name TEXT NOT NULL, domain TEXT, app_id TEXT, notes TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, created_by TEXT, updated_by TEXT)"
+      },
+      {
+        "name": "plugin_editorial_osint_mentions",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_osint_mentions (id TEXT PRIMARY KEY, target_id TEXT NOT NULL REFERENCES plugin_editorial_osint_targets(id) ON DELETE CASCADE, source TEXT NOT NULL, source_url TEXT, reviewer TEXT, rating INTEGER, text TEXT NOT NULL, posted_at INTEGER, confidence REAL, kind TEXT NOT NULL DEFAULT 'mention', raw_json TEXT, created_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_osint_mentions_target_id ON plugin_editorial_osint_mentions (target_id)"
+      },
+      {
+        "name": "plugin_editorial_osint_listeners",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_osint_listeners (source TEXT PRIMARY KEY, label TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 0, cadence TEXT NOT NULL DEFAULT 'manual', notes TEXT, last_run_at INTEGER, last_status TEXT, last_error TEXT, total_runs INTEGER NOT NULL DEFAULT 0, total_added INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
+      },
+      {
+        "name": "plugin_editorial_blog_posts",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_blog_posts (slug TEXT PRIMARY KEY, title TEXT NOT NULL, excerpt TEXT, body TEXT, tags TEXT, published_at INTEGER, published INTEGER NOT NULL DEFAULT 0, updated_at INTEGER NOT NULL, updated_by TEXT); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_blog_posts_published_at ON plugin_editorial_blog_posts (published_at DESC); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_blog_posts_published ON plugin_editorial_blog_posts (published)"
+      },
+      {
+        "name": "plugin_editorial_aeo_questions",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_aeo_questions (slug TEXT PRIMARY KEY, question TEXT NOT NULL, target_keyword TEXT, priority INTEGER NOT NULL DEFAULT 5, status TEXT NOT NULL DEFAULT 'pending', scheduled_for INTEGER, drafted_blog_slug TEXT, last_error TEXT, attempts INTEGER NOT NULL DEFAULT 0, notes TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, expert_context_json TEXT, interview_status TEXT, voice TEXT NOT NULL DEFAULT 'house'); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_aeo_questions_status ON plugin_editorial_aeo_questions (status)"
+      },
+      {
+        "name": "plugin_editorial_aeo_suggestions",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_aeo_suggestions (id TEXT PRIMARY KEY, signal_id TEXT REFERENCES plugin_editorial_osint_signals(id) ON DELETE SET NULL, title TEXT NOT NULL, angle TEXT NOT NULL, rationale TEXT, target_keyword TEXT, source_name TEXT, source_url TEXT, status TEXT NOT NULL DEFAULT 'pending', question_slug TEXT, last_error TEXT, created_at INTEGER NOT NULL, decided_at INTEGER, decided_by TEXT); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_aeo_suggestions_status ON plugin_editorial_aeo_suggestions (status)"
+      },
+      {
+        "name": "plugin_editorial_aeo_feedback",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_aeo_feedback (id TEXT PRIMARY KEY, question_slug TEXT, idea_title TEXT, reaction TEXT NOT NULL, note TEXT, created_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_aeo_feedback_question_slug ON plugin_editorial_aeo_feedback (question_slug)"
+      },
+      {
+        "name": "plugin_editorial_brain_sessions",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_brain_sessions (id TEXT PRIMARY KEY, week_of INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'open', questions_json TEXT, answers_text TEXT, derived_json TEXT, created_at INTEGER NOT NULL, completed_at INTEGER); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_brain_sessions_week_of ON plugin_editorial_brain_sessions (week_of DESC)"
+      },
+      {
+        "name": "plugin_editorial_hot_take_packages",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_hot_take_packages (id TEXT PRIMARY KEY, status TEXT NOT NULL DEFAULT 'topic', title TEXT, summary TEXT, why_it_matters TEXT, source_name TEXT, source_url TEXT, published_at INTEGER, origin TEXT, origin_ref TEXT, multi_source_json TEXT, pinned INTEGER NOT NULL DEFAULT 0, take TEXT, believe TEXT, misunderstood TEXT, who_cares TEXT, reader_action TEXT, brief_json TEXT, blog_slug TEXT, headline TEXT, intro TEXT, review_json TEXT, company_notes TEXT, author_notes TEXT, website_status TEXT NOT NULL DEFAULT 'not_planned', website_url TEXT, scheduled_at INTEGER, actor TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_hot_take_packages_status ON plugin_editorial_hot_take_packages (status); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_hot_take_packages_updated_at ON plugin_editorial_hot_take_packages (updated_at); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_hot_take_packages_origin_ref ON plugin_editorial_hot_take_packages (origin_ref); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_hot_take_packages_blog_slug ON plugin_editorial_hot_take_packages (blog_slug)"
+      },
+      {
+        "name": "plugin_editorial_social_posts",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_social_posts (id TEXT PRIMARY KEY, blog_slug TEXT, package_id TEXT, channel TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft', content TEXT NOT NULL DEFAULT '', notes TEXT, error TEXT, outbox_id TEXT, scheduled_at INTEGER, posted_at INTEGER, actor TEXT, blog_title TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_posts_blog_slug ON plugin_editorial_social_posts (blog_slug); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_posts_status ON plugin_editorial_social_posts (status); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_posts_package_id ON plugin_editorial_social_posts (package_id); CREATE INDEX IF NOT EXISTS idx_plugin_editorial_social_posts_scheduled_at ON plugin_editorial_social_posts (scheduled_at)"
+      },
+      {
+        "name": "plugin_editorial_connections",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_connections (name TEXT PRIMARY KEY, url TEXT NOT NULL, updated_at INTEGER NOT NULL)"
+      },
+      {
+        "name": "plugin_editorial_outbox",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_editorial_outbox (id TEXT PRIMARY KEY, kind TEXT NOT NULL, target TEXT, payload_json TEXT, status TEXT NOT NULL, result_json TEXT, error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
+      }
+    ]
+  },
+  "provides": {
+    "tools": [
+      {
+        "name": "add_hottake_link",
+        "code_file": "tools/add_hottake_link.mjs",
+        "def": {
+          "name": "add_hottake_link",
+          "description": "Turn a pasted article URL into a Selected Topic: fetch the page, extract title/publication/summary/why-it-matters, and pin it as a package at status \"topic\". Idempotent — the same link never pins twice.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "full http(s) link"
+              }
+            },
+            "required": [
+              "url"
+            ]
+          }
+        }
+      },
+      {
+        "name": "adopt_blog_draft",
+        "code_file": "tools/adopt_blog_draft.mjs",
+        "def": {
+          "name": "adopt_blog_draft",
+          "description": "Adopt an existing blog post into the Hot Takes release pipeline by slug, creating the package it needs to be scheduled and distributed. Idempotent — a slug that already has a package returns it unchanged.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "slug": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      },
+      {
+        "name": "append_faq_schema",
+        "code_file": "tools/append_faq_schema.mjs",
+        "def": {
+          "name": "append_faq_schema",
+          "description": "Append one FAQPage JSON-LD block to a post body so answer engines can lift the Q&As. Use it right after saving an expanded article that produced an FAQ.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "blog_slug": {
+                "type": "string"
+              },
+              "faq": {
+                "type": "array",
+                "description": "array of {q, a}"
+              }
+            },
+            "required": [
+              "faq"
+            ]
+          }
+        }
+      },
+      {
+        "name": "approve_social_post",
+        "code_file": "tools/approve_social_post.mjs",
+        "def": {
+          "name": "approve_social_post",
+          "description": "Approve one draft for release: refuses a post that already went out, and opens the outbox send claim that push_social_post requires. This is the operator gate — only run it when the operator has approved this specific post.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "blog_live_status",
+        "code_file": "tools/blog_live_status.mjs",
+        "def": {
+          "name": "blog_live_status",
+          "description": "Check whether one blog post is actually served on the public site (via the blog-edge worker). Returns {live, status, url}. Poll it after a publish that came back not-yet-live; live=true is the edge-verified ground truth.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "the blog post slug to check"
+              },
+              "attempts": {
+                "type": "number",
+                "description": "edge probe attempts (default 1 — polling callers retry themselves)"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      },
+      {
+        "name": "build_hottake_brief",
+        "code_file": "tools/build_hottake_brief.mjs",
+        "def": {
+          "name": "build_hottake_brief",
+          "description": "Build the short editorial brief from a package's approved take: argument, audience, why-now, 3-5 supporting points, evidence, likely objections, conclusion, and the publication pattern that fits. Run before the article is written so the operator can adjust cheaply.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "build_hottake_seed",
+        "code_file": "tools/build_hottake_seed.mjs",
+        "def": {
+          "name": "build_hottake_seed",
+          "description": "Assemble the article seed for a package: deterministic prose built from the approved take, the brief and the playbook's Article instruction. No model, no writes — hand the result straight to the article writer.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "voice": {
+                "type": "string",
+                "enum": [
+                  "personal",
+                  "house"
+                ],
+                "description": "default personal"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "cancel_hottake_schedule",
+        "code_file": "tools/cancel_hottake_schedule.mjs",
+        "def": {
+          "name": "cancel_hottake_schedule",
+          "description": "Cancel a scheduled publication by package id or blog slug: the package returns to ready and queued legs go back to ready or draft with their times cleared. Nothing is deleted.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "slug": {
+                "type": "string"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "claim_aeo_question",
+        "code_file": "tools/claim_aeo_question.mjs",
+        "def": {
+          "name": "claim_aeo_question",
+          "description": "Claim one interviewed AEO question for writing, so only one run can ever write it. With no slug it claims the next ready question that is due. It refuses a question whose interview is not answered yet, and refuses one another run already claimed — treat either refusal as final rather than retrying.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "question_slug": {
+                "type": "string",
+                "description": "omit to claim the next due ready question"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "connect_social_webhook",
+        "code_file": "tools/connect_social_webhook.mjs",
+        "def": {
+          "name": "connect_social_webhook",
+          "description": "Connect a social network for posting by storing the operator's own webhook URL (for example a Make.com scenario with a Webhook trigger that posts to LinkedIn or Facebook). No account credentials reach this install. Use when the operator pastes a webhook URL in chat.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "network": {
+                "type": "string",
+                "description": "linkedin, linkedin-company, facebook, or another name you will reuse"
+              },
+              "url": {
+                "type": "string",
+                "description": "the webhook URL that accepts JSON and posts on their behalf"
+              }
+            },
+            "required": [
+              "network",
+              "url"
+            ]
+          }
+        }
+      },
+      {
+        "name": "delete_blog_post",
+        "code_file": "tools/delete_blog_post.mjs",
+        "def": {
+          "name": "delete_blog_post",
+          "description": "Delete one blog post by slug. Irreversible, and it does not take a live post off the public site by itself. Resolve the exact slug with list_blog_posts and confirm with the operator first.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "slug": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      },
+      {
+        "name": "delete_heartbeat_source",
+        "code_file": "tools/delete_heartbeat_source.mjs",
+        "def": {
+          "name": "delete_heartbeat_source",
+          "description": "Delete one feed source by id; its already-ingested signals are kept. Prefer save_heartbeat_source with enabled:false to pause a feed reversibly.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "delete_osint_target",
+        "code_file": "tools/delete_osint_target.mjs",
+        "def": {
+          "name": "delete_osint_target",
+          "description": "Remove one monitored target and its mentions. Use sparingly — prefer leaving a stale target in place and simply not scraping it.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "delete_social_group",
+        "code_file": "tools/delete_social_group.mjs",
+        "def": {
+          "name": "delete_social_group",
+          "description": "Delete EVERY social post for one source slug at once — an article's whole fan-out group, a digest:<id> reaction set, or a standalone: row. The Outbox and activity feed keep the record of anything already posted. Irreversible: confirm the slug with the operator first.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "the blog_slug the group is keyed by"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      },
+      {
+        "name": "delete_social_post",
+        "code_file": "tools/delete_social_post.mjs",
+        "def": {
+          "name": "delete_social_post",
+          "description": "Delete one social post from the queue by id — a draft the operator does not want, a duplicate, a test row. Irreversible: resolve the exact id with list_social_posts and confirm with the operator first.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "disconnect_social_webhook",
+        "code_file": "tools/disconnect_social_webhook.mjs",
+        "def": {
+          "name": "disconnect_social_webhook",
+          "description": "Forget one social network webhook.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "network": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "network"
+            ]
+          }
+        }
+      },
+      {
+        "name": "dismiss_hottake_topic",
+        "code_file": "tools/dismiss_hottake_topic.mjs",
+        "def": {
+          "name": "dismiss_hottake_topic",
+          "description": "Remove one Topics-of-the-Day card from the feed for good. Pass the card's origin + origin_ref (and title for the audit trail). The dismissal is stored, so the card stays gone across sweeps.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "origin": {
+                "type": "string"
+              },
+              "origin_ref": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "draft_article",
+        "code_file": "tools/draft_article.mjs",
+        "def": {
+          "name": "draft_article",
+          "description": "Write one article in house HTML, in a single reasoning step. Give it the topic (title) and, when there is one, the operator's raw draft as `body` or their interview as `expert_context`; it follows the AEO playbook, sticks to the existing tag taxonomy, and avoids repeating the posts you pass in. It returns the article and saves nothing.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string",
+                "description": "the topic, question or angle to write about"
+              },
+              "body": {
+                "type": "string",
+                "description": "the operator's hand-written draft in plain prose; it becomes the definitive source"
+              },
+              "source_text": {
+                "type": "string",
+                "description": "other seed text to expand into an article (e.g. a social post)"
+              },
+              "voice_doc": {
+                "type": "string",
+                "description": "from read_voice_profile"
+              },
+              "posts": {
+                "type": "array",
+                "description": "recent post stubs from list_blog_posts, used for dedup + tag taxonomy"
+              },
+              "target_keyword": {
+                "type": "string",
+                "description": "primary keyword to rank for"
+              },
+              "expert_context": {
+                "type": "string",
+                "description": "the operator's interview answers, from read_aeo_question"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "fallback tags if the writer picks none"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "draft_hottake_social",
+        "code_file": "tools/draft_hottake_social.mjs",
+        "def": {
+          "name": "draft_hottake_social",
+          "description": "Draft a publication's LinkedIn legs (company + personal) from its written article. Pass the package id, or a blog slug (a plain draft is adopted into the pipeline first). Pass channel to redraft ONE leg. Redrafting replaces the unposted leg in place — never duplicates.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "package id"
+              },
+              "slug": {
+                "type": "string",
+                "description": "blog slug — used when there is no package yet"
+              },
+              "channel": {
+                "type": "string",
+                "enum": [
+                  "linkedin-company",
+                  "linkedin-personal"
+                ],
+                "description": "narrow to a single-leg redraft"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "draft_hottake_take",
+        "code_file": "tools/draft_hottake_take.mjs",
+        "def": {
+          "name": "draft_hottake_take",
+          "description": "Propose the company's take on a package's topic: a specific, defensible argument (never a neutral summary) plus what the company believes, what is commonly misunderstood, who should care, and what the reader should do differently. Saves it on the package for the operator to confirm or rewrite.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "draft_interview_questions",
+        "code_file": "tools/draft_interview_questions.mjs",
+        "def": {
+          "name": "draft_interview_questions",
+          "description": "Draft the four expert-interview questions to ask the operator before an article is written, in one reasoning step. They target their lived experience: the mistake they keep seeing, the mechanism that works, a real example, and the counterintuitive part.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "question_slug": {
+                "type": "string"
+              },
+              "question": {
+                "type": "string",
+                "description": "the topic to interview about"
+              },
+              "target_keyword": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "string"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "draft_social_post",
+        "code_file": "tools/draft_social_post.mjs",
+        "def": {
+          "name": "draft_social_post",
+          "description": "Write ONE channel's post text in that channel's voice (brand for the company pages, the operator's personal voice for linkedin-personal), under the operator's style rules. Pass source_kind 'blog' (default) to promote one of our articles, 'news' to react to someone else's item with our point of view. Drafts only — nothing is saved or published. With a slug, it skips a channel that already has a post unless force is true.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "channel": {
+                "type": "string",
+                "enum": [
+                  "linkedin-company",
+                  "linkedin-personal",
+                  "facebook-company"
+                ]
+              },
+              "title": {
+                "type": "string",
+                "description": "article or news item headline"
+              },
+              "url": {
+                "type": "string",
+                "description": "the link the post points at"
+              },
+              "excerpt": {
+                "type": "string"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "body_html": {
+                "type": "string",
+                "description": "article body for context (HTML or text)"
+              },
+              "source_kind": {
+                "type": "string",
+                "enum": [
+                  "blog",
+                  "news"
+                ],
+                "description": "'blog' promotes our article, 'news' reacts to an industry item"
+              },
+              "slug": {
+                "type": "string",
+                "description": "blog slug — fills title/url from the context and enables the already-drafted check"
+              },
+              "package_id": {
+                "type": "string",
+                "description": "Hot Takes package — a leg of that release"
+              },
+              "force": {
+                "type": "boolean",
+                "description": "redraft even if this channel already has a post"
+              }
+            },
+            "required": [
+              "channel"
+            ]
+          }
+        }
+      },
+      {
+        "name": "draft_suggestion_angles",
+        "code_file": "tools/draft_suggestion_angles.mjs",
+        "def": {
+          "name": "draft_suggestion_angles",
+          "description": "Develop scored industry signals into article angles in one reasoning step: a working title, the keyword, our specific take and why it is worth writing now. It deduplicates against existing posts and queued topics and saves nothing.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "signals": {
+                "type": "array",
+                "description": "candidate signals from list_signals"
+              },
+              "limit": {
+                "type": "number",
+                "description": "how many to select at most"
+              }
+            },
+            "required": [
+              "signals"
+            ]
+          }
+        }
+      },
+      {
+        "name": "draft_taste_profile",
+        "code_file": "tools/draft_taste_profile.mjs",
+        "def": {
+          "name": "draft_taste_profile",
+          "description": "Draft the updated editorial-taste doc from the operator's recent reactions, in one reasoning step. It returns the knowledge doc to save and writes nothing, so the update stays visible before it lands.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "edit_blog_post",
+        "code_file": "tools/edit_blog_post.mjs",
+        "def": {
+          "name": "edit_blog_post",
+          "description": "Patch an existing blog post: only the fields you pass change. Edit the body either by sending a full replacement `body` or by sending `find` + `replace` to swap an exact substring, which is the right tool for a typo, a stat or one sentence.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "the post to edit"
+              },
+              "title": {
+                "type": "string"
+              },
+              "excerpt": {
+                "type": "string"
+              },
+              "body": {
+                "type": "string",
+                "description": "full replacement body; use this OR find/replace"
+              },
+              "find": {
+                "type": "string",
+                "description": "exact substring in the current body to replace"
+              },
+              "replace": {
+                "type": "string",
+                "description": "text to put in place of `find`"
+              },
+              "tags": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "published": {
+                "type": "boolean",
+                "description": "publish/unpublish; omit to leave as-is"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      },
+      {
+        "name": "edit_social_post",
+        "code_file": "tools/edit_social_post.mjs",
+        "def": {
+          "name": "edit_social_post",
+          "description": "Replace a queued post's text with a full new version — use this while refining a draft with the operator. Pass the whole new text, not a diff. Edits only; it never publishes and never changes the channel.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "content": {
+                "type": "string",
+                "description": "the full new post text"
+              }
+            },
+            "required": [
+              "id",
+              "content"
+            ]
+          }
+        }
+      },
+      {
+        "name": "enrich_signals",
+        "code_file": "tools/enrich_signals.mjs",
+        "def": {
+          "name": "enrich_signals",
+          "description": "Re-score the high-relevance signals from their full article text instead of their headline, caching the text as it goes. Bounded per run; use when the titles alone are not enough to judge what is worth writing about.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "limit": {
+                "type": "number"
+              },
+              "min_relevance": {
+                "type": "number",
+                "description": "defaults to the heartbeat-priorities gate"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "expand_article",
+        "code_file": "tools/expand_article.mjs",
+        "def": {
+          "name": "expand_article",
+          "description": "Expand an existing article to 1600-2200 words and write its AEO FAQ, in a single reasoning step. Deepens the story with examples, failure modes and why-now, and returns the new excerpt, body and FAQ. It saves nothing: pass the result to save_blog_post and append_faq_schema.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "post": {
+                "type": "object",
+                "description": "the post from read_blog_post"
+              },
+              "slug": {
+                "type": "string",
+                "description": "alternative to post: read it by slug"
+              },
+              "voice_doc": {
+                "type": "string",
+                "description": "from read_voice_profile"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "extract_article_meta",
+        "code_file": "tools/extract_article_meta.mjs",
+        "def": {
+          "name": "extract_article_meta",
+          "description": "Read an already-fetched article page and pull out its title, publication, plain-language summary, why-it-matters and publish date. Use after fetching a pasted URL, to turn it into a topic card.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string",
+                "description": "the page text (HTML is stripped if you pass markup)"
+              }
+            },
+            "required": [
+              "url"
+            ]
+          }
+        }
+      },
+      {
+        "name": "generate_social_posts",
+        "code_file": "tools/generate_social_posts.mjs",
+        "def": {
+          "name": "generate_social_posts",
+          "description": "Draft the whole social set for one blog article (company LinkedIn, personal LinkedIn, company Facebook) into the Social review queue. Skips an article that already has posts unless force=true (force replaces only unposted drafts, never the audit trail of what shipped). Drafts only — publishing stays the operator's approval.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "the blog post slug to draft from"
+              },
+              "force": {
+                "type": "boolean",
+                "description": "redraft even if the article already has social posts"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      },
+      {
+        "name": "ingest_signals",
+        "code_file": "tools/ingest_signals.mjs",
+        "def": {
+          "name": "ingest_signals",
+          "description": "Pull every enabled feed and insert the items we have not seen before as unscored signals. The read half of the awareness sweep — it never judges anything.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "link_hottake_article",
+        "code_file": "tools/link_hottake_article.mjs",
+        "def": {
+          "name": "link_hottake_article",
+          "description": "Link a written blog draft to its Hot Takes package by slug — stores the slug, headline and intro and moves the package to review. Also emits the article's title, url, excerpt, tags and body so the distribution drafters can use them.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "package id"
+              },
+              "slug": {
+                "type": "string",
+                "description": "blog post slug (blog_slug is accepted too)"
+              },
+              "title": {
+                "type": "string",
+                "description": "defaults to the saved post's title"
+              },
+              "excerpt": {
+                "type": "string",
+                "description": "defaults to the saved post's excerpt"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "list_approved_sources",
+        "code_file": "tools/list_approved_sources.mjs",
+        "def": {
+          "name": "list_approved_sources",
+          "description": "The Approved Sources readout: every monitored website feed and news query with its last-signal time, 14-day item count and how many of those scored write-worthy. channels = RSS feeds, topics = query sources.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_blog_analytics",
+        "code_file": "tools/list_blog_analytics.mjs",
+        "def": {
+          "name": "list_blog_analytics",
+          "description": "Blog posts with their analytics overlay: views, unique visitors, last view, avg scroll %, CTA clicks per post, sorted by views. published_only narrows to live posts.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "published_only": {
+                "type": "boolean",
+                "description": "default false"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_blog_posts",
+        "code_file": "tools/list_blog_posts.mjs",
+        "def": {
+          "name": "list_blog_posts",
+          "description": "List blog post stubs (slug, title, excerpt, published date). Call it before writing so you know what already exists, and pass the result to draft_article so the writer does not repeat an argument the blog already makes.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "limit": {
+                "type": "number",
+                "description": "default 200"
+              },
+              "published_only": {
+                "type": "boolean",
+                "description": "default true"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_heartbeat_sources",
+        "code_file": "tools/list_heartbeat_sources.mjs",
+        "def": {
+          "name": "list_heartbeat_sources",
+          "description": "List the industry-awareness feed sources — the RSS feeds and Google News topic queries the hourly sweep ingests, with each one's theme, enabled state and last fetch result.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_hot_topics",
+        "code_file": "tools/list_hot_topics.mjs",
+        "def": {
+          "name": "list_hot_topics",
+          "description": "List the current synthesized hot topics — blog-grade angles on what is happening now, each with a thesis, why-now and source links. Use when asked \"what should we write about\" or \"what is hot\".",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "limit": {
+                "type": "number"
+              },
+              "days": {
+                "type": "number"
+              },
+              "q": {
+                "type": "string"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_hottake_packages",
+        "code_file": "tools/list_hottake_packages.mjs",
+        "def": {
+          "name": "list_hottake_packages",
+          "description": "List the Hot Takes publication packages — the editorial pipeline from selected topic through take, brief, article, review, ready, scheduled and published. Filter by status to answer \"what is waiting on me\".",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "statuses": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "topic|take|brief|article|review|ready|scheduled|published|complete"
+              },
+              "limit": {
+                "type": "number"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_osint_listeners",
+        "code_file": "tools/list_osint_listeners.mjs",
+        "def": {
+          "name": "list_osint_listeners",
+          "description": "List the scraper engines (hn, reddit, stackoverflow, github, appstore, website, duckduckgo) with their enabled state, cadence, last run and lifetime totals. Listeners are the HOW of monitoring; targets are the WHAT.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_osint_mentions",
+        "code_file": "tools/list_osint_mentions.mjs",
+        "def": {
+          "name": "list_osint_mentions",
+          "description": "List the mentions and conversations the listeners harvested, filtered by target and/or source. Use to answer \"what are people saying about X this week\" or to mine quotes and sentiment.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "target_id": {
+                "type": "string"
+              },
+              "source": {
+                "type": "string",
+                "enum": [
+                  "hn",
+                  "reddit",
+                  "stackoverflow",
+                  "github",
+                  "appstore",
+                  "website",
+                  "duckduckgo",
+                  "feed"
+                ]
+              },
+              "limit": {
+                "type": "number",
+                "description": "default 200"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_osint_targets",
+        "code_file": "tools/list_osint_targets.mjs",
+        "def": {
+          "name": "list_osint_targets",
+          "description": "List the brands and companies we monitor, each with its domain, App Store id and mention rollups. Call before scraping or reading mentions so you know which target id to pass.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_signals",
+        "code_file": "tools/list_signals.mjs",
+        "def": {
+          "name": "list_signals",
+          "description": "List recent scored industry signals — real news and blog items with a content score (how write-worthy) and a suggested angle. Use to find content opportunities or answer \"what is new in X\".",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "min_content": {
+                "type": "number",
+                "description": "minimum content score 0-100 (default 55)"
+              },
+              "days": {
+                "type": "number",
+                "description": "lookback window (default 7)"
+              },
+              "q": {
+                "type": "string"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_social_integrations",
+        "code_file": "tools/list_social_integrations.mjs",
+        "def": {
+          "name": "list_social_integrations",
+          "description": "List the social CONNECTIONS posts can go out through and whether each is configured: linkedin-company, linkedin-personal (the operator's personal profile) and facebook-company. Call this before drafting or approving so you name a channel that actually works.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_social_posts",
+        "code_file": "tools/list_social_posts.mjs",
+        "def": {
+          "name": "list_social_posts",
+          "description": "List queued social posts — id, channel, status (draft | claimed | posted | failed | skipped), source article (blog_slug/blog_title), package_id for Hot Takes release legs, and the content. Filter by status, blog slug, or package. Use this to find the post the operator wants to work on.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "status": {
+                "type": "string",
+                "description": "draft | ready | scheduled | claimed | posted | failed | skipped | not_planned"
+              },
+              "slug": {
+                "type": "string",
+                "description": "source blog post slug"
+              },
+              "package_id": {
+                "type": "string",
+                "description": "Hot Takes package id — its release legs"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_topic_feed",
+        "code_file": "tools/list_topic_feed.mjs",
+        "def": {
+          "name": "list_topic_feed",
+          "description": "The live feed of topics worth a company response — synthesized hot topics, scored industry signals and actionable digest items merged, deduped and newest-first. Read-only; pin a card with pin_hottake_topic to start a package. Pass history:true (with a bigger limit) or q to browse and search everything retained.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "limit": {
+                "type": "number"
+              },
+              "offset": {
+                "type": "number"
+              },
+              "q": {
+                "type": "string",
+                "description": "search across all retained cards"
+              },
+              "history": {
+                "type": "boolean",
+                "description": "widen the window past today's feed"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "pin_hottake_topic",
+        "code_file": "tools/pin_hottake_topic.mjs",
+        "def": {
+          "name": "pin_hottake_topic",
+          "description": "Pin a topic into Selected Topics as a publication package at status \"topic\". Pass a feed card's fields (origin, origin_ref, title, summary, source_name, source_url) to pin it, or just a title to create one by hand. Idempotent by origin_ref, so pinning the same card twice never duplicates.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "title": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "why_it_matters": {
+                "type": "string"
+              },
+              "origin": {
+                "type": "string",
+                "description": "osint_topic|osint_signal|digest|link|manual"
+              },
+              "origin_ref": {
+                "type": "string",
+                "description": "the card's stable id — what makes pinning idempotent"
+              },
+              "source_name": {
+                "type": "string"
+              },
+              "source_url": {
+                "type": "string"
+              },
+              "published_at": {
+                "type": "number",
+                "description": "ms epoch"
+              },
+              "multi_source": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "note": {
+                "type": "string",
+                "description": "a quick operator note (stored as company_notes)"
+              }
+            },
+            "required": [
+              "title"
+            ]
+          }
+        }
+      },
+      {
+        "name": "propose_heartbeat_sources",
+        "code_file": "tools/propose_heartbeat_sources.mjs",
+        "def": {
+          "name": "propose_heartbeat_sources",
+          "description": "Scout the feeds and news queries this operator should watch, and VALIDATE every one by fetching it before offering it — only sources that really parsed come back, each with the item count seen. Reads what onboarding learned; returns reason:\"no_material\" (and proposes nothing) when the knowledge notes are still the shipped placeholders and no hint is given. Read-only: nothing is saved until save_hottakes_setup.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "hint": {
+                "type": "string",
+                "description": "one line from the operator about what they do and who it is for — required when the knowledge notes are still generic"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "publish_blog_post",
+        "code_file": "tools/publish_blog_post.mjs",
+        "def": {
+          "name": "publish_blog_post",
+          "description": "Publish one blog post live on the public site. Marks it published, verifies the edge worker actually serves it (live=true means confirmed, not queued), pings IndexNow, and logs the attempt to the Outbox. This is the operator's approval gate: call it only when they say publish or ship.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "the blog post slug to publish"
+              },
+              "deploy": {
+                "type": "boolean",
+                "description": "also kick the marketing-site rebuild (default true)"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      },
+      {
+        "name": "publish_hottake_website",
+        "code_file": "tools/publish_hottake_website.mjs",
+        "def": {
+          "name": "publish_hottake_website",
+          "description": "Publish a package's article to the live site right now, skipping the schedule: shared blog publish (edge-verified, IndexNow, Outbox audit), the package moves to published, and the release auto-completes if its legs are already done. Operator approval gate — call only on an explicit publish.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "push_social_post",
+        "code_file": "tools/push_social_post.mjs",
+        "def": {
+          "name": "push_social_post",
+          "description": "Send one CLAIMED post through its channel's connection and close the claim. Requires the open claim approve_social_post takes: an unclaimed or already-posted post is refused rather than sent. Never call this to \"retry\" on your own — a repeat send is the operator's decision.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "read_aeo_question",
+        "code_file": "tools/read_aeo_question.mjs",
+        "def": {
+          "name": "read_aeo_question",
+          "description": "Read one AEO question with its interview state and the operator's answers formatted as expert context for the writer. Call it before drafting so the article is built on their expertise.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "question_slug": {
+                "type": "string",
+                "description": "the aeo_questions slug"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_blog_post",
+        "code_file": "tools/read_blog_post.mjs",
+        "def": {
+          "name": "read_blog_post",
+          "description": "Read one blog post by slug: title, excerpt, body, tags and published state. Use it before editing, expanding or sharing a post.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "the blog post slug"
+              }
+            },
+            "required": [
+              "slug"
+            ]
+          }
+        }
+      },
+      {
+        "name": "read_heartbeat_gates",
+        "code_file": "tools/read_heartbeat_gates.mjs",
+        "def": {
+          "name": "read_heartbeat_gates",
+          "description": "The sweep's score gates (enrich_min_relevance, topics_min_content, digest_min_content, 0-100) as currently read from the plugin-editorial-heartbeat-priorities note.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_hottake_article",
+        "code_file": "tools/read_hottake_article.mjs",
+        "def": {
+          "name": "read_hottake_article",
+          "description": "Read one Hot Takes package as the article view: the package, its social legs, the linked blog article (title/body/tags/published) when one exists, and the next action.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "read_hottake_package",
+        "code_file": "tools/read_hottake_package.mjs",
+        "def": {
+          "name": "read_hottake_package",
+          "description": "Read one Hot Takes package by id: its full topic/take/brief/article/review state, its social legs, and the single next action the operator should take.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "read_hottake_pipeline",
+        "code_file": "tools/read_hottake_pipeline.mjs",
+        "def": {
+          "name": "read_hottake_pipeline",
+          "description": "The Hot Takes pipeline view: every package grouped in_flight / needs_review / ready / scheduled / published, each with its social legs and the one next action. What the Publications and Social tabs render.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_hottake_schedule",
+        "code_file": "tools/read_hottake_schedule.mjs",
+        "def": {
+          "name": "read_hottake_schedule",
+          "description": "The Hot Takes release schedule: each ready/scheduled/published package with website + social-leg markers (scheduled/overdue/done), an overall state, and the attention list (overdue, incomplete, awaiting review, unscheduled).",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "days": {
+                "type": "number",
+                "description": "window in days (default 30)"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_hottakes_notes",
+        "code_file": "tools/read_hottakes_notes.mjs",
+        "def": {
+          "name": "read_hottakes_notes",
+          "description": "The Hot Takes editorial library — every editable rule note (pov, patterns, quality, playbook, timing, identities) keyed by role, seeded with defaults on first read. Edit with save_hottakes_note.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_hottakes_setup",
+        "code_file": "tools/read_hottakes_setup.mjs",
+        "def": {
+          "name": "read_hottakes_setup",
+          "description": "Whether the Hot Takes module has been set up on this install, and what it has to work with: which of company-profile / icp / pov-library / heartbeat-priorities carry the operator's own material versus the shipped placeholders, plus how many sources, signals and hot topics exist. Read this before offering to configure the feed.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_hottakes_state",
+        "code_file": "tools/read_hottakes_state.mjs",
+        "def": {
+          "name": "read_hottakes_state",
+          "description": "Whether Hot Takes distribution is live: hottakes.live feature-flag state. false = scheduled releases and posts are held (the page shows PAUSED).",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_industry_pulse",
+        "code_file": "tools/read_industry_pulse.mjs",
+        "def": {
+          "name": "read_industry_pulse",
+          "description": "Read the current industry pulse — the synthesized awareness note plus the top scored signals behind it. Pull this into any strategic conversation (positioning, campaigns, client calls, content) where current external context would sharpen the answer.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_osint_target",
+        "code_file": "tools/read_osint_target.mjs",
+        "def": {
+          "name": "read_osint_target",
+          "description": "Read one monitored target by id.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "read_signal",
+        "code_file": "tools/read_signal.mjs",
+        "def": {
+          "name": "read_signal",
+          "description": "Read the full article behind one signal, not just its headline (fetched and cached on first read). Use before reacting to a piece of news, and as the first step of turning a signal into an article — it also returns the question, notes and expert context that seed one.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "signal_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "signal_id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "read_social_identities",
+        "code_file": "tools/read_social_identities.mjs",
+        "def": {
+          "name": "read_social_identities",
+          "description": "The poster identities for the social-post previews, keyed by channel (name, headline, avatar_url) — from the editable plugin-editorial-hottakes-social-identities note.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_social_post",
+        "code_file": "tools/read_social_post.mjs",
+        "def": {
+          "name": "read_social_post",
+          "description": "Read one social post by id — channel, status, source article, package link, and the full current text.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "read_suggestion_policy",
+        "code_file": "tools/read_suggestion_policy.mjs",
+        "def": {
+          "name": "read_suggestion_policy",
+          "description": "Read the AEO suggestion policy (daily limit, cap on the unreviewed pile, minimum signal score) together with how much room is left today. Call it first: it tells the next steps how many signals to develop and how good they must be.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "limit": {
+                "type": "number",
+                "description": "override the policy daily limit for this run"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_voice_profile",
+        "code_file": "tools/read_voice_profile.mjs",
+        "def": {
+          "name": "read_voice_profile",
+          "description": "Read the assembled writing voice: the brand voice doc plus the operator's learned editorial taste, and the founder's personal voice when voice=\"personal\". Feed the result to draft_article or expand_article so everything is written in house voice.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "voice": {
+                "type": "string",
+                "enum": [
+                  "house",
+                  "personal"
+                ],
+                "description": "house (default) or personal"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "release_social_post",
+        "code_file": "tools/release_social_post.mjs",
+        "def": {
+          "name": "release_social_post",
+          "description": "Release one queued post in a single call: take the atomic outbox send claim, send through the channel's connection and close the claim — approve_social_post + push_social_post as one step. This is the operator gate: only run it when the operator approved this exact post. A 'failed' row may be released again; that retry is the operator's decision too. A 'posted' row is refused.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "retry_blog_publish",
+        "code_file": "tools/retry_blog_publish.mjs",
+        "def": {
+          "name": "retry_blog_publish",
+          "description": "Retry the blog leg of a failed outbound send. Pass `slug` to re-publish a post that never went live (already-live posts are skipped, not re-published), or `question_slug` to re-queue a failed AEO question and re-run the writer. Returns the publish/writer result.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "slug": {
+                "type": "string",
+                "description": "the blog post slug to re-publish"
+              },
+              "question_slug": {
+                "type": "string",
+                "description": "instead: the failed aeo question to re-queue and re-write"
+              },
+              "deploy": {
+                "type": "boolean",
+                "description": "also kick the marketing-site rebuild (default true)"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "run_aeo_cron",
+        "code_file": "tools/run_aeo_cron.mjs",
+        "def": {
+          "name": "run_aeo_cron",
+          "description": "Cron entry: run the AEO writer sweep — claim the next due, interviewed question, write its article in the assembled voice, illustrate it and save it as a draft. Returns the writer run report; a run with nothing due reports that instead of failing.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "actor": {
+                "type": "string",
+                "description": "who triggered the run (default aeo-cron)"
+              },
+              "target_slug": {
+                "type": "string",
+                "description": "write this exact question instead of the next due one"
+              },
+              "ready_only": {
+                "type": "boolean",
+                "description": "only claim questions whose interview is answered (default false)"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "run_due_releases",
+        "code_file": "tools/run_due_releases.mjs",
+        "def": {
+          "name": "run_due_releases",
+          "description": "Run the Hot Takes due-scan the cron runs hourly: publish every scheduled website whose time has come (real publishes — same trust as the Blog Approve button) and fire the scheduled LinkedIn legs that are due (dry-run unless the hottakes.live flag is on). Returns {live, posts_dry_run, website_published, posts_sent, errors}.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "run_heartbeat",
+        "code_file": "tools/run_heartbeat.mjs",
+        "def": {
+          "name": "run_heartbeat",
+          "description": "Run the full hourly awareness heartbeat: ingest every enabled feed source, score the new signals against the priorities rubric, enrich the high-relevance ones from their full article text, rebuild the industry pulse and cluster fresh hot topics. The cron's :15 leg — safe to run by hand for an immediate sweep.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "actor": {
+                "type": "string",
+                "description": "who ran it (default heartbeat-cron)"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "run_osint_scan",
+        "code_file": "tools/run_osint_scan.mjs",
+        "def": {
+          "name": "run_osint_scan",
+          "description": "Run the hourly OSINT sweep the cron runs at :00: re-scrape every monitored target untouched for longer than the stale window (default 3h), capped per run (default 5 targets, overflow defers oldest-first). Returns the raw sweep result. Safe to run by hand for an immediate scan.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "stale_after_ms": {
+                "type": "number",
+                "description": "re-scrape targets untouched for longer than this (default 3h)"
+              },
+              "max_targets": {
+                "type": "number",
+                "description": "cap on targets per run (default 5)"
+              },
+              "actor": {
+                "type": "string",
+                "description": "who ran it (default osint-cron)"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "save_aeo_feedback",
+        "code_file": "tools/save_aeo_feedback.mjs",
+        "def": {
+          "name": "save_aeo_feedback",
+          "description": "Record the operator's reaction to an article idea (love, like, meh, reject, edit) with their own words about why. Call it whenever they react to an idea you proposed; the reactions are what the editorial-taste profile is learned from.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "question_slug": {
+                "type": "string",
+                "description": "if the idea is a saved AEO question"
+              },
+              "idea_title": {
+                "type": "string",
+                "description": "if it is not a saved question yet"
+              },
+              "reaction": {
+                "type": "string",
+                "enum": [
+                  "love",
+                  "like",
+                  "meh",
+                  "reject",
+                  "edit"
+                ]
+              },
+              "note": {
+                "type": "string",
+                "description": "their words: why, or how to change it"
+              }
+            },
+            "required": [
+              "reaction"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_aeo_question",
+        "code_file": "tools/save_aeo_question.mjs",
+        "def": {
+          "name": "save_aeo_question",
+          "description": "Create or patch one AEO question. With no slug it creates a new queued topic from `question`; with a slug it patches only the fields you pass. Pass status=\"drafted\" together with blog_slug to record that the article for it has been written.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "question_slug": {
+                "type": "string",
+                "description": "omit to create a new question"
+              },
+              "question": {
+                "type": "string",
+                "description": "the topic / question text"
+              },
+              "target_keyword": {
+                "type": "string"
+              },
+              "priority": {
+                "type": "number",
+                "description": "lower = sooner"
+              },
+              "notes": {
+                "type": "string",
+                "description": "angle / context for the eventual article"
+              },
+              "voice": {
+                "type": "string",
+                "enum": [
+                  "house",
+                  "personal"
+                ]
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "drafting",
+                  "drafted",
+                  "published",
+                  "failed"
+                ]
+              },
+              "blog_slug": {
+                "type": "string",
+                "description": "the article this question produced"
+              },
+              "error": {
+                "type": "string",
+                "description": "why it failed, with status=failed"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "save_aeo_suggestions",
+        "code_file": "tools/save_aeo_suggestions.mjs",
+        "def": {
+          "name": "save_aeo_suggestions",
+          "description": "Save developed angles as pending AEO suggestions for the operator to approve or reject. Signals that already produced a suggestion are skipped, and each source signal is marked actioned so the same news is never suggested twice.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "suggestions": {
+                "type": "array",
+                "description": "from draft_suggestion_angles"
+              },
+              "signals": {
+                "type": "array",
+                "description": "the source signals, for provenance"
+              },
+              "limit": {
+                "type": "number"
+              }
+            },
+            "required": [
+              "suggestions"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_blog_post",
+        "code_file": "tools/save_blog_post.mjs",
+        "def": {
+          "name": "save_blog_post",
+          "description": "Save one drafted article to the blog as a DRAFT. Pass the {article} object a drafter produced; pass a slug too to overwrite that exact post, otherwise a fresh unique slug is minted from the title. This never publishes and never changes an existing post's published state — publishing is the operator's separate approval.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "article": {
+                "type": "object",
+                "description": "the drafted article: {slug, title, excerpt, body_html, tags}"
+              },
+              "slug": {
+                "type": "string",
+                "description": "overwrite this exact post instead of minting a new slug"
+              },
+              "published_at": {
+                "type": "number",
+                "description": "ms epoch — preserves an imported stub's original date on a first save"
+              },
+              "actor": {
+                "type": "string",
+                "description": "who is saving (default system)"
+              }
+            },
+            "required": [
+              "article"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_heartbeat_gates",
+        "code_file": "tools/save_heartbeat_gates.mjs",
+        "def": {
+          "name": "save_heartbeat_gates",
+          "description": "Edit the sweep's score gates in place (0-100 each; pass only the keys to change). Writes the json block of the plugin-editorial-heartbeat-priorities note — the sweep reads it live, so the change applies on the next run.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "enrich_min_relevance": {
+                "type": "number"
+              },
+              "topics_min_content": {
+                "type": "number"
+              },
+              "digest_min_content": {
+                "type": "number"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "save_heartbeat_source",
+        "code_file": "tools/save_heartbeat_source.mjs",
+        "def": {
+          "name": "save_heartbeat_source",
+          "description": "Add or edit one feed source. New RSS feed: {kind:\"rss\", name, url}. New Google News topic: {kind:\"gnews\", name, query} (the feed URL is built from the query). Edit: pass id plus the fields to change; enabled:false pauses a feed without losing its signals.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "omit to create"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "rss",
+                  "gnews"
+                ]
+              },
+              "name": {
+                "type": "string"
+              },
+              "url": {
+                "type": "string"
+              },
+              "query": {
+                "type": "string",
+                "description": "gnews only — plain search query"
+              },
+              "theme": {
+                "type": "string"
+              },
+              "enabled": {
+                "type": "boolean"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "save_hottake_article",
+        "code_file": "tools/save_hottake_article.mjs",
+        "def": {
+          "name": "save_hottake_article",
+          "description": "Edit a package's written article — title, excerpt and/or body. Saves through the blog store and keeps the package headline in sync with a title change. Returns the fresh article view.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "package id"
+              },
+              "title": {
+                "type": "string"
+              },
+              "excerpt": {
+                "type": "string"
+              },
+              "body": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_hottake_package",
+        "code_file": "tools/save_hottake_package.mjs",
+        "def": {
+          "name": "save_hottake_package",
+          "description": "Patch one Hot Takes package — the topic fields, the take and its four inputs, the headline, notes, pinned, or the status. Pass only the keys to change. status:\"dismissed\" retires the package (reversible by patching the status back).",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "summary": {
+                "type": "string"
+              },
+              "why_it_matters": {
+                "type": "string"
+              },
+              "take": {
+                "type": "string"
+              },
+              "believe": {
+                "type": "string"
+              },
+              "misunderstood": {
+                "type": "string"
+              },
+              "who_cares": {
+                "type": "string"
+              },
+              "reader_action": {
+                "type": "string"
+              },
+              "headline": {
+                "type": "string"
+              },
+              "company_notes": {
+                "type": "string"
+              },
+              "author_notes": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string"
+              },
+              "pinned": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_hottake_post",
+        "code_file": "tools/save_hottake_post.mjs",
+        "def": {
+          "name": "save_hottake_post",
+          "description": "Patch one Hot Takes release leg (a social post): body, notes, status or scheduled_at. Approving is status:\"scheduled\" — the one state the hourly due-scan sends; \"ready\" holds it back; \"not_planned\" skips it.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "body": {
+                "type": "string"
+              },
+              "notes": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "description": "draft|ready|scheduled|not_planned|skipped"
+              },
+              "scheduled_at": {
+                "type": "number",
+                "description": "ms epoch"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_hottakes_note",
+        "code_file": "tools/save_hottakes_note.mjs",
+        "def": {
+          "name": "save_hottakes_note",
+          "description": "Save one of the pack's own editorial notes (slug must start plugin-editorial-). The drafter, reviewer and scheduler read these live, so an edit applies on the next run.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "slug": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "body": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "slug",
+              "title",
+              "body"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_hottakes_setup",
+        "code_file": "tools/save_hottakes_setup.mjs",
+        "def": {
+          "name": "save_hottakes_setup",
+          "description": "Commit the Hot Takes first run: add the chosen feed sources, add brand/competitor listeners, write the operator's own words into the heartbeat-priorities note, and record that this module has been set up so its first-run panel never opens unattended again. Everything is optional — saving with nothing chosen still closes the first run and leaves a working, empty module.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "sources": {
+                "type": "array",
+                "description": "feeds to watch: {kind:\"rss\", name, url} or {kind:\"gnews\", name, query}",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "targets": {
+                "type": "array",
+                "description": "names to listen for: {name, domain, kind:\"plugin-editorial-brand\"|\"competitor\"}",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "watch": {
+                "type": "object",
+                "description": "the operator's own words: {topics:[], keywords:[], ignore:[], note}"
+              },
+              "ran_ingest": {
+                "type": "boolean",
+                "description": "record that the first ingest was run as part of setup"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "save_interview_answers",
+        "code_file": "tools/save_interview_answers.mjs",
+        "def": {
+          "name": "save_interview_answers",
+          "description": "Save the operator's raw interview answers on one AEO question and mark it ready to write. Call it the moment they answer, in whatever form they replied.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "question_slug": {
+                "type": "string"
+              },
+              "answers": {
+                "type": "string",
+                "description": "their raw answers, free text"
+              }
+            },
+            "required": [
+              "question_slug",
+              "answers"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_interview_questions",
+        "code_file": "tools/save_interview_questions.mjs",
+        "def": {
+          "name": "save_interview_questions",
+          "description": "Save the drafted interview questions on one AEO question and mark its interview pending, so the queue skips it until the operator answers.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "question_slug": {
+                "type": "string"
+              },
+              "interview_questions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "question_slug",
+              "interview_questions"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_osint_listener",
+        "code_file": "tools/save_osint_listener.mjs",
+        "def": {
+          "name": "save_osint_listener",
+          "description": "Enable, disable or re-cadence one scraper engine. Use for \"turn on the github listener\", \"disable stackoverflow\", \"switch reddit to daily\".",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "source": {
+                "type": "string",
+                "enum": [
+                  "hn",
+                  "reddit",
+                  "stackoverflow",
+                  "github",
+                  "appstore",
+                  "website",
+                  "duckduckgo",
+                  "feed"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              },
+              "cadence": {
+                "type": "string",
+                "enum": [
+                  "manual",
+                  "daily",
+                  "hourly"
+                ]
+              },
+              "notes": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "source"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_osint_target",
+        "code_file": "tools/save_osint_target.mjs",
+        "def": {
+          "name": "save_osint_target",
+          "description": "Create or update a monitored target. Use for \"monitor Acme\", \"also watch acme.io for them\", \"add their App Store id\". Omit id to create.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "omit to create"
+              },
+              "name": {
+                "type": "string"
+              },
+              "domain": {
+                "type": "string"
+              },
+              "app_id": {
+                "type": "string",
+                "description": "Apple App Store id, for the appstore listener"
+              },
+              "notes": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_signal",
+        "code_file": "tools/save_signal.mjs",
+        "def": {
+          "name": "save_signal",
+          "description": "Patch one signal's status: \"actioned\" once it has produced an article or post (so it is never suggested again), \"dismissed\" when the operator waves it off.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "signal_id": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "new",
+                  "scored",
+                  "actioned",
+                  "dismissed"
+                ]
+              }
+            },
+            "required": [
+              "signal_id",
+              "status"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_social_post",
+        "code_file": "tools/save_social_post.mjs",
+        "def": {
+          "name": "save_social_post",
+          "description": "Put one post into the review queue as a 'draft'. NEVER publishes: the operator approves it separately. Pass a slug for a blog fan-out row, a package_id for a Hot Takes release leg (which replaces that leg's previous draft), or neither for a standalone post written with the operator. Returns the row and its id.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "channel": {
+                "type": "string",
+                "enum": [
+                  "linkedin-company",
+                  "linkedin-personal",
+                  "facebook-company"
+                ]
+              },
+              "content": {
+                "type": "string",
+                "description": "the full post text"
+              },
+              "slug": {
+                "type": "string",
+                "description": "source blog slug — omit for a standalone post"
+              },
+              "title": {
+                "type": "string",
+                "description": "label shown in the queue"
+              },
+              "package_id": {
+                "type": "string",
+                "description": "Hot Takes package this leg belongs to"
+              },
+              "notes": {
+                "type": "string",
+                "description": "operator note kept alongside the draft"
+              },
+              "force": {
+                "type": "boolean",
+                "description": "replace the unposted rows for this slug + channel first"
+              }
+            },
+            "required": [
+              "channel",
+              "content"
+            ]
+          }
+        }
+      },
+      {
+        "name": "scan_hottake_article",
+        "code_file": "tools/scan_hottake_article.mjs",
+        "def": {
+          "name": "scan_hottake_article",
+          "description": "Scan a package's written article for review: pull out the factual claims that matter (typed directly_supported / company_experience / opinion / unsupported, each confirmed or needing confirmation) and flag concrete quality weaknesses. Decision support for the operator — it never approves anything.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "schedule_hottake_release",
+        "code_file": "tools/schedule_hottake_release.mjs",
+        "def": {
+          "name": "schedule_hottake_release",
+          "description": "Schedule a publication: the website publish plus a time for each LinkedIn leg. Pass the package id or a blog slug (a plain draft is adopted automatically). Times are ms epochs; anything omitted takes the recommended offset from the hottakes-timing note, and a reschedule preserves each leg's current gap from the publish.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "package id"
+              },
+              "slug": {
+                "type": "string",
+                "description": "blog slug — used when there is no package yet"
+              },
+              "website_at": {
+                "type": "number",
+                "description": "ms epoch for the website publish"
+              },
+              "company_at": {
+                "type": "number"
+              },
+              "personal_at": {
+                "type": "number"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "score_signals",
+        "code_file": "tools/score_signals.mjs",
+        "def": {
+          "name": "score_signals",
+          "description": "Score the newly ingested signals for relevance and content value against the heartbeat-priorities rubric, and record the angle we would take. One batch judging pass; run it after ingest_signals.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "limit": {
+                "type": "number",
+                "description": "how many new signals to score (default 30)"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "scrape_osint_targets",
+        "code_file": "tools/scrape_osint_targets.mjs",
+        "def": {
+          "name": "scrape_osint_targets",
+          "description": "Run the enabled listeners and harvest fresh mentions. Pass an id to scrape one target now; omit it to sweep the targets that have gone stale, bounded by stale_after_ms and max_targets. Slow — each engine has its own throttle.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "one target; omit for the stale sweep"
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "hn",
+                    "reddit",
+                    "stackoverflow",
+                    "github",
+                    "appstore",
+                    "website",
+                    "duckduckgo",
+                    "feed"
+                  ]
+                },
+                "description": "override which engines run, even disabled ones"
+              },
+              "stale_after_ms": {
+                "type": "number",
+                "description": "sweep only: re-scrape targets untouched for longer than this"
+              },
+              "max_targets": {
+                "type": "number",
+                "description": "sweep only: cap on targets per run (overflow defers, oldest first)"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "search_hottakes",
+        "code_file": "tools/search_hottakes.mjs",
+        "def": {
+          "name": "search_hottakes",
+          "description": "Search Hot Takes: packages (title/headline/summary/take/notes), release legs (text/notes) and the editable editorial library notes. Returns the header search dropdown's three groups.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "q": {
+                "type": "string"
+              },
+              "limit": {
+                "type": "number",
+                "description": "default 30"
+              }
+            },
+            "required": [
+              "q"
+            ]
+          }
+        }
+      },
+      {
+        "name": "skip_hottakes_setup",
+        "code_file": "tools/skip_hottakes_setup.mjs",
+        "def": {
+          "name": "skip_hottakes_setup",
+          "description": "Record that the operator declined the Hot Takes first run. The module keeps working (empty, not broken) and the panel never opens on its own again. Pass reopen:true to undo — the setup can then be started again deliberately from Approved Sources.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "reopen": {
+                "type": "boolean",
+                "description": "true = clear the decision so setup can be run again"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "skip_social_post",
+        "code_file": "tools/skip_social_post.mjs",
+        "def": {
+          "name": "skip_social_post",
+          "description": "Mark one queued social post 'skipped' — the operator decided this channel sits this release out. The row stays in the queue as the record of that decision; nothing is deleted and nothing is sent. A skipped post can still be redrafted (force) or approved later. Returns the updated post.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "social_connections",
+        "code_file": "tools/social_connections.mjs",
+        "def": {
+          "name": "social_connections",
+          "description": "Which social networks are connected for posting, and when each was set. Use before offering to publish, and to answer \"can I post to LinkedIn?\".",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "synthesize_hot_topics",
+        "code_file": "tools/synthesize_hot_topics.mjs",
+        "def": {
+          "name": "synthesize_hot_topics",
+          "description": "Cluster the strongest scored signals into a handful of sharp hot topics, each with a thesis, a why-now and our angle. This is the layer the topic feed and the morning digest lead with.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "days": {
+                "type": "number",
+                "description": "signal lookback (default 10)"
+              },
+              "min_content": {
+                "type": "number",
+                "description": "defaults to the heartbeat-priorities gate"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "synthesize_pulse",
+        "code_file": "tools/synthesize_pulse.mjs",
+        "def": {
+          "name": "synthesize_pulse",
+          "description": "Rebuild the industry-pulse knowledge note from this week's strongest signals — what is happening in our world right now and what we could do about it. Writes the note; read it back with read_industry_pulse.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "validate_feed_url",
+        "code_file": "tools/validate_feed_url.mjs",
+        "def": {
+          "name": "validate_feed_url",
+          "description": "Fetch one URL and prove it is a working RSS/Atom feed, using the same parser the hourly ingest uses. Returns {ok, items, latest_at, sample} or the reason it failed. Use before adding any feed a human or a model handed you.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "url"
+            ]
+          }
+        }
+      },
+      {
+        "name": "write_hottake_article",
+        "code_file": "tools/write_hottake_article.mjs",
+        "def": {
+          "name": "write_hottake_article",
+          "description": "Write the full article from a package's approved brief — the long step (about a minute): seed from the take + brief, compose in house HTML, save as a blog draft and link it back to the package (status → review). Never overwrites an approved take; run it once the brief is approved.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "package id"
+              },
+              "voice": {
+                "type": "string",
+                "enum": [
+                  "house",
+                  "personal"
+                ],
+                "description": "default house"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      }
+    ],
+    "workflows": [
+      {
+        "slug": "blog-shape",
+        "name": "Blog · shape a draft",
+        "goal": "A house-styled DRAFT in Blog > Needs review; never published. Run with {title, body?, voice?, target_keyword?}; pass {slug} to reshape an existing post in place.",
+        "steps": [
+          {
+            "tool": "read_voice_profile"
+          },
+          {
+            "tool": "list_blog_posts"
+          },
+          {
+            "tool": "draft_article"
+          },
+          {
+            "tool": "save_blog_post"
+          }
+        ]
+      },
+      {
+        "slug": "blog-expand",
+        "name": "Blog · expand an article",
+        "goal": "Existing post expanded to 1600-2200 words with an FAQ + FAQPage JSON-LD; publish stays a separate operator action. Run with {slug}.",
+        "steps": [
+          {
+            "tool": "read_blog_post"
+          },
+          {
+            "tool": "read_voice_profile"
+          },
+          {
+            "tool": "expand_article"
+          },
+          {
+            "tool": "save_blog_post"
+          },
+          {
+            "tool": "append_faq_schema"
+          }
+        ]
+      },
+      {
+        "slug": "article-from-social",
+        "name": "Blog · article from a social post",
+        "goal": "A social post expanded into a full article DRAFT through the same shape pipeline. Run with {id} of the social post; nothing publishes.",
+        "steps": [
+          {
+            "tool": "read_social_post"
+          },
+          {
+            "tool": "read_voice_profile"
+          },
+          {
+            "tool": "list_blog_posts"
+          },
+          {
+            "tool": "draft_article"
+          },
+          {
+            "tool": "save_blog_post"
+          }
+        ]
+      },
+      {
+        "slug": "aeo-interview-start",
+        "name": "AEO · start an interview",
+        "goal": "Question queued (or created on the fly) with 4 saved interview questions awaiting the operator's answers. Run with {question_slug} or {question}.",
+        "steps": [
+          {
+            "tool": "save_aeo_question"
+          },
+          {
+            "tool": "draft_interview_questions"
+          },
+          {
+            "tool": "save_interview_questions"
+          }
+        ]
+      },
+      {
+        "slug": "aeo-write",
+        "name": "AEO · write a drafted article",
+        "goal": "A ready (interviewed) AEO question written as a DRAFT article, the question marked drafted, the operator notified. The claim gate blocks un-interviewed or concurrently-claimed questions. Run with {question_slug}, or with nothing to take the next due ready question — the daily cron runs it by slug with no input.",
+        "steps": [
+          {
+            "tool": "claim_aeo_question"
+          },
+          {
+            "tool": "read_aeo_question"
+          },
+          {
+            "tool": "read_voice_profile"
+          },
+          {
+            "tool": "list_blog_posts"
+          },
+          {
+            "tool": "draft_article"
+          },
+          {
+            "tool": "save_blog_post"
+          },
+          {
+            "tool": "save_aeo_question",
+            "input": {
+              "status": "drafted"
+            }
+          },
+          {
+            "tool": "notify_operator"
+          }
+        ]
+      },
+      {
+        "slug": "aeo-write-with-answers",
+        "name": "AEO · answers then write",
+        "goal": "The operator's answers are saved, then the full aeo-write chain runs and produces the drafted article from their expertise. Run with {question_slug, answers} the moment they reply.",
+        "steps": [
+          {
+            "tool": "save_interview_answers"
+          },
+          {
+            "tool": "claim_aeo_question"
+          },
+          {
+            "tool": "read_aeo_question"
+          },
+          {
+            "tool": "read_voice_profile"
+          },
+          {
+            "tool": "list_blog_posts"
+          },
+          {
+            "tool": "draft_article"
+          },
+          {
+            "tool": "save_blog_post"
+          },
+          {
+            "tool": "save_aeo_question",
+            "input": {
+              "status": "drafted"
+            }
+          },
+          {
+            "tool": "notify_operator"
+          }
+        ]
+      },
+      {
+        "slug": "aeo-react",
+        "name": "AEO · learn the operator's taste",
+        "goal": "Reaction recorded and the plugin-editorial-editorial-taste knowledge doc refreshed from every recent reaction. Run with {reaction, note?, question_slug?|idea_title?}.",
+        "steps": [
+          {
+            "tool": "save_aeo_feedback"
+          },
+          {
+            "tool": "draft_taste_profile"
+          },
+          {
+            "tool": "write_knowledge"
+          }
+        ]
+      },
+      {
+        "slug": "aeo-suggestion-generator",
+        "name": "AEO · suggestions from signals",
+        "goal": "Up to the policy cap of pending suggestion rows developed from the top-scored unconverted OSINT signals; source signals are marked actioned so the same news is never re-suggested. Caps live in the plugin-editorial-aeo-suggestion-policy doc. Runs daily from cron by slug; also manual via run_workflow.",
+        "steps": [
+          {
+            "tool": "read_suggestion_policy"
+          },
+          {
+            "tool": "list_signals"
+          },
+          {
+            "tool": "draft_suggestion_angles"
+          },
+          {
+            "tool": "save_aeo_suggestions"
+          }
+        ]
+      },
+      {
+        "slug": "social-drafts-for-article",
+        "name": "Social · draft posts for an article",
+        "goal": "One draft per channel (linkedin-company, facebook-company, linkedin-personal) into the Social review queue, each in that channel's voice. Nothing is published: the operator approves each post themselves. Idempotent per slug — a channel that already has a post is skipped unless force is true. Fires on blog publish; also runnable with {slug, force?}.",
+        "steps": [
+          {
+            "tool": "read_blog_post"
+          },
+          {
+            "tool": "draft_social_post",
+            "input": {
+              "channel": "linkedin-company"
+            }
+          },
+          {
+            "tool": "save_social_post"
+          },
+          {
+            "tool": "draft_social_post",
+            "input": {
+              "channel": "facebook-company"
+            }
+          },
+          {
+            "tool": "save_social_post"
+          },
+          {
+            "tool": "draft_social_post",
+            "input": {
+              "channel": "linkedin-personal"
+            }
+          },
+          {
+            "tool": "save_social_post"
+          }
+        ]
+      },
+      {
+        "slug": "social-release-post",
+        "name": "Social · release an approved post",
+        "goal": "Send one approved post through its connection under the outbox no-duplicate claim, and flip the row to posted or failed with the full audit trail. The operator pressing Approve IS the gate; run with {id}.",
+        "steps": [
+          {
+            "tool": "approve_social_post"
+          },
+          {
+            "tool": "push_social_post"
+          }
+        ]
+      },
+      {
+        "slug": "social-post-now",
+        "name": "Social · post now",
+        "goal": "Publish an ad-hoc post the operator wrote in chat to ONE connection, through the same claim path as everything else (the old direct-post tool bypassed the outbox). Run with {channel, content, title?} only after the operator has explicitly confirmed the text and the channel. Cross-posting is one run per connection.",
+        "steps": [
+          {
+            "tool": "save_social_post"
+          },
+          {
+            "tool": "approve_social_post"
+          },
+          {
+            "tool": "push_social_post"
+          }
+        ]
+      },
+      {
+        "slug": "hottake-add-link",
+        "name": "Hot Takes · add a link",
+        "goal": "Turn a pasted article URL into a standard Selected Topics card. Fetches the page, extracts title/source/summary/date per the plugin-editorial-hottakes-link-extract note, and pins the result as a package at status \"topic\". Run with {url}.",
+        "steps": [
+          {
+            "tool": "fetch_web_page"
+          },
+          {
+            "tool": "extract_article_meta"
+          },
+          {
+            "tool": "pin_hottake_topic"
+          }
+        ]
+      },
+      {
+        "slug": "hottake-produce",
+        "name": "Hot Takes · produce a publication",
+        "goal": "A selected topic becomes a full package at review: take, brief, article draft, claim/quality scan, and both LinkedIn legs drafted into the social queue. Nothing publishes — the operator reviews, approves each post, and schedules. Run with {id}.",
+        "steps": [
+          {
+            "tool": "draft_hottake_take"
+          },
+          {
+            "tool": "build_hottake_brief"
+          },
+          {
+            "tool": "build_hottake_seed"
+          },
+          {
+            "tool": "read_voice_profile"
+          },
+          {
+            "tool": "list_blog_posts"
+          },
+          {
+            "tool": "draft_article"
+          },
+          {
+            "tool": "save_blog_post"
+          },
+          {
+            "tool": "link_hottake_article"
+          },
+          {
+            "tool": "scan_hottake_article"
+          },
+          {
+            "tool": "draft_social_post",
+            "input": {
+              "channel": "linkedin-company"
+            }
+          },
+          {
+            "tool": "save_social_post"
+          },
+          {
+            "tool": "draft_social_post",
+            "input": {
+              "channel": "linkedin-personal"
+            }
+          },
+          {
+            "tool": "save_social_post"
+          }
+        ]
+      },
+      {
+        "slug": "hourly-awareness-sweep",
+        "name": "Cron · hourly awareness",
+        "goal": "Fresh mentions scraped, new signals ingested, scored and content-enriched, the plugin-editorial-industry-pulse note rebuilt, hot topics synthesized, and the morning digest regenerated from every enabled channel. The whole awareness layer in one chain. Runs hourly from cron; the runner may stagger legs across ticks for the Worker subrequest budget.",
+        "steps": [
+          {
+            "tool": "scrape_osint_targets",
+            "input": {
+              "stale_after_ms": 10800000,
+              "max_targets": 5
+            },
+            "optional": true
+          },
+          {
+            "tool": "ingest_signals"
+          },
+          {
+            "tool": "score_signals"
+          },
+          {
+            "tool": "enrich_signals",
+            "optional": true
+          },
+          {
+            "tool": "synthesize_pulse"
+          },
+          {
+            "tool": "synthesize_hot_topics"
+          }
+        ]
+      },
+      {
+        "slug": "hottakes-first-ingest",
+        "name": "Hot Takes · first ingest",
+        "goal": "The shortest path from \"sources saved\" to \"the Topics tab has cards in it\": pull every enabled feed, score what came back, and cluster the survivors into hot topics. Run once at the end of the module first run so the operator sees their own industry instead of an empty state. Deliberately shorter than hourly-awareness-sweep: no scraping, no per-signal article enrichment, no digest; synthesis is optional because a first pull can legitimately return too few scored signals to cluster.",
+        "steps": [
+          {
+            "tool": "ingest_signals"
+          },
+          {
+            "tool": "score_signals"
+          },
+          {
+            "tool": "synthesize_hot_topics",
+            "optional": true
+          }
+        ]
+      },
+      {
+        "slug": "signal-to-blog",
+        "name": "Signals · signal → blog opportunity",
+        "goal": "An industry signal becomes a pending AEO question seeded with the article's real content and our angle, and the signal is marked actioned so it is never re-suggested. Run with {signal_id}.",
+        "steps": [
+          {
+            "tool": "read_signal"
+          },
+          {
+            "tool": "save_aeo_question"
+          },
+          {
+            "tool": "save_signal",
+            "input": {
+              "status": "actioned"
+            }
+          }
+        ]
+      }
+    ],
+    "knowledge": [
+      {
+        "slug": "plugin-editorial-aeo-suggestion-policy",
+        "title": "plugin-editorial-aeo-suggestion-policy",
+        "body_file": "knowledge/plugin-editorial-aeo-suggestion-policy.md"
+      },
+      {
+        "slug": "plugin-editorial-brain-archive",
+        "title": "plugin-editorial-brain-archive",
+        "body_file": "knowledge/plugin-editorial-brain-archive.md"
+      },
+      {
+        "slug": "plugin-editorial-editorial-taste",
+        "title": "Editorial taste",
+        "body_file": "knowledge/plugin-editorial-editorial-taste.md"
+      },
+      {
+        "slug": "plugin-editorial-heartbeat-priorities",
+        "title": "Heartbeat priorities",
+        "body_file": "knowledge/plugin-editorial-heartbeat-priorities.md"
+      },
+      {
+        "slug": "plugin-editorial-heartbeat-pulse-prompt",
+        "title": "plugin-editorial-heartbeat-pulse-prompt",
+        "body_file": "knowledge/plugin-editorial-heartbeat-pulse-prompt.md"
+      },
+      {
+        "slug": "plugin-editorial-hottakes-article-patterns",
+        "title": "Reusable publication patterns",
+        "body_file": "knowledge/plugin-editorial-hottakes-article-patterns.md"
+      },
+      {
+        "slug": "plugin-editorial-hottakes-link-extract",
+        "title": "plugin-editorial-hottakes-link-extract",
+        "body_file": "knowledge/plugin-editorial-hottakes-link-extract.md"
+      },
+      {
+        "slug": "plugin-editorial-hottakes-playbook",
+        "title": "Hot Takes playbook",
+        "body_file": "knowledge/plugin-editorial-hottakes-playbook.md"
+      },
+      {
+        "slug": "plugin-editorial-hottakes-pov-library",
+        "title": "Point-of-View Library",
+        "body_file": "knowledge/plugin-editorial-hottakes-pov-library.md"
+      },
+      {
+        "slug": "plugin-editorial-hottakes-quality-rules",
+        "title": "Article quality rules",
+        "body_file": "knowledge/plugin-editorial-hottakes-quality-rules.md"
+      },
+      {
+        "slug": "plugin-editorial-hottakes-social-identities",
+        "title": "Social identities",
+        "body_file": "knowledge/plugin-editorial-hottakes-social-identities.md"
+      },
+      {
+        "slug": "plugin-editorial-hottakes-source-scout",
+        "title": "Hot Takes — source scout (first run)",
+        "body_file": "knowledge/plugin-editorial-hottakes-source-scout.md"
+      },
+      {
+        "slug": "plugin-editorial-hottakes-timing",
+        "title": "Release timing defaults",
+        "body_file": "knowledge/plugin-editorial-hottakes-timing.md"
+      },
+      {
+        "slug": "plugin-editorial-industry-pulse",
+        "title": "plugin-editorial-industry-pulse",
+        "body_file": "knowledge/plugin-editorial-industry-pulse.md"
+      },
+      {
+        "slug": "plugin-editorial-publish-config",
+        "title": "Blog publishing — external endpoints",
+        "body_file": "knowledge/plugin-editorial-publish-config.md"
+      },
+      {
+        "slug": "plugin-editorial-article-playbook",
+        "title": "AEO + SEO article structure",
+        "body_file": "knowledge/plugin-editorial-article-playbook.md"
+      },
+      {
+        "slug": "plugin-editorial-brand",
+        "title": "Brand — voice, positioning, visual",
+        "body_file": "knowledge/plugin-editorial-brand.md"
+      },
+      {
+        "slug": "plugin-editorial-brand-voice",
+        "title": "Brand voice + writing rules",
+        "body_file": "knowledge/plugin-editorial-brand-voice.md"
+      },
+      {
+        "slug": "plugin-editorial-personal-voice",
+        "title": "Personal voice",
+        "body_file": "knowledge/plugin-editorial-personal-voice.md"
+      },
+      {
+        "slug": "plugin-editorial-writing-style-rules",
+        "title": "Writing style rules",
+        "body_file": "knowledge/plugin-editorial-writing-style-rules.md"
+      },
+      {
+        "slug": "plugin-editorial-company-profile",
+        "title": "Company profile",
+        "body_file": "knowledge/plugin-editorial-company-profile.md"
+      },
+      {
+        "slug": "plugin-editorial-icp",
+        "title": "Ideal customer profile",
+        "body_file": "knowledge/plugin-editorial-icp.md"
+      }
+    ],
+    "surfaces": [
+      {
+        "slug": "hot-takes",
+        "title": "Hot Takes",
+        "page_file": "surface/hot-takes.tsx",
+        "files": [
+          {
+            "path": "HotTakesFirstRun.tsx",
+            "code_file": "surface/HotTakesFirstRun.tsx"
+          },
+          {
+            "path": "HotTakesPublications.tsx",
+            "code_file": "surface/HotTakesPublications.tsx"
+          },
+          {
+            "path": "OsintListeners.tsx",
+            "code_file": "surface/OsintListeners.tsx"
+          },
+          {
+            "path": "hot-takes-data.ts",
+            "code_file": "surface/hot-takes-data.ts"
+          }
+        ],
+        "icon": "Flame"
+      },
+      {
+        "slug": "blog",
+        "title": "Blog",
+        "page_file": "surface/blog.tsx",
+        "files": [
+          {
+            "path": "ArticleBits.tsx",
+            "code_file": "surface/ArticleBits.tsx"
+          },
+          {
+            "path": "SitePreview.tsx",
+            "code_file": "surface/SitePreview.tsx"
+          },
+          {
+            "path": "blog-data.ts",
+            "code_file": "surface/blog-data.ts"
+          }
+        ],
+        "icon": "Newspaper"
+      },
+      {
+        "slug": "social",
+        "title": "Social",
+        "page_file": "surface/social.tsx",
+        "files": [
+          {
+            "path": "social-data.ts",
+            "code_file": "surface/social-data.ts"
+          }
+        ],
+        "icon": "LinkedIn"
+      }
+    ],
+    "gateways": [
+      {
+        "slug": "web",
+        "modes": [
+          "text",
+          "head",
+          "post_json"
+        ],
+        "code_file": "gateway-web.mjs"
+      },
+      {
+        "slug": "social",
+        "modes": [
+          "connections",
+          "post"
+        ],
+        "code_file": "gateway-social.mjs"
+      },
+      {
+        "slug": "outbox",
+        "modes": [
+          "begin",
+          "sent",
+          "failed"
+        ],
+        "code_file": "gateway-outbox.mjs"
+      }
+    ]
+  },
+  "docs": {
+    "connect": "CONNECT.md"
+  }
+}

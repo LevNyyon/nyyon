@@ -1,0 +1,1 @@
+Permanent record of every Sunday Brain. Each child doc captures one week's founder positions, shipped work, live commentary, proof, predictions, and the article slate derived. Builds institutional memory of the founder's POV over time.

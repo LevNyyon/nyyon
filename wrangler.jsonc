@@ -15,8 +15,12 @@
   "compatibility_flags": ["nodejs_compat"],
   "observability": { "enabled": true },
 
+  // The worker's own dependencies (hono and friends) live in workers/api, and
+  // a root deploy resolves imports from the root, so they must be installed
+  // too. Without this the bundle fails on `import { cors } from 'hono/cors'`
+  // and the one-click deploy dies before it starts.
   "build": {
-    "command": "npm install && npm --prefix web install && npm --prefix web run build"
+    "command": "npm install && npm --prefix workers/api install && npm --prefix web install && npm --prefix web run build"
   },
 
   "rules": [

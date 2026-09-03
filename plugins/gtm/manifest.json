@@ -1,0 +1,968 @@
+{
+  "nyyon_plugin": 2,
+  "name": "gtm",
+  "title": "GTM",
+  "version": "3.0.0",
+  "description": "Prospecting and Outreach. Import a phone list, enrich and score the people on it, draft a first message, queue it for your approval, and keep every reply in one thread. Search, person enrichment and phone validation connect with your own keys. Sending needs a WhatsApp connection.",
+  "origin": {
+    "system": "nyyon-app"
+  },
+  "lib": [
+    {
+      "path": "gtm-outreach.mjs",
+      "code_file": "lib/gtm-outreach.mjs"
+    },
+    {
+      "path": "gtm-schedule.mjs",
+      "code_file": "lib/gtm-schedule.mjs"
+    },
+    {
+      "path": "gtm.mjs",
+      "code_file": "lib/gtm.mjs"
+    },
+    {
+      "path": "outreach-wa.mjs",
+      "code_file": "lib/outreach-wa.mjs"
+    }
+  ],
+  "requires": {
+    "gateways": [
+      {
+        "slug": "llm",
+        "modes": [
+          "text"
+        ],
+        "purpose": "drafting angles, replies and the company fact sheet"
+      },
+      {
+        "slug": "pdl",
+        "modes": [
+          "person",
+          "status"
+        ],
+        "purpose": "person enrichment, with the operator's own People Data Labs key"
+      },
+      {
+        "slug": "serp",
+        "modes": [
+          "search",
+          "status"
+        ],
+        "purpose": "search results, with the operator's own SerpApi key"
+      },
+      {
+        "slug": "twilio",
+        "modes": [
+          "lookup",
+          "status"
+        ],
+        "purpose": "phone-line validation, with the operator's own Twilio credentials"
+      },
+      {
+        "slug": "web",
+        "modes": [
+          "text"
+        ],
+        "purpose": "read a company's own site for the company fact sheet"
+      },
+      {
+        "slug": "whatsapp",
+        "modes": [
+          "health",
+          "send",
+          "set_listening"
+        ],
+        "purpose": "the only sending channel: deliver an approved message and listen for the reply"
+      }
+    ],
+    "tables": [
+      {
+        "name": "plugin_gtm_batches",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_batches (id TEXT PRIMARY KEY, source TEXT, via TEXT, total INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL DEFAULT 0, duplicates INTEGER NOT NULL DEFAULT 0, invalid INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL)"
+      },
+      {
+        "name": "plugin_gtm_connections",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_connections (name TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)"
+      },
+      {
+        "name": "plugin_gtm_leads",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_leads (id TEXT PRIMARY KEY, phone TEXT NOT NULL, normalized_phone TEXT, status TEXT NOT NULL DEFAULT 'new', source TEXT, batch_id TEXT, country TEXT, region TEXT, name TEXT, photo TEXT, socials TEXT NOT NULL DEFAULT '[]', linkedin TEXT, email TEXT, company TEXT, position TEXT, line_type TEXT, carrier TEXT, sources TEXT NOT NULL DEFAULT '{}', conflicts TEXT NOT NULL DEFAULT '[]', dismissed TEXT NOT NULL DEFAULT '[]', active_tool TEXT, icp_fit TEXT, icp_reasons TEXT, outreach_lang TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, steps TEXT, company_staff_count INTEGER, company_context TEXT, company_checked_at INTEGER)"
+      },
+      {
+        "name": "plugin_gtm_outreach_angles",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_outreach_angles (lead_id TEXT PRIMARY KEY, payload TEXT NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
+      },
+      {
+        "name": "plugin_gtm_outreach_conversation_state",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_outreach_conversation_state (lead_id TEXT PRIMARY KEY, dead_at INTEGER, dead_reason TEXT, updated_at INTEGER NOT NULL)"
+      },
+      {
+        "name": "plugin_gtm_scheduled_sends",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_scheduled_sends (id TEXT PRIMARY KEY, lead_id TEXT NOT NULL, chat_id TEXT NOT NULL, bubbles TEXT NOT NULL, content_hash TEXT NOT NULL, send_at INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'scheduled', claim_token TEXT, claimed_at INTEGER, sent_at INTEGER, error TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL)"
+      },
+      {
+        "name": "plugin_gtm_sends",
+        "ddl": "CREATE TABLE IF NOT EXISTS plugin_gtm_sends (id TEXT PRIMARY KEY, lead_id TEXT NOT NULL, chat_id TEXT, bubble TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'sent', error TEXT, created_at INTEGER NOT NULL)"
+      }
+    ],
+    "host_reads": [
+      {
+        "table": "wa_chats",
+        "purpose": "read-only: which WhatsApp conversations exist, to match them to prospects"
+      },
+      {
+        "table": "wa_lid_map",
+        "purpose": "read-only: resolve a privacy (@lid) chat back to the phone number behind it"
+      },
+      {
+        "table": "wa_messages",
+        "purpose": "read-only: the conversation itself, and whether a prospect has answered"
+      }
+    ],
+    "knowledge": [
+      {
+        "slug": "llm-models",
+        "purpose": "which model writes outreach copy"
+      },
+      {
+        "slug": "brand-icp",
+        "purpose": "the ICP the qualification scores against"
+      },
+      {
+        "slug": "brand-positioning",
+        "purpose": "how the brand may be described in a first message"
+      }
+    ]
+  },
+  "provides": {
+    "gateways": [
+      {
+        "slug": "serp",
+        "modes": [
+          "search",
+          "status"
+        ],
+        "code_file": "gateway-serp.mjs"
+      },
+      {
+        "slug": "pdl",
+        "modes": [
+          "person",
+          "status"
+        ],
+        "code_file": "gateway-pdl.mjs"
+      },
+      {
+        "slug": "twilio",
+        "modes": [
+          "lookup",
+          "status"
+        ],
+        "code_file": "gateway-twilio.mjs"
+      }
+    ],
+    "tools": [
+      {
+        "name": "cancel_scheduled_send",
+        "code_file": "tools/cancel_scheduled_send.mjs",
+        "def": {
+          "name": "cancel_scheduled_send",
+          "description": "Cancel a scheduled send before it fires, or dismiss a terminal failed/partial one (the reply says which of the two happened). A claimed, in-flight send cannot be un-fired — that is the fail-closed guarantee, and it is an operator decision to review rather than a retry queue.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "schedule_id": {
+                "type": "string",
+                "description": "the ss_ schedule id"
+              }
+            },
+            "required": [
+              "schedule_id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "collect_replies",
+        "code_file": "tools/collect_replies.mjs",
+        "def": {
+          "name": "collect_replies",
+          "description": "Collect every prospect who REPLIED to our outreach: an inbound WhatsApp message landing after our first send to them. Read-only, so it is safe to run on a tick. Each row is {lead_id, name, company, title, phone, linkedin, replied_at, first_contacted_at, sends}. Use to answer \"who has answered\".",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "company_context",
+        "code_file": "tools/company_context.mjs",
+        "def": {
+          "name": "company_context",
+          "description": "Look up the COMPANY behind one lead: search for it, read its own site, and store a short fact sheet (what it does, industry, HQ, website, headcount when the page states one) on the lead. Needs SerpApi connected. Cached for 30 days unless refresh:true. Partial by design — whatever was found is kept and whatever failed is named in errors[]. Feeds the ICP match.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "refresh": {
+                "type": "boolean",
+                "description": "ignore the cache and look it up again"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "connect_gtm_service",
+        "code_file": "tools/connect_gtm_service.mjs",
+        "def": {
+          "name": "connect_gtm_service",
+          "description": "Connect a prospecting data service by storing its key in this plugin's own table. service is 'serp' (SerpApi, search results), 'pdl' (People Data Labs, person enrichment) or 'twilio' (phone validation; needs both sid and token). Use when the operator pastes a key in chat.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "service": {
+                "type": "string",
+                "enum": [
+                  "serp",
+                  "pdl",
+                  "twilio"
+                ]
+              },
+              "api_key": {
+                "type": "string",
+                "description": "the key, for serp and pdl"
+              },
+              "sid": {
+                "type": "string",
+                "description": "Twilio account SID"
+              },
+              "token": {
+                "type": "string",
+                "description": "Twilio auth token"
+              }
+            },
+            "required": [
+              "service"
+            ]
+          }
+        }
+      },
+      {
+        "name": "disconnect_gtm_service",
+        "code_file": "tools/disconnect_gtm_service.mjs",
+        "def": {
+          "name": "disconnect_gtm_service",
+          "description": "Forget the stored key for one prospecting data service (serp, pdl or twilio).",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "service": {
+                "type": "string",
+                "enum": [
+                  "serp",
+                  "pdl",
+                  "twilio"
+                ]
+              }
+            },
+            "required": [
+              "service"
+            ]
+          }
+        }
+      },
+      {
+        "name": "draft_angles",
+        "code_file": "tools/draft_angles.mjs",
+        "def": {
+          "name": "draft_angles",
+          "description": "Draft ranked outreach angles and WhatsApp message bubbles for a fully identified prospect, from the operator profile, the outreach playbook and whatever company context is on file. A DRAFT only — it never sends and never saves; sending stays an explicit, operator-approved action.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "draft_prospect_reply",
+        "code_file": "tools/draft_prospect_reply.mjs",
+        "def": {
+          "name": "draft_prospect_reply",
+          "description": "Produce the suggested next message for one prospect conversation: a verbatim approved angle bubble (first touch or follow-up into silence), the default first-touch template when there is no angle, or one composed reply when the prospect has actually said something. force_llm:true composes even into silence. Run with {chat_id} or {lead_id}. A suggestion only — it NEVER sends; sending is a separate operator action.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "chat_id": {
+                "type": "string"
+              },
+              "lead_id": {
+                "type": "string"
+              },
+              "force_llm": {
+                "type": "boolean",
+                "description": "compose with the model even when they have not replied"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "edit_lead",
+        "code_file": "tools/edit_lead.mjs",
+        "def": {
+          "name": "edit_lead",
+          "description": "Manually edit one lead's fields (name / linkedin / email / company / position; '' clears a field), correct the company's LinkedIn page (company_linkedin — a targeted key, never a whole-socials rewrite), or set/clear company_staff_count. A manual edit stamps 'manual' provenance and resolves conflicts on the fields it touched. Returns the updated lead with its re-evaluated state and identity confidence.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "linkedin": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              },
+              "company": {
+                "type": "string"
+              },
+              "position": {
+                "type": "string"
+              },
+              "socials": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                },
+                "description": "replace the socials array (removed URLs are tombstoned)"
+              },
+              "company_linkedin": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "the COMPANY page URL; null/\"\" clears it and forgets what the old one resolved to"
+              },
+              "company_staff_count": {
+                "type": [
+                  "number",
+                  "string",
+                  "null"
+                ],
+                "description": "LinkedIn headcount override; null/\"\" clears it back to \"not checked\""
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "enrich_batch",
+        "code_file": "tools/enrich_batch.mjs",
+        "def": {
+          "name": "enrich_batch",
+          "description": "Enrich the next few still-'new' leads of one batch through the full chain (LinkedIn result → PDL → Twilio → SerpApi → confirm; every source self-skips when its key is not connected or its answer is already on file). Call in a loop while `remaining` > 0 — each call takes at most `limit` (1-5, default 2) leads so a run never outgrows one invocation.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "batch_id": {
+                "type": "string"
+              },
+              "limit": {
+                "type": "number",
+                "description": "leads per call, 1-5 (default 2)"
+              }
+            },
+            "required": [
+              "batch_id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "enrich_lead",
+        "code_file": "tools/enrich_lead.mjs",
+        "def": {
+          "name": "enrich_lead",
+          "description": "Run the enrichment chain on ONE lead: company and title off their LinkedIn search result, then People Data Labs, Twilio line validation and a SerpApi socials search. kind 'full' (default) runs every source, each still self-skipping when its answer is already on file or its key is not connected; kind 'resume' re-runs only SerpApi plus the final LinkedIn confirm, the two steps a typed-in name or pasted profile URL unblocks, and never re-pays a per-lookup source. Per-step verdicts (found / empty / skipped, with reasons) are recorded on the lead.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "description": "'full' (default) | 'resume'"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "gtm_connections",
+        "code_file": "tools/gtm_connections.mjs",
+        "def": {
+          "name": "gtm_connections",
+          "description": "Which prospecting data services are connected on this install (SerpApi for search, People Data Labs for person enrichment, Twilio for phone validation) and whether WhatsApp, the only sending channel, is connected. Use before promising enrichment, search, phone validation or a send.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "import_leads",
+        "code_file": "tools/import_leads.mjs",
+        "def": {
+          "name": "import_leads",
+          "description": "Import a phone list as a new batch: paste text (one number per line, or a CSV with a \"phone\" column) or give a URL to fetch. Numbers are normalized, deduplicated against every existing lead, and located off the phone prefix (country/region). Returns the tallies and the new batch_id (null when every number was invalid or already known).",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "text": {
+                "type": "string",
+                "description": "pasted numbers or CSV text"
+              },
+              "url": {
+                "type": "string",
+                "description": "a URL to fetch the list from (takes precedence over text)"
+              },
+              "source": {
+                "type": "string",
+                "description": "where this list came from — the batch label"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_batches",
+        "code_file": "tools/list_batches.mjs",
+        "def": {
+          "name": "list_batches",
+          "description": "List the uploaded phone-list batches, newest first, each with its import tallies (total / created / duplicates / invalid) and new_count — how many of its leads are still un-enriched. new_count powers the surface auto-resume: a batch left half-enriched is picked back up on mount. Read-only.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_green_leads",
+        "code_file": "tools/list_green_leads.mjs",
+        "def": {
+          "name": "list_green_leads",
+          "description": "List the fully identified (GREEN) prospects ready for qualification and outreach. Each row carries any stored angles and its contact status: not_contacted, contacted, or replied. Use to answer \"who did I contact\", \"who replied\", \"who is still untouched\".",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_leads",
+        "code_file": "tools/list_leads.mjs",
+        "def": {
+          "name": "list_leads",
+          "description": "List prospecting leads (capped at 500 rows), filterable by batch_id, status (new|enriched), stage (red|yellow|green) or a free-text q over name/company/phone. Each row carries state, identity confidence, truecaller_url and the recorded enrichment-step verdicts. Read-only.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "batch_id": {
+                "type": "string",
+                "description": "only leads from this uploaded list"
+              },
+              "status": {
+                "type": "string",
+                "description": "'new' | 'enriched'"
+              },
+              "stage": {
+                "type": "string",
+                "description": "'red' | 'yellow' | 'green' — completeness stage"
+              },
+              "q": {
+                "type": "string",
+                "description": "free text over name / company / phone"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_prospect_threads",
+        "code_file": "tools/list_prospect_threads.mjs",
+        "def": {
+          "name": "list_prospect_threads",
+          "description": "List the WhatsApp conversations that belong to PROSPECTS (people in the lead store we have a 1:1 chat with), newest first. Each row is classified: active (they have answered), unanswered (only our messages so far), fresh (fully enriched, never messaged), scheduled (a queued send waiting), dead (marked dead or nothing for dead_after_days). Read-only. Use to answer \"who is in my outreach inbox\" or \"who is waiting on me\".",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "q": {
+                "type": "string",
+                "description": "filter by prospect name, company, title, or last message text"
+              },
+              "status": {
+                "type": "string",
+                "description": "active (default) | working | unanswered | dead | fresh | all"
+              },
+              "limit": {
+                "type": "number",
+                "description": "max conversations (default from the outreach-reply-drafting doc)"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "list_scheduled_sends",
+        "code_file": "tools/list_scheduled_sends.mjs",
+        "def": {
+          "name": "list_scheduled_sends",
+          "description": "List scheduled sends (live + failed by default) with the schedule defaults from the gtm-schedule knowledge doc — the send hour, days-ahead, jitter and timezone the picker offers. Filter by lead; include_done:true adds sent and cancelled history. Read-only.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "lead_id": {
+                "type": "string"
+              },
+              "include_done": {
+                "type": "boolean",
+                "description": "add sent/cancelled history"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "mark_thread_dead",
+        "code_file": "tools/mark_thread_dead.mjs",
+        "def": {
+          "name": "mark_thread_dead",
+          "description": "Mark one prospect conversation dead so it drops out of the working list, or bring it back with dead:false. Keyed by person, not by chat id. Nothing is deleted either way, and un-marking restores the real state.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "lead_id": {
+                "type": "string"
+              },
+              "dead": {
+                "type": "boolean",
+                "description": "true (default) to mark dead, false to revive"
+              },
+              "reason": {
+                "type": "string",
+                "description": "optional short note, e.g. \"not a fit\""
+              }
+            },
+            "required": [
+              "lead_id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "qualify_lead",
+        "code_file": "tools/qualify_lead.mjs",
+        "def": {
+          "name": "qualify_lead",
+          "description": "Score one prospect against the editable brand-icp knowledge doc using the company facts on file, and SAVE the verdict on the lead: strong / medium / weak plus 1-2 word reason and gap tags. Refuses without a name, company and title — a verdict without those is noise. Run company_context first for a grounded verdict.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "read_drafting_rules",
+        "code_file": "tools/read_drafting_rules.mjs",
+        "def": {
+          "name": "read_drafting_rules",
+          "description": "Read how suggested replies are written and how much conversation the tab loads (the outreach-reply-drafting knowledge doc): the rules text plus thread_limit / message_limit / draft_context_messages / draft_context_chars.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_lead",
+        "code_file": "tools/read_lead.mjs",
+        "def": {
+          "name": "read_lead",
+          "description": "Read one prospect (GTM lead) with its derived completeness state, identity confidence and stored outreach angles. Start here — every other prospecting step reads the lead off this result.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "read_lead_angles",
+        "code_file": "tools/read_lead_angles.mjs",
+        "def": {
+          "name": "read_lead_angles",
+          "description": "Read the outreach angles saved for one lead — the ranked plays and their draft message bubbles. Read-only; drafting new ones is draft_angles. Returns an empty list when nothing has been drafted for them yet.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "lead_id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "lead_id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "read_prospect_thread",
+        "code_file": "tools/read_prospect_thread.mjs",
+        "def": {
+          "name": "read_prospect_thread",
+          "description": "Open ONE prospect conversation: the full WhatsApp history (oldest first), whether they have ever answered, and the prospect context card (company, title, ICP fit and why, LinkedIn, phone). Pass chat_id, or lead_id to resolve the chat from the lead's phone. Read-only — opening a conversation never writes and never spends a model call.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "chat_id": {
+                "type": "string",
+                "description": "WhatsApp DM id, e.g. 972545492444@c.us"
+              },
+              "lead_id": {
+                "type": "string",
+                "description": "lead id — used to find the chat when chat_id is unknown"
+              },
+              "limit": {
+                "type": "number",
+                "description": "max messages (default from the outreach-reply-drafting doc)"
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "read_you",
+        "code_file": "tools/read_you.mjs",
+        "def": {
+          "name": "read_you",
+          "description": "Read the operator profile the outreach drafting runs on: name, role, business (the positioning line), location, WhatsApp groups and the mutuals a draft is allowed to name. It lives in the plugin-gtm-you knowledge doc — edit it there or with write_knowledge, not here.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "run_due_sends",
+        "code_file": "tools/run_due_sends.mjs",
+        "def": {
+          "name": "run_due_sends",
+          "description": "Run the scheduled-send tick now (the same pass the cron runs): claim every due schedule atomically and deliver it. Safe to call repeatedly — a claim is one-shot and a second run can never duplicate a send. Returns how many were claimed, sent, partial and failed.",
+          "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "save_angles",
+        "code_file": "tools/save_angles.mjs",
+        "def": {
+          "name": "save_angles",
+          "description": "Persist an outreach-angles payload for a prospect (whole-payload replace — read it, edit the bubbles, save it back). Refuses an empty payload, so a blocked or failed draft can never wipe angles the operator already has. Saving is not sending.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "payload": {
+                "type": "object"
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "save_drafting_rules",
+        "code_file": "tools/save_drafting_rules.mjs",
+        "def": {
+          "name": "save_drafting_rules",
+          "description": "Change how suggested replies are written (the outreach-reply-drafting knowledge doc): the full rules text and/or the numeric limits. Pass only what changes. Use for \"make the drafts shorter\" or \"load more history\".",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "rules": {
+                "type": "string",
+                "description": "the full drafting rules text (replaces it)"
+              },
+              "limits": {
+                "type": "object",
+                "description": "{thread_limit, message_limit, draft_context_messages, draft_context_chars}",
+                "properties": {
+                  "thread_limit": {
+                    "type": "number"
+                  },
+                  "message_limit": {
+                    "type": "number"
+                  },
+                  "draft_context_messages": {
+                    "type": "number"
+                  },
+                  "draft_context_chars": {
+                    "type": "number"
+                  }
+                }
+              }
+            },
+            "required": []
+          }
+        }
+      },
+      {
+        "name": "save_lead",
+        "code_file": "tools/save_lead.mjs",
+        "def": {
+          "name": "save_lead",
+          "description": "Write named fields onto a lead, with their provenance, conflicts, tombstones, step verdicts and any ICP verdict, then log the activity event. Coalesce-never-clobber: a field you do not pass is left alone, and an explicit null is a deliberate clear. Use edit_lead for an operator's hand correction of a single field.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "lead_patch": {
+                "type": "object"
+              },
+              "sources": {
+                "type": "object"
+              },
+              "conflicts": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "dismissed": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "steps": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              },
+              "icp_fit": {
+                "type": "string",
+                "enum": [
+                  "strong",
+                  "medium",
+                  "weak"
+                ]
+              }
+            },
+            "required": [
+              "id"
+            ]
+          }
+        }
+      },
+      {
+        "name": "schedule_send",
+        "code_file": "tools/schedule_send.mjs",
+        "def": {
+          "name": "schedule_send",
+          "description": "SCHEDULE outreach bubbles to one lead's WhatsApp for a future moment (ms epoch). Fires on the first cron tick at or after send_at — up to ~40 minutes late, NEVER early, NEVER twice. Duplicates are structurally blocked: content identical to anything ever sent to this lead is refused, only one live schedule per lead+content, the runner claims atomically and fails closed. THIS WILL MESSAGE A REAL PERSON at the scheduled time — show the operator the exact bubbles and time and get an explicit yes first.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "lead id"
+              },
+              "bubbles": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "max 4 — the playbook caps a touch at 4"
+              },
+              "send_at": {
+                "type": "number",
+                "description": "ms epoch, future"
+              }
+            },
+            "required": [
+              "id",
+              "bubbles",
+              "send_at"
+            ]
+          }
+        }
+      },
+      {
+        "name": "send_prospect_message",
+        "code_file": "tools/send_prospect_message.mjs",
+        "def": {
+          "name": "send_prospect_message",
+          "description": "Send ONE WhatsApp text to a prospect conversation, immediately, through the outbox-audited gateway send. This is the operator's own \"send now\" — the words are exactly what was passed, nothing is drafted or rewritten here. Use schedule_send to queue instead of sending.",
+          "input_schema": {
+            "type": "object",
+            "properties": {
+              "chatId": {
+                "type": "string",
+                "description": "WhatsApp chat id, e.g. 15551234567@c.us"
+              },
+              "text": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "chatId",
+              "text"
+            ]
+          }
+        }
+      }
+    ],
+    "workflows": [
+      {
+        "slug": "draft-outreach-angles",
+        "name": "Outreach · draft the angles for a prospect",
+        "goal": "Ranked outreach angles with draft message bubbles, saved on one prospect. Run with {id}. Drafting only: nothing is sent and nothing is queued.",
+        "steps": [
+          {
+            "tool": "read_lead"
+          },
+          {
+            "tool": "draft_angles"
+          },
+          {
+            "tool": "save_angles"
+          }
+        ]
+      },
+      {
+        "slug": "scheduled-send-tick",
+        "name": "Outreach · send what is due",
+        "goal": "Deliver every queued message whose time has come. Claimed atomically and fail-closed, so a repeat run can never send twice. Needs WhatsApp connected; without it each attempt is recorded as failed rather than silently dropped.",
+        "steps": [
+          {
+            "tool": "run_due_sends"
+          }
+        ]
+      }
+    ],
+    "knowledge": [
+      {
+        "slug": "plugin-gtm-outreach-first-touch",
+        "title": "GTM · the default first message",
+        "body_file": "knowledge/plugin-gtm-outreach-first-touch.md"
+      },
+      {
+        "slug": "plugin-gtm-outreach-reply-drafting",
+        "title": "GTM · how a suggested reply is written",
+        "body_file": "knowledge/plugin-gtm-outreach-reply-drafting.md"
+      },
+      {
+        "slug": "plugin-gtm-outreach",
+        "title": "GTM · outreach guide",
+        "body_file": "knowledge/plugin-gtm-outreach.md"
+      },
+      {
+        "slug": "plugin-gtm-schedule",
+        "title": "GTM · scheduled sends",
+        "body_file": "knowledge/plugin-gtm-schedule.md"
+      },
+      {
+        "slug": "plugin-gtm-you",
+        "title": "GTM · You — operator profile",
+        "body_file": "knowledge/plugin-gtm-you.md"
+      }
+    ],
+    "surfaces": [
+      {
+        "slug": "prospecting",
+        "title": "Prospecting",
+        "icon": "Target",
+        "page_file": "surface/prospecting.tsx",
+        "files": [
+          {
+            "path": "prospecting-data.ts",
+            "code_file": "surface/prospecting-data.ts"
+          }
+        ]
+      },
+      {
+        "slug": "outreach",
+        "title": "Outreach",
+        "icon": "WhatsApp",
+        "page_file": "surface/outreach.tsx",
+        "files": [
+          {
+            "path": "ScheduleSend.tsx",
+            "code_file": "surface/ScheduleSend.tsx"
+          },
+          {
+            "path": "outreach-data.ts",
+            "code_file": "surface/outreach-data.ts"
+          }
+        ]
+      }
+    ]
+  }
+}

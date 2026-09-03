@@ -1,0 +1,388 @@
+[
+  {
+    "slug": "blog-shape",
+    "name": "Blog \u00b7 shape a draft",
+    "goal": "A house-styled DRAFT in Blog > Needs review; never published. Run with {title, body?, voice?, target_keyword?}; pass {slug} to reshape an existing post in place.",
+    "steps": [
+      {
+        "tool": "read_voice_profile"
+      },
+      {
+        "tool": "list_blog_posts"
+      },
+      {
+        "tool": "draft_article"
+      },
+      {
+        "tool": "save_blog_post"
+      }
+    ]
+  },
+  {
+    "slug": "blog-expand",
+    "name": "Blog \u00b7 expand an article",
+    "goal": "Existing post expanded to 1600-2200 words with an FAQ + FAQPage JSON-LD; publish stays a separate operator action. Run with {slug}.",
+    "steps": [
+      {
+        "tool": "read_blog_post"
+      },
+      {
+        "tool": "read_voice_profile"
+      },
+      {
+        "tool": "expand_article"
+      },
+      {
+        "tool": "save_blog_post"
+      },
+      {
+        "tool": "append_faq_schema"
+      }
+    ]
+  },
+  {
+    "slug": "article-from-social",
+    "name": "Blog \u00b7 article from a social post",
+    "goal": "A social post expanded into a full article DRAFT through the same shape pipeline. Run with {id} of the social post; nothing publishes.",
+    "steps": [
+      {
+        "tool": "read_social_post"
+      },
+      {
+        "tool": "read_voice_profile"
+      },
+      {
+        "tool": "list_blog_posts"
+      },
+      {
+        "tool": "draft_article"
+      },
+      {
+        "tool": "save_blog_post"
+      }
+    ]
+  },
+  {
+    "slug": "aeo-interview-start",
+    "name": "AEO \u00b7 start an interview",
+    "goal": "Question queued (or created on the fly) with 4 saved interview questions awaiting the operator's answers. Run with {question_slug} or {question}.",
+    "steps": [
+      {
+        "tool": "save_aeo_question"
+      },
+      {
+        "tool": "draft_interview_questions"
+      },
+      {
+        "tool": "save_interview_questions"
+      }
+    ]
+  },
+  {
+    "slug": "aeo-write",
+    "name": "AEO \u00b7 write a drafted article",
+    "goal": "A ready (interviewed) AEO question written as a DRAFT article, the question marked drafted, the operator notified. The claim gate blocks un-interviewed or concurrently-claimed questions. Run with {question_slug}, or with nothing to take the next due ready question \u2014 the daily cron runs it by slug with no input.",
+    "steps": [
+      {
+        "tool": "claim_aeo_question"
+      },
+      {
+        "tool": "read_aeo_question"
+      },
+      {
+        "tool": "read_voice_profile"
+      },
+      {
+        "tool": "list_blog_posts"
+      },
+      {
+        "tool": "draft_article"
+      },
+      {
+        "tool": "save_blog_post"
+      },
+      {
+        "tool": "save_aeo_question",
+        "input": {
+          "status": "drafted"
+        }
+      },
+      {
+        "tool": "notify_operator"
+      }
+    ]
+  },
+  {
+    "slug": "aeo-write-with-answers",
+    "name": "AEO \u00b7 answers then write",
+    "goal": "The operator's answers are saved, then the full aeo-write chain runs and produces the drafted article from their expertise. Run with {question_slug, answers} the moment they reply.",
+    "steps": [
+      {
+        "tool": "save_interview_answers"
+      },
+      {
+        "tool": "claim_aeo_question"
+      },
+      {
+        "tool": "read_aeo_question"
+      },
+      {
+        "tool": "read_voice_profile"
+      },
+      {
+        "tool": "list_blog_posts"
+      },
+      {
+        "tool": "draft_article"
+      },
+      {
+        "tool": "save_blog_post"
+      },
+      {
+        "tool": "save_aeo_question",
+        "input": {
+          "status": "drafted"
+        }
+      },
+      {
+        "tool": "notify_operator"
+      }
+    ]
+  },
+  {
+    "slug": "aeo-react",
+    "name": "AEO \u00b7 learn the operator's taste",
+    "goal": "Reaction recorded and the plugin-editorial-editorial-taste knowledge doc refreshed from every recent reaction. Run with {reaction, note?, question_slug?|idea_title?}.",
+    "steps": [
+      {
+        "tool": "save_aeo_feedback"
+      },
+      {
+        "tool": "draft_taste_profile"
+      },
+      {
+        "tool": "write_knowledge"
+      }
+    ]
+  },
+  {
+    "slug": "aeo-suggestion-generator",
+    "name": "AEO \u00b7 suggestions from signals",
+    "goal": "Up to the policy cap of pending suggestion rows developed from the top-scored unconverted OSINT signals; source signals are marked actioned so the same news is never re-suggested. Caps live in the plugin-editorial-aeo-suggestion-policy doc. Runs daily from cron by slug; also manual via run_workflow.",
+    "steps": [
+      {
+        "tool": "read_suggestion_policy"
+      },
+      {
+        "tool": "list_signals"
+      },
+      {
+        "tool": "draft_suggestion_angles"
+      },
+      {
+        "tool": "save_aeo_suggestions"
+      }
+    ]
+  },
+  {
+    "slug": "social-drafts-for-article",
+    "name": "Social \u00b7 draft posts for an article",
+    "goal": "One draft per channel (linkedin-company, facebook-company, linkedin-personal) into the Social review queue, each in that channel's voice. Nothing is published: the operator approves each post themselves. Idempotent per slug \u2014 a channel that already has a post is skipped unless force is true. Fires on blog publish; also runnable with {slug, force?}.",
+    "steps": [
+      {
+        "tool": "read_blog_post"
+      },
+      {
+        "tool": "draft_social_post",
+        "input": {
+          "channel": "linkedin-company"
+        }
+      },
+      {
+        "tool": "save_social_post"
+      },
+      {
+        "tool": "draft_social_post",
+        "input": {
+          "channel": "facebook-company"
+        }
+      },
+      {
+        "tool": "save_social_post"
+      },
+      {
+        "tool": "draft_social_post",
+        "input": {
+          "channel": "linkedin-personal"
+        }
+      },
+      {
+        "tool": "save_social_post"
+      }
+    ]
+  },
+  {
+    "slug": "social-release-post",
+    "name": "Social \u00b7 release an approved post",
+    "goal": "Send one approved post through its connection under the outbox no-duplicate claim, and flip the row to posted or failed with the full audit trail. The operator pressing Approve IS the gate; run with {id}.",
+    "steps": [
+      {
+        "tool": "approve_social_post"
+      },
+      {
+        "tool": "push_social_post"
+      }
+    ]
+  },
+  {
+    "slug": "social-post-now",
+    "name": "Social \u00b7 post now",
+    "goal": "Publish an ad-hoc post the operator wrote in chat to ONE connection, through the same claim path as everything else (the old direct-post tool bypassed the outbox). Run with {channel, content, title?} only after the operator has explicitly confirmed the text and the channel. Cross-posting is one run per connection.",
+    "steps": [
+      {
+        "tool": "save_social_post"
+      },
+      {
+        "tool": "approve_social_post"
+      },
+      {
+        "tool": "push_social_post"
+      }
+    ]
+  },
+  {
+    "slug": "hottake-add-link",
+    "name": "Hot Takes \u00b7 add a link",
+    "goal": "Turn a pasted article URL into a standard Selected Topics card. Fetches the page, extracts title/source/summary/date per the plugin-editorial-hottakes-link-extract note, and pins the result as a package at status \"topic\". Run with {url}.",
+    "steps": [
+      {
+        "tool": "fetch_web_page"
+      },
+      {
+        "tool": "extract_article_meta"
+      },
+      {
+        "tool": "pin_hottake_topic"
+      }
+    ]
+  },
+  {
+    "slug": "hottake-produce",
+    "name": "Hot Takes \u00b7 produce a publication",
+    "goal": "A selected topic becomes a full package at review: take, brief, article draft, claim/quality scan, and both LinkedIn legs drafted into the social queue. Nothing publishes \u2014 the operator reviews, approves each post, and schedules. Run with {id}.",
+    "steps": [
+      {
+        "tool": "draft_hottake_take"
+      },
+      {
+        "tool": "build_hottake_brief"
+      },
+      {
+        "tool": "build_hottake_seed"
+      },
+      {
+        "tool": "read_voice_profile"
+      },
+      {
+        "tool": "list_blog_posts"
+      },
+      {
+        "tool": "draft_article"
+      },
+      {
+        "tool": "save_blog_post"
+      },
+      {
+        "tool": "link_hottake_article"
+      },
+      {
+        "tool": "scan_hottake_article"
+      },
+      {
+        "tool": "draft_social_post",
+        "input": {
+          "channel": "linkedin-company"
+        }
+      },
+      {
+        "tool": "save_social_post"
+      },
+      {
+        "tool": "draft_social_post",
+        "input": {
+          "channel": "linkedin-personal"
+        }
+      },
+      {
+        "tool": "save_social_post"
+      }
+    ]
+  },
+  {
+    "slug": "hourly-awareness-sweep",
+    "name": "Cron \u00b7 hourly awareness",
+    "goal": "Fresh mentions scraped, new signals ingested, scored and content-enriched, the plugin-editorial-industry-pulse note rebuilt, hot topics synthesized, and the morning digest regenerated from every enabled channel. The whole awareness layer in one chain. Runs hourly from cron; the runner may stagger legs across ticks for the Worker subrequest budget.",
+    "steps": [
+      {
+        "tool": "scrape_osint_targets",
+        "input": {
+          "stale_after_ms": 10800000,
+          "max_targets": 5
+        },
+        "optional": true
+      },
+      {
+        "tool": "ingest_signals"
+      },
+      {
+        "tool": "score_signals"
+      },
+      {
+        "tool": "enrich_signals",
+        "optional": true
+      },
+      {
+        "tool": "synthesize_pulse"
+      },
+      {
+        "tool": "synthesize_hot_topics"
+      }
+    ]
+  },
+  {
+    "slug": "hottakes-first-ingest",
+    "name": "Hot Takes \u00b7 first ingest",
+    "goal": "The shortest path from \"sources saved\" to \"the Topics tab has cards in it\": pull every enabled feed, score what came back, and cluster the survivors into hot topics. Run once at the end of the module first run so the operator sees their own industry instead of an empty state. Deliberately shorter than hourly-awareness-sweep: no scraping, no per-signal article enrichment, no digest; synthesis is optional because a first pull can legitimately return too few scored signals to cluster.",
+    "steps": [
+      {
+        "tool": "ingest_signals"
+      },
+      {
+        "tool": "score_signals"
+      },
+      {
+        "tool": "synthesize_hot_topics",
+        "optional": true
+      }
+    ]
+  },
+  {
+    "slug": "signal-to-blog",
+    "name": "Signals \u00b7 signal \u2192 blog opportunity",
+    "goal": "An industry signal becomes a pending AEO question seeded with the article's real content and our angle, and the signal is marked actioned so it is never re-suggested. Run with {signal_id}.",
+    "steps": [
+      {
+        "tool": "read_signal"
+      },
+      {
+        "tool": "save_aeo_question"
+      },
+      {
+        "tool": "save_signal",
+        "input": {
+          "status": "actioned"
+        }
+      }
+    ]
+  }
+]
