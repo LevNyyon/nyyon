@@ -5,7 +5,7 @@
 //   npx wrangler login      (you click Allow in the browser)
 //   npm run deploy
 // and gets back a live URL plus a one-time setup link. Everything it creates
-// — the worker, the database, the bucket — lives in YOUR account. Nothing is
+// — the worker and the database — lives in YOUR account. Nothing is
 // shared with anyone; there is no central server in this picture at all.
 //
 // Re-runnable: an existing database is KEPT (your data survives a redeploy),
@@ -86,11 +86,6 @@ if (created.code === 0) {
   throw new Error('could not create the database');
 }
 
-// ── 3. asset storage (optional — the app runs without it) ──
-const bucket = `${NAME}-assets`;
-const r2 = wr(['r2', 'bucket', 'create', bucket], { ok: true });
-const hasR2 = r2.code === 0 || /already (exists|owned)/i.test(r2.out);
-if (!hasR2) notes.push('R2 storage was not available on this account — image features are off, everything else works');
 
 // ── 4. point the config at YOUR resources ──
 let cfg = readFileSync(join(API, 'wrangler.jsonc'), 'utf8');
@@ -98,8 +93,6 @@ cfg = cfg.replace(/"name":\s*"[^"]*"/, `"name": "${NAME}"`);
 cfg = cfg.replace(/"database_name":\s*"[^"]*"/, `"database_name": "${NAME}"`);
 cfg = cfg.replace(/"database_id":\s*"[^"]*"/, `"database_id": "${dbId}"`);
 cfg = cfg.replace(/"workers_dev":\s*(true|false)/, '"workers_dev": true');
-if (hasR2) cfg = cfg.replace(/"bucket_name":\s*"[^"]*"/g, `"bucket_name": "${bucket}"`);
-else cfg = cfg.replace(/"r2_buckets":\s*\[[^\]]*\],?/s, '');
 writeFileSync(join(API, 'wrangler.jsonc'), cfg);
 
 // ── 5. deploy ──
