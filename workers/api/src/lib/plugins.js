@@ -355,6 +355,13 @@ export async function validateManifest(env, m, { prematerialized = false } = {})
     // code was baked into this deployed bundle at build time — colliding with
     // itself is the expected state, not a conflict.
     if (prematerialized) for (const t of tools) names.delete(t?.name);
+    // A tool the pool already got from THIS pack is the pack colliding with
+    // its own baked copy, not with the host. The repo ships a pre-baked
+    // aggregator, so every bundled pack hits this on a fresh start.
+    try {
+      const { pluginTools } = await import('../plugins/index.js');
+      for (const t of tools) if (pluginTools?.[t?.name]?.plugin === m.name) names.delete(t.name);
+    } catch { /* no aggregator yet: nothing to forgive */ }
     const prevRow = env?.DB
       ? await env.DB.prepare('SELECT manifest_json FROM plugins WHERE name = ?').bind(m.name).first().catch(() => null)
       : null;
